@@ -6,7 +6,7 @@ Glossary of the domain language for this vault. Terms are defined once here and 
 
 - **Food**: one edible thing with known macros per 100 g. A Food is generic (`Chicken breast`) or packaged (`Chicken meatballs Spar`). Each Food is one markdown file.
 - **Meal**: a named combination of Foods in gram amounts, with stored totals. A Meal exists only when the user names it. Each Meal is one markdown file.
-- **Day**: one calendar day of planned and logged Meals and Foods, with totals at close. Not yet specified in detail.
+- **Day**: one calendar day of eaten Meals and Foods, with running totals and a summary at close. Plans are never stored on a Day. Each Day is one markdown file named by its date.
 - **Goals**: the fixed daily macro target. Not yet specified in detail.
 - **Pantry**: what is available to eat right now. Not yet specified in detail.
 
@@ -33,6 +33,18 @@ Glossary of the domain language for this vault. Terms are defined once here and 
 - **Slot**: the place of a Meal in a day. One of `breakfast`, `lunch`, `snack`, `dinner`. A Meal may fit several slots or any slot.
 - **New Food**: a Food the user names in chat that has no node yet. The agent creates it as a generic Food with standard values and marks it unreviewed. It asks nothing.
 - **Unnamed combination**: Foods logged together without a Meal name. Recorded on the Day only; it never becomes a Meal.
+
+## Day terms
+
+- **Entry**: one thing eaten on a Day: a Meal by portion or by weight, or a Food by weight, with its macros. Written as one line under a slot heading.
+- **Ingredient change**: a Meal entry where one ingredient amount differs from the Meal node. Recorded on the entry, never on the Meal.
+- **Running totals**: the seven totals (calories, protein, fat, carbs, fiber, sugar, salt) of everything eaten so far on a Day. Rewritten on every log.
+- **Remaining**: goal minus running totals. What is left to eat today. The basis for rebalance.
+- **Status**: the state of a Day. `open` (logs still come), `closed` (the user closed the day), `auto-closed` (a log for a later date closed it).
+- **Close the day**: the user's request that ends a Day. Writes the status and the summary.
+- **Auto-close**: a log whose date is later than the last open Day closes that Day and opens a new one.
+- **Summary**: the text written at close: totals per slot, the goal used, over or under per macro, and a short verdict.
+- **Plan**: a suggestion of what to eat, made in the chat. It is never written to the vault.
 
 ## Units
 
