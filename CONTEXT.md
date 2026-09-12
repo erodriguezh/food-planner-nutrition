@@ -78,6 +78,7 @@ Glossary of the domain language for this vault. Terms are defined once here and 
 - **Index**: the one file with one index line per node and one line per Day month. The agent updates it at the same time as the node. Retrieval scores the index without opening nodes.
 - **Index line**: one line in the index: the link to a node, its category (Food) or slots (Meal), and its aliases. Goals, Pantry and Day-month lines are pointers only.
 - **State**: the one file that survives between sessions. Holds the open Day and the open items. Never holds a plan.
+- **Write path**: how an app puts a change on `main`. Git for Claude Code; `push_files` on GitHub's remote MCP server for chat apps. The routine text is the same for every app.
 - **Open item**: a small pending thing the user still has to settle, listed in the state: an unreviewed Food, a Meal without cooked weight.
 - **Routine**: one file that tells the agent how to run one job: log, plan, rebalance, close the day, create food, create meal, restock.
 - **Spec**: the documents that describe the vault for the build session. Not read in daily use.
