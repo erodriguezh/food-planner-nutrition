@@ -44,13 +44,20 @@ Glossary of the domain language for this vault. Terms are defined once here and 
 - **Status**: the state of a Day. `open` (logs still come), `closed` (the user closed the day), `auto-closed` (a log for a later date closed it).
 - **Close the day**: the user's request that ends a Day. Writes the status and the summary.
 - **Auto-close**: a log whose date is later than the last open Day closes that Day and opens a new one.
-- **Summary**: the text written at close: totals per slot, the goal used, over or under per macro, and a short verdict.
+- **Summary**: the text written at close: totals per slot, the goal used, over or under per macro, and the verdict.
+- **Verdict**: fixed words at close. `on target` when all four macros are inside their range; otherwise `off target:` followed by each macro that is off and its direction (`low` or `high`).
+- **Open slot**: a slot with no entry on the Day. Open slots are counted in the fixed slot order. The user can remove one in chat ("no snack today").
+- **Next slot**: the first open slot in order. The one slot a suggestion covers in full.
+- **Rebalance**: the act of computing what is left today and, on request, suggesting the next slot. Works from numbers only; there is no stored plan.
+- **Suggestion**: the agent's proposal for the next slot: Foods or Meals, amounts, macros, plus one rough line for the later open slots. Made only when the user asks.
 - **Plan**: a suggestion of what to eat, made in the chat. It is never written to the vault.
 
 ## Goals terms
 
 - **Target**: one daily number for calories, protein, fat or carbs. There are four targets and no variants per day type.
-- **Goal change**: the user states a new target in chat. The Goals node is edited; git keeps the old values. Each closed Day summary records the targets it used.
+- **Range**: the min and max stored per macro, computed from the target and the tolerance when the goal is set. Under min or over max is not an error; the agent states it and the user decides.
+- **Tolerance**: one percent applied to every target to build its range. Default 5.
+- **Goal change**: the user states a new target in chat. Range and tolerance are rewritten with it. The Goals node is edited; git keeps the old values. Each closed Day summary records the targets it used.
 
 ## Pantry terms
 
