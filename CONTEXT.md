@@ -7,8 +7,8 @@ Glossary of the domain language for this vault. Terms are defined once here and 
 - **Food**: one edible thing with known macros per 100 g. A Food is generic (`Chicken breast`) or packaged (`Chicken meatballs Spar`). Each Food is one markdown file.
 - **Meal**: a named combination of Foods in gram amounts, with stored totals. A Meal exists only when the user names it. Each Meal is one markdown file.
 - **Day**: one calendar day of eaten Meals and Foods, with running totals and a summary at close. Plans are never stored on a Day. Each Day is one markdown file named by its date.
-- **Goals**: the fixed daily macro target. Not yet specified in detail.
-- **Pantry**: what is available to eat right now. Not yet specified in detail.
+- **Goals**: the one fixed daily target for calories, protein, fat and carbs. One markdown file. A change in chat edits it.
+- **Pantry**: what is available to eat right now: staples and items. One markdown file. The conversation overrides it.
 
 ## Food terms
 
@@ -27,7 +27,8 @@ Glossary of the domain language for this vault. Terms are defined once here and 
 
 - **Ingredient**: one Food and its amount in grams inside a Meal, written `[[Canonical name]] = <grams> g`. Ingredients are Foods only; a Meal never contains a Meal.
 - **Portion**: one equal share of a Meal. A Meal states how many portions it makes; one portion is the totals divided by that count.
-- **Meal weight**: the sum of ingredient grams, raw. Cooked weight is not stored.
+- **Meal weight**: the sum of ingredient grams, raw.
+- **Cooked weight**: the weight of the whole Meal after cooking, stored only when the user weighed it. Used to convert cooked grams of a leftover to raw grams. Without it the agent estimates the shrink and states the error.
 - **Totals**: the macros of the whole Meal, all ingredients added up: calories, protein, fat, carbs, fiber, sugar, salt.
 - **Totals date**: the day the totals were last computed. Totals are recomputed when an ingredient Food changed after that day.
 - **Slot**: the place of a Meal in a day. One of `breakfast`, `lunch`, `snack`, `dinner`. A Meal may fit several slots or any slot.
@@ -45,6 +46,20 @@ Glossary of the domain language for this vault. Terms are defined once here and 
 - **Auto-close**: a log whose date is later than the last open Day closes that Day and opens a new one.
 - **Summary**: the text written at close: totals per slot, the goal used, over or under per macro, and a short verdict.
 - **Plan**: a suggestion of what to eat, made in the chat. It is never written to the vault.
+
+## Goals terms
+
+- **Target**: one daily number for calories, protein, fat or carbs. There are four targets and no variants per day type.
+- **Goal change**: the user states a new target in chat. The Goals node is edited; git keeps the old values. Each closed Day summary records the targets it used.
+
+## Pantry terms
+
+- **Staple**: a Food that is always available. Listed by name only, no amount, no expiry. The agent never asks about it. The user says in chat when it runs out.
+- **Item**: a Food or a Meal that runs out or expires. Listed with an optional rough amount and an optional expiry date.
+- **Amount**: the rough quantity of an item. Foods in grams; Meals in portions or cooked grams. Never exact. Logging never changes it.
+- **Expiry**: the `until` date of an item. Set only when the user states it. Items near expiry get priority at plan time.
+- **Leftover**: a cooked Meal kept as a Pantry item, in portions or cooked grams, with an optional expiry.
+- **Restock**: the user says they went shopping and adds photos of the receipt, the shopping list, or the bought items. The agent proposes the items to add and appends them after the user's ok.
 
 ## Units
 
