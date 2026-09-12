@@ -71,3 +71,13 @@ Glossary of the domain language for this vault. Terms are defined once here and 
 ## Units
 
 - **Gram** is the only stored unit for amounts. The user may log grams, servings, or millilitres; the agent converts to grams before anything is written.
+
+## Vault terms
+
+- **Router**: the one file the agent reads first in every session. Pointers and hard rules only, under 500 tokens.
+- **Index**: the one file with one index line per node and one line per Day month. The agent updates it at the same time as the node. Retrieval scores the index without opening nodes.
+- **Index line**: one line in the index: the link to a node, its category (Food) or slots (Meal), and its aliases. Goals, Pantry and Day-month lines are pointers only.
+- **State**: the one file that survives between sessions. Holds the open Day and the open items. Never holds a plan.
+- **Open item**: a small pending thing the user still has to settle, listed in the state: an unreviewed Food, a Meal without cooked weight.
+- **Routine**: one file that tells the agent how to run one job: log, plan, rebalance, close the day, create food, create meal, restock.
+- **Spec**: the documents that describe the vault for the build session. Not read in daily use.
