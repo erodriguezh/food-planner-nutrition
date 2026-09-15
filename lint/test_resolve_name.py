@@ -63,24 +63,14 @@ class AliasResolutionTest(unittest.TestCase):
         result = resolve_name("Hühner", self.TABLE, pantry_names=["Chicken breast"])
         self.assertEqual((result.status, result.name), ("fuzzy", "Chicken breast"))
 
-    def test_food_and_meal_collision_prefers_the_pantry_one(self):
-        """A Food and a Meal share an alias; one of them is in the Pantry.
-
-        Base names are unique across the vault, so a Food-versus-Meal
-        collision comes from a shared alias. The Pantry candidate wins, and it
-        wins whether it is the Food or the Meal. The spec's Food-versus-Meal
-        collision rule (ask, except a slot word makes the Meal win) belongs to
-        the log routine and is deferred to ticket #25; `resolve_name()` applies
-        the Pantry preference only. This test pins that intended behaviour.
-        """
-        porridge = [("Porridge", "food", ["oatmeal"]), ("Morning porridge", "meal", ["oatmeal"])]
-        result = resolve_name("oatmeal", porridge, pantry_names=["Morning porridge"])
-        self.assertEqual((result.status, result.name), ("alias", "Morning porridge"))
-        result = resolve_name("oatmeal", porridge, pantry_names=["Porridge"])
-        self.assertEqual((result.status, result.name), ("alias", "Porridge"))
-        result = resolve_name("oatmeal", porridge)
-        self.assertEqual(result.status, "ambiguous")
-        self.assertEqual(sorted(result.candidates), ["Morning porridge", "Porridge"])
+    def test_exact_hit_reports_the_kind_of_the_winner(self):
+        result = resolve_name("skyr", self.TABLE)
+        self.assertEqual((result.status, result.name, result.kind), ("exact", "Skyr", "food"))
+        meal_table = [("Usual breakfast", "meal", ["the usual"])]
+        result = resolve_name("usual breakfast", meal_table)
+        self.assertEqual((result.status, result.name, result.kind), ("exact", "Usual breakfast", "meal"))
+        result = resolve_name("the usual", meal_table)
+        self.assertEqual((result.status, result.name, result.kind), ("alias", "Usual breakfast", "meal"))
 
     def test_parse_alias_table_from_index(self):
         index = (
@@ -93,6 +83,64 @@ class AliasResolutionTest(unittest.TestCase):
             table,
             [("Skyr", "food", ["skyr natur"]), ("Rice", "food", []), ("Usual breakfast", "meal", ["usual", "the usual"])],
         )
+
+
+class FoodVersusMealCollisionTest(unittest.TestCase):
+    """Spec #22: a Food-versus-Meal collision asks. The Pantry preference must
+    not break it, because a Pantry item can be a Food or a Meal (a leftover).
+
+    Base names are unique across the vault, so the collision comes from a
+    shared alias or from the fuzzy stage. Ticket #25 adds the one exception:
+    an explicit slot word makes the Meal win.
+    """
+
+    PORRIDGE = [
+        ("Porridge", "food", ["oatmeal"]),
+        ("Morning porridge", "meal", ["oatmeal"]),
+    ]
+    BOTH = ["Morning porridge", "Porridge"]
+
+    def test_mixed_collision_asks_when_the_meal_is_in_the_pantry(self):
+        result = resolve_name("oatmeal", self.PORRIDGE, pantry_names=["Morning porridge"])
+        self.assertEqual(result.status, "ambiguous")
+        self.assertIsNone(result.name)
+        self.assertIsNone(result.kind)
+        self.assertEqual(sorted(result.candidates), self.BOTH)
+
+    def test_mixed_collision_asks_when_the_food_is_in_the_pantry(self):
+        result = resolve_name("oatmeal", self.PORRIDGE, pantry_names=["Porridge"])
+        self.assertEqual(result.status, "ambiguous")
+        self.assertIsNone(result.name)
+        self.assertEqual(sorted(result.candidates), self.BOTH)
+
+    def test_mixed_collision_asks_when_neither_is_in_the_pantry(self):
+        result = resolve_name("oatmeal", self.PORRIDGE)
+        self.assertEqual(result.status, "ambiguous")
+        self.assertEqual(sorted(result.candidates), self.BOTH)
+
+    def test_mixed_collision_on_the_exact_stage_asks(self):
+        """Normalization can map a Food name and a Meal name to one form."""
+        table = [("Egg", "food", []), ("Eggs", "meal", [])]
+        result = resolve_name("eggs", table, pantry_names=["Eggs"])
+        self.assertEqual(result.status, "ambiguous")
+        self.assertEqual(sorted(result.candidates), ["Egg", "Eggs"])
+
+    def test_mixed_collision_on_the_fuzzy_stage_asks(self):
+        table = [("Yoghurt", "food", []), ("Greek yogurt bowl", "meal", [])]
+        result = resolve_name("yogurt", table, pantry_names=["Yoghurt"])
+        self.assertEqual(result.status, "ambiguous")
+        self.assertIsNone(result.name)
+        self.assertEqual(sorted(result.candidates), ["Greek yogurt bowl", "Yoghurt"])
+
+    def test_one_kind_only_still_lets_the_pantry_preference_decide(self):
+        """Two Meals collide: the Pantry preference still picks the one Meal."""
+        table = [("Morning porridge", "meal", ["porridge"]), ("Evening porridge", "meal", ["porridge"])]
+        result = resolve_name("porridge", table, pantry_names=["Evening porridge"])
+        self.assertEqual((result.status, result.name, result.kind), ("alias", "Evening porridge", "meal"))
+
+    def test_a_single_hit_of_either_kind_needs_no_pantry(self):
+        result = resolve_name("oatmeal", [("Morning porridge", "meal", ["oatmeal"])])
+        self.assertEqual((result.status, result.name, result.kind), ("alias", "Morning porridge", "meal"))
 
 
 class NormalizedCollisionTest(unittest.TestCase):
@@ -138,11 +186,14 @@ class NormalizedCollisionTest(unittest.TestCase):
 
 
 class FuzzyUnionTest(unittest.TestCase):
-    """Fuzzy candidates are the union of close matches and starts-with/contains matches."""
+    """Fuzzy candidates are the union of close matches and starts-with/contains
+    matches. Both candidates here are Foods, so the Pantry preference applies;
+    the mixed-kind version of the same union is in FoodVersusMealCollisionTest.
+    """
 
     TABLE = [
         ("Yoghurt", "food", []),
-        ("Greek yogurt bowl", "meal", []),
+        ("Greek yogurt bowl", "food", []),
     ]
 
     def test_close_match_and_contains_match_together_ask(self):

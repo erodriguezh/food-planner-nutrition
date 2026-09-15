@@ -196,11 +196,13 @@ class Resolution:
     """Result of resolve_name(). status: exact, alias, fuzzy, ambiguous, none.
 
     `candidates` holds every canonical name the winning stage found, sorted.
-    It is empty only for status `none`.
+    It is empty only for status `none`. `kind` is `food` or `meal`, the kind of
+    the one winner; it is None when there is no winner (`ambiguous`, `none`).
     """
     status: str
     name: str | None = None
     candidates: tuple[str, ...] = ()
+    kind: str | None = None
 
 
 def parse_alias_table(index_text: str) -> list[tuple[str, str, list[str]]]:
@@ -225,50 +227,64 @@ def resolve_name(query: str, table: list[tuple[str, str, list[str]]], pantry_nam
     Order: exact canonical name, then alias, then fuzzy. Fuzzy candidates are
     the union of the close matches and the forms that start with or contain
     what the user said. One candidate is used (the reply names a fuzzy one).
-    Several candidates: prefer the single one in the Pantry; else ask (status
-    `ambiguous`). Nothing close: status `none`.
+    Several candidates of one kind: prefer the single one in the Pantry; else
+    ask (status `ambiguous`). Nothing close: status `none`.
+
+    Every candidate keeps its kind (`food` or `meal`). A Food and a Meal in the
+    same winning stage always ask, as spec #22 requires: a Pantry item can be a
+    Food or a Meal, so the Pantry preference must not decide a cross-kind
+    collision. Ticket #25 adds the one exception, an explicit slot word that
+    makes the Meal win.
 
     Normalization can map two different canonical names to one form (case,
     umlauts, plurals). Every stage therefore keeps a set of candidates per
     normalized form, so a second candidate is never discarded in silence.
     """
     wanted = normalize_alias(query)
-    name_forms = _group_by_normalized_form((name, name) for name, _kind, _aliases in table)
+    name_forms = _group_by_normalized_form((name, name, kind) for name, kind, _aliases in table)
     if wanted in name_forms:
         return _one_or_ask("exact", name_forms[wanted], pantry_names)
     alias_forms = _group_by_normalized_form(
-        (alias, name) for name, _kind, aliases in table for alias in aliases
+        (alias, name, kind) for name, kind, aliases in table for alias in aliases
     )
     if wanted in alias_forms:
         return _one_or_ask("alias", alias_forms[wanted], pantry_names)
     forms = _group_by_normalized_form(
-        (form, name) for name, _kind, aliases in table for form in [name] + list(aliases)
+        (form, name, kind) for name, kind, aliases in table for form in [name] + list(aliases)
     )
     close = set(difflib.get_close_matches(wanted, list(forms), n=5, cutoff=FUZZY_CUTOFF))
     close |= {form for form in forms if form.startswith(wanted) or wanted in form}
-    fuzzy_hits = {name for form in close for name in forms[form]}
+    fuzzy_hits = {hit for form in close for hit in forms[form]}
     if not fuzzy_hits:
         return Resolution("none")
     return _one_or_ask("fuzzy", fuzzy_hits, pantry_names)
 
 
-def _group_by_normalized_form(pairs: Iterable[tuple[str, str]]) -> dict[str, set[str]]:
-    """Map each normalized form to the set of canonical names that produce it."""
-    forms: dict[str, set[str]] = {}
-    for form, name in pairs:
-        forms.setdefault(normalize_alias(form), set()).add(name)
+def _group_by_normalized_form(triples: Iterable[tuple[str, str, str]]) -> dict[str, set[tuple[str, str]]]:
+    """Map each normalized form to the set of (canonical name, kind) it produces."""
+    forms: dict[str, set[tuple[str, str]]] = {}
+    for form, name, kind in triples:
+        forms.setdefault(normalize_alias(form), set()).add((name, kind))
     return forms
 
 
-def _one_or_ask(status: str, hits: set[str], pantry_names: Iterable[str]) -> Resolution:
-    """Use the one candidate; else the one Pantry candidate; else ask."""
-    candidates = tuple(sorted(hits))
+def _one_or_ask(status: str, hits: set[tuple[str, str]], pantry_names: Iterable[str]) -> Resolution:
+    """Use the one candidate; else the one Pantry candidate of one kind; else ask.
+
+    Mixed kinds always ask: the Pantry preference never decides a Food-versus-Meal
+    collision (spec #22).
+    """
+    by_name = {name: kind for name, kind in hits}
+    candidates = tuple(sorted(by_name))
+    kinds = {kind for _name, kind in hits}
+    if len(kinds) > 1:
+        return Resolution("ambiguous", None, candidates)
     if len(candidates) == 1:
-        return Resolution(status, candidates[0], candidates)
+        return Resolution(status, candidates[0], candidates, by_name[candidates[0]])
     in_pantry_set = set(pantry_names)
     in_pantry = [name for name in candidates if name in in_pantry_set]
     if len(in_pantry) == 1:
-        return Resolution(status, in_pantry[0], candidates)
+        return Resolution(status, in_pantry[0], candidates, by_name[in_pantry[0]])
     return Resolution("ambiguous", None, candidates)
 
 
