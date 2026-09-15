@@ -5,6 +5,7 @@
 - [[Skyr]] | dairy | skyr natur
 - [[Blueberries]] | fruit | Heidelbeeren, Blaubeeren
 - [[Soy milk Alpro]] | drink | Soya Original, Sojadrink, soja milk, soy milk
+- [[Soy milk Milsani]] | drink | Sojadrink Milsani, Milsani soja
 - [[Chicken breast]] | protein | Hühnerbrust, Hühnerbrustfilet, chicken
 - [[Eggs]] | protein | Eier, Ei, egg
 
