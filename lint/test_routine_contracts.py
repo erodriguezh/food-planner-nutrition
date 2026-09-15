@@ -12,12 +12,16 @@ import unittest
 from pathlib import Path
 
 from vault_lint import (
+    LabelIdentity,
     ROUTINE_SECTIONS,
     apply_pantry_change,
     apply_restock,
     estimate_tokens,
     mark_reviewed,
+    parse_alias_table,
     parse_frontmatter,
+    resolve_label,
+    resolve_name,
     round_food_value,
 )
 
@@ -158,6 +162,95 @@ class CreateFoodNeverOverwritesAMealTest(RoutineTextTestCase):
     def test_the_rule_sits_in_the_resolve_step(self):
         step = self.one_line_with(self.text, "never overwrite a Meal")
         self.assertIn("Resolve:", step)
+
+
+class CreateFoodLabelPhotoAsksNothingTest(RoutineTextTestCase):
+    """Issue #24: "A label photo produces a Food node ... with no question
+    asked." The shared resolution asks on a Food-versus-Meal collision, so the
+    label photo needs its own rule in the routine: the label identity decides,
+    and an ambiguous name never becomes a question. Only the routine text can
+    hold which path the agent takes."""
+
+    def setUp(self):
+        self.text = read(CREATE_FOOD)
+
+    def test_the_label_step_uses_barcode_label_name_and_brand(self):
+        step = self.one_line_with(self.text, "Identify")
+        for field in ("`barcode`", "`label_name`", "`brand`"):
+            self.assertIn(field, step)
+
+    def test_the_label_step_asks_nothing_on_an_ambiguous_name(self):
+        step = self.one_line_with(self.text, "Identify")
+        self.assertIn("ambiguous", step)
+        self.assertIn("Ask nothing", step)
+
+    def test_the_label_step_overwrites_one_food_and_no_meal(self):
+        """"Foods only" holds the never-overwrite-a-Meal rule on this path; the
+        chat path states it in words."""
+        step = self.one_line_with(self.text, "Identify")
+        self.assertIn("Foods only", step)
+        self.assertIn("overwrite it", step)
+        self.assertIn("never overwrite a Meal", self.text)
+
+    def test_no_unique_food_becomes_a_new_food(self):
+        step = self.one_line_with(self.text, "Identify")
+        self.assertIn("new Food", step)
+
+    def test_the_brand_frees_a_taken_base_name(self):
+        rule = self.one_line_with(self.text, "base name")
+        self.assertIn("brand", rule)
+        self.assertIn("free", rule)
+
+    def test_the_chat_path_still_asks(self):
+        """The shared behaviour stays: ordinary name resolution asks when required."""
+        step = self.one_line_with(self.text, "Resolve:")
+        self.assertIn("ask", step.lower())
+
+    def test_the_routine_names_exactly_one_asking_path(self):
+        self.assertEqual(len(re.findall(r"[Aa]sk nothing", self.text)), 1)
+
+
+class LabelPhotoCollisionRegressionTest(unittest.TestCase):
+    """Regression for the reviewer's case: a label name that collides with a
+    Food alias and a Meal alias, the Meal in the Pantry. The name path asks;
+    the label path must still end in one Food and no question."""
+
+    INDEX = """# Index
+
+## Food
+
+- [[Protein pudding Migros]] | dairy | Proteinpudding, pudding
+
+## Meal
+
+- [[Pudding bowl]] | snack | pudding
+"""
+    FOODS = [{"name": "Protein pudding Migros", "label_name": "Proteinpudding", "brand": "Migros"}]
+
+    def setUp(self):
+        self.table = parse_alias_table(self.INDEX)
+        self.pantry = ["Pudding bowl"]
+
+    def test_the_shared_name_path_asks_here(self):
+        result = resolve_name("pudding", self.table, self.pantry)
+        self.assertEqual(result.status, "ambiguous")
+
+    def test_the_same_brand_label_identifies_the_existing_food(self):
+        label = LabelIdentity(label_name="Pudding", brand="Migros")
+        result = resolve_label(label, self.table, self.FOODS, self.pantry)
+        self.assertEqual((result.status, result.name, result.kind), ("label", "Protein pudding Migros", "food"))
+
+    def test_another_brand_label_creates_one_new_food(self):
+        label = LabelIdentity(label_name="Pudding", brand="Dr. Oetker")
+        result = resolve_label(label, self.table, self.FOODS, self.pantry)
+        self.assertEqual((result.status, result.name, result.kind), ("new", "Pudding Dr. Oetker", "food"))
+        self.assertNotIn(result.name, [name for name, kind, _a in self.table if kind == "meal"])
+
+    def test_neither_label_ever_asks(self):
+        for brand in (None, "Migros", "Dr. Oetker", "Coop"):
+            result = resolve_label(LabelIdentity("Pudding", brand), self.table, self.FOODS, self.pantry)
+            self.assertNotIn(result.status, ("ambiguous", "none"), brand)
+            self.assertEqual(result.kind, "food", brand)
 
 
 class PantryOkTouchesNoFoodTest(unittest.TestCase):
