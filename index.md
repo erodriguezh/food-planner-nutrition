@@ -3,6 +3,7 @@
 - [[Rice]] | grain | Reis, white rice
 - [[Olive oil]] | fat | Olivenöl
 - [[Skyr]] | dairy | skyr natur
+- [[Blueberries]] | fruit | Heidelbeeren, Blaubeeren
 
 ## Meal
 
