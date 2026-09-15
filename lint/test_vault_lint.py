@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from vault_lint import lint_vault, round_bound, estimate_tokens
+from vault_lint import lint_vault, round_bound, estimate_tokens, apply_goal_change, compute_bounds
 
 GOALS = """---
 type: goals
@@ -107,6 +107,60 @@ class LintTest(unittest.TestCase):
     def test_token_estimate_is_chars_over_four(self):
         self.assertEqual(estimate_tokens("abcd" * 10), 10)
         self.assertEqual(estimate_tokens("abcde"), 2)
+
+    # --- first violation only ------------------------------------------
+
+    def test_lint_stops_at_first_violation_in_check_order(self):
+        # Goals check runs before the Index check, so only the bound error is reported.
+        self.vault.write("nodes/goals/Goals.md", GOALS.replace("protein_g_max: 142", "protein_g_max: 141"))
+        self.vault.write("index.md", INDEX.replace("## Pantry\n", ""))
+        errors = self.errors()
+        self.assertEqual(len(errors), 1)
+        self.assertIn("protein_g_max", errors[0])
+        self.assertNotIn("Pantry", errors[0])
+
+    def test_first_violation_is_deterministic_across_files(self):
+        # Two bad nodes: sorted path order puts nodes/food before nodes/goals.
+        self.vault.write("nodes/food/Skyr.md", "---\ntype: food\nname: Skyrr\n---\n")
+        self.vault.write("nodes/goals/Goals.md", GOALS.replace("name: Goals", "name: Targets"))
+        errors = self.errors()
+        self.assertEqual(len(errors), 1)
+        self.assertIn("nodes/food/Skyr.md", errors[0])
+
+    # --- goals routine as a function -----------------------------------
+
+    def test_first_setup_defaults_tolerance_to_5(self):
+        result = apply_goal_change(None, {"kcal": 2500, "protein_g": 135, "fat_g": 60, "carbs_g": 355}, None, "2026-09-15")
+        self.assertEqual(result["tolerance_pct"], 5)
+        self.assertEqual(result["protein_g_min"], 128)
+        self.assertEqual(result["protein_g_max"], 142)
+        self.assertEqual(result["since"], "2026-09-15")
+
+    def test_first_setup_needs_all_four_targets(self):
+        with self.assertRaises(ValueError):
+            apply_goal_change(None, {"kcal": 2500}, None, "2026-09-15")
+
+    def test_partial_change_preserves_stored_tolerance_and_targets(self):
+        existing = {"kcal": "2500", "protein_g": "135", "fat_g": "60", "carbs_g": "355", "tolerance_pct": "10"}
+        result = apply_goal_change(existing, {"protein_g": 160}, None, "2026-09-16")
+        self.assertEqual((result["kcal"], result["protein_g"], result["fat_g"], result["carbs_g"]), (2500, 160, 60, 355))
+        self.assertEqual(result["tolerance_pct"], 10)
+        self.assertEqual(result["since"], "2026-09-16")
+        expected = compute_bounds({"kcal": 2500, "protein_g": 160, "fat_g": 60, "carbs_g": 355}, 10)
+        for key, want in expected.items():
+            self.assertEqual(result[key], want, key)
+        self.assertEqual(result["protein_g_min"], 144)
+        self.assertEqual(result["protein_g_max"], 176)
+        self.assertEqual(result["kcal_min"], 2250)
+        self.assertEqual(result["kcal_max"], 2750)
+
+    def test_tolerance_change_alone_recomputes_all_bounds(self):
+        existing = {"kcal": "2500", "protein_g": "135", "fat_g": "60", "carbs_g": "355", "tolerance_pct": "5"}
+        result = apply_goal_change(existing, {}, 10, "2026-09-16")
+        self.assertEqual(result["protein_g"], 135)
+        self.assertEqual(result["tolerance_pct"], 10)
+        self.assertEqual(result["fat_g_min"], 54)
+        self.assertEqual(result["fat_g_max"], 66)
 
     # --- Goals schema ---------------------------------------------------
 

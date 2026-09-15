@@ -43,7 +43,9 @@ All properties are required. No other property is allowed: the spec forbids a hi
 
 - `<macro>_min` = `<macro>` × (1 − `tolerance_pct` / 100); `<macro>_max` = `<macro>` × (1 + `tolerance_pct` / 100).
 - Bounds are stored as whole numbers. The rounding rule is stated in one place, `routines/goals.md` step 4, and the lint applies it in `round_bound()`.
-- A goal change in chat rewrites all four targets, the tolerance, all eight bounds and `since`. Nothing is recomputed at read time. Git keeps the history.
+- First setup: the user states the four targets; the agent asks once for any missing one. `tolerance_pct` is 5 when the user does not state one.
+- Later change: the user states one or more targets, a tolerance, or both. Every target the user does not name keeps its stored value. A tolerance the user does not name keeps the stored `tolerance_pct`; the default 5 applies at first setup only. Example: with tolerance 10 stored, "set protein to 160" gives 2500 / 160 / 60 / 355, tolerance 10, and all eight bounds at 10 %.
+- Every change, however small, rewrites all four targets, the tolerance, all eight bounds and `since`. Nothing is recomputed at read time. Git keeps the history.
 - No history table, no day types, no fiber, sugar or salt targets.
 - The Index holds one pointer line under `## Goals`: `- [[Goals]]`.
 - Each closed Day Summary records the targets it used, so a goal change does not touch old Days.

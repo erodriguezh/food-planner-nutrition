@@ -5,7 +5,9 @@ Run from the repository root:
 
     python3 lint/vault_lint.py
 
-Exit code 0 when the vault is clean, 1 with one line per violation.
+Exit code 0 when the vault is clean, 1 on the first violation. The checks run
+in a fixed order (nodes load, common conventions, Goals, Router, State, Index,
+routines), files in sorted path order, so the first violation is deterministic.
 No dependencies beyond the Python 3 standard library.
 
 Checks (v1):
@@ -51,6 +53,44 @@ def round_bound(value: float) -> int:
     lint's application of it.
     """
     return int(math.floor(value + 0.5))
+
+
+def compute_bounds(targets: dict, tolerance_pct: float) -> dict:
+    """The eight stored bounds for the four targets, rounded with round_bound()."""
+    tolerance = tolerance_pct / 100
+    bounds = {}
+    for macro in MACROS:
+        bounds[f"{macro}_min"] = round_bound(targets[macro] * (1 - tolerance))
+        bounds[f"{macro}_max"] = round_bound(targets[macro] * (1 + tolerance))
+    return bounds
+
+
+DEFAULT_TOLERANCE_PCT = 5
+
+
+def apply_goal_change(existing: dict | None, stated_targets: dict, stated_tolerance_pct: float | None, today: str) -> dict:
+    """The goals routine as a function: the Goals frontmatter after one chat change.
+
+    First setup (no existing node): every one of the four targets must be
+    stated; tolerance defaults to 5. Existing node: targets and tolerance the
+    user did not state keep their stored values. Every change recomputes all
+    eight bounds and rewrites `since`.
+    """
+    if existing is None:
+        missing = [m for m in MACROS if m not in stated_targets]
+        if missing:
+            raise ValueError(f"first setup needs all four targets; missing {missing}")
+        targets = {m: stated_targets[m] for m in MACROS}
+        tolerance = DEFAULT_TOLERANCE_PCT if stated_tolerance_pct is None else stated_tolerance_pct
+    else:
+        targets = {m: stated_targets.get(m, float(existing[m])) for m in MACROS}
+        tolerance = float(existing["tolerance_pct"]) if stated_tolerance_pct is None else stated_tolerance_pct
+    result = {"type": "goals", "name": "Goals"}
+    result.update(targets)
+    result["tolerance_pct"] = tolerance
+    result.update(compute_bounds(targets, tolerance))
+    result["since"] = today
+    return result
 
 
 def estimate_tokens(text: str) -> int:
@@ -140,14 +180,17 @@ class Node:
         return self.data.get("type")
 
 
+class LintFailure(Exception):
+    """Raised on the first violation. The lint stops there."""
+
+
 @dataclass
 class Vault:
     root: Path
     nodes: list[Node] = field(default_factory=list)
-    errors: list[str] = field(default_factory=list)
 
     def fail(self, rel: str, message: str) -> None:
-        self.errors.append(f"{rel}: {message}")
+        raise LintFailure(f"{rel}: {message}")
 
     def node_by_name(self, name: str) -> Node | None:
         for node in self.nodes:
@@ -171,7 +214,6 @@ def load_nodes(vault: Vault) -> None:
             data, body = parse_frontmatter(path.read_text(encoding="utf-8"))
         except FrontmatterError as exc:
             vault.fail(rel, str(exc))
-            continue
         vault.nodes.append(Node(rel, path.stem, data, body))
 
 
@@ -212,20 +254,14 @@ def check_goals(vault: Vault) -> None:
             vault.fail(node.rel, f"`since` must be a date YYYY-MM-DD, got {data['since']!r}")
         if not is_number(data.get("tolerance_pct", "")):
             continue
-        tolerance = float(data["tolerance_pct"]) / 100
-        for macro in MACROS:
-            if not is_number(data.get(macro, "")):
-                continue
-            target = float(data[macro])
-            expected = {
-                f"{macro}_min": round_bound(target * (1 - tolerance)),
-                f"{macro}_max": round_bound(target * (1 + tolerance)),
-            }
+        targets = {m: float(data[m]) for m in MACROS if is_number(data.get(m, ""))}
+        if len(targets) == len(MACROS):
+            expected = compute_bounds(targets, float(data["tolerance_pct"]))
             for key, want in expected.items():
                 if key not in data:
                     vault.fail(node.rel, f"missing `{key}`")
                 elif not is_number(data[key]) or float(data[key]) != want:
-                    vault.fail(node.rel, f"`{key}` is {data[key]!r}, expected {want} (rounding rule: nearest whole, half up)")
+                    vault.fail(node.rel, f"`{key}` is {data[key]!r}, expected {want} by the rounding rule in routines/goals.md")
         allowed = set(MACROS) | {"type", "name", "tolerance_pct", "since"} | {f"{m}_{b}" for m in MACROS for b in ("min", "max")}
         for key in data:
             if key not in allowed:
@@ -251,7 +287,6 @@ def check_state(vault: Vault) -> None:
         data, body = parse_frontmatter(path.read_text(encoding="utf-8"))
     except FrontmatterError as exc:
         vault.fail("state.md", str(exc))
-        return
     if data.get("type") != "state":
         vault.fail("state.md", "`type` must be `state`")
     if "open_day" not in data:
@@ -375,25 +410,33 @@ def _sections(text: str) -> dict[str, list[str]]:
 # Entry points
 # --------------------------------------------------------------------------
 
+CHECKS = (
+    load_nodes,
+    check_common_conventions,
+    check_goals,
+    check_router,
+    check_state,
+    check_index,
+    check_routines,
+)
+
+
 def lint_vault(root: Path) -> list[str]:
+    """Run the checks in order. Return [] when clean, else a one-item list with the first violation."""
     vault = Vault(Path(root))
-    load_nodes(vault)
-    check_common_conventions(vault)
-    check_goals(vault)
-    check_router(vault)
-    check_state(vault)
-    check_index(vault)
-    check_routines(vault)
-    return vault.errors
+    try:
+        for check in CHECKS:
+            check(vault)
+    except LintFailure as exc:
+        return [str(exc)]
+    return []
 
 
 def main(argv: list[str]) -> int:
     root = Path(argv[1]) if len(argv) > 1 else Path(__file__).resolve().parent.parent
     errors = lint_vault(root)
     if errors:
-        for error in errors:
-            print(f"FAIL {error}")
-        print(f"vault lint: {len(errors)} violation(s)")
+        print(f"FAIL {errors[0]}")
         return 1
     print("vault lint: ok")
     return 0
