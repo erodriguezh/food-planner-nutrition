@@ -63,6 +63,25 @@ class AliasResolutionTest(unittest.TestCase):
         result = resolve_name("Hühner", self.TABLE, pantry_names=["Chicken breast"])
         self.assertEqual((result.status, result.name), ("fuzzy", "Chicken breast"))
 
+    def test_food_and_meal_collision_prefers_the_pantry_one(self):
+        """A Food and a Meal share an alias; one of them is in the Pantry.
+
+        Base names are unique across the vault, so a Food-versus-Meal
+        collision comes from a shared alias. The Pantry candidate wins, and it
+        wins whether it is the Food or the Meal. The spec's Food-versus-Meal
+        collision rule (ask, except a slot word makes the Meal win) belongs to
+        the log routine and is deferred to ticket #25; `resolve_name()` applies
+        the Pantry preference only. This test pins that intended behaviour.
+        """
+        porridge = [("Porridge", "food", ["oatmeal"]), ("Morning porridge", "meal", ["oatmeal"])]
+        result = resolve_name("oatmeal", porridge, pantry_names=["Morning porridge"])
+        self.assertEqual((result.status, result.name), ("alias", "Morning porridge"))
+        result = resolve_name("oatmeal", porridge, pantry_names=["Porridge"])
+        self.assertEqual((result.status, result.name), ("alias", "Porridge"))
+        result = resolve_name("oatmeal", porridge)
+        self.assertEqual(result.status, "ambiguous")
+        self.assertEqual(sorted(result.candidates), ["Morning porridge", "Porridge"])
+
     def test_parse_alias_table_from_index(self):
         index = (
             "## Food\n- [[Skyr]] | dairy | skyr natur\n- [[Rice]] | grain\n\n"

@@ -2,6 +2,7 @@
 
 Run: python3 -m unittest discover lint
 """
+import os
 import unittest
 
 from test_vault_lint import VaultFixture, INDEX
@@ -293,7 +294,6 @@ class FoodPantryLintTest(unittest.TestCase):
 
     def test_pantry_must_be_the_one_file(self):
         self.vault.write("nodes/pantry/Pantry.md", "")
-        import os
         os.remove(self.vault.root / "nodes/pantry/Pantry.md")
         self.vault.write("nodes/pantry/Kitchen.md", PANTRY.replace("name: Pantry", "name: Kitchen"))
         self.vault.write("index.md", INDEX_WITH_FOODS.replace("[[Pantry]]", "[[Kitchen]]"))
@@ -401,13 +401,11 @@ class FoodPantryLintTest(unittest.TestCase):
         self.assertError("Quark.md")
 
     def test_pantry_node_is_required(self):
-        import os
         os.remove(self.vault.root / "nodes/pantry/Pantry.md")
         self.vault.write("index.md", INDEX_WITH_FOODS.replace("- [[Pantry]]\n", ""))
         self.assertError("nodes/pantry/Pantry.md")
 
     def test_pantry_outside_the_pantry_folder_fails(self):
-        import os
         os.remove(self.vault.root / "nodes/pantry/Pantry.md")
         self.vault.write("nodes/food/Pantry.md", PANTRY)
         self.assertError("nodes/pantry/Pantry.md")
@@ -431,9 +429,18 @@ class FoodPantryLintTest(unittest.TestCase):
         self.assertError("Risotto")
 
     def test_food_index_line_includes_label_name(self):
-        # The label name is one of the aliases, so the Index line must carry it.
+        """The Index alias field is `aliases` plus `label_name`.
+
+        The node here is clean: `aliases` holds the label name, so the Food
+        check passes. Only the Index check may fire, and it must name the
+        missing label name.
+        """
         self.vault.write("index.md", INDEX_WITH_FOODS.replace("| Sojadrink Original, soy milk\n", "| soy milk\n"))
-        self.assertError("Sojadrink Original")
+        errors = self.errors()
+        self.assertEqual(len(errors), 1, errors)
+        self.assertIn("index.md", errors[0])
+        self.assertIn("Sojadrink Original", errors[0])
+        self.assertNotIn("label_name", errors[0])
 
     def test_food_without_aliases_has_link_and_category_only(self):
         self.vault.write("nodes/food/Rice.md", RICE.replace("aliases:\n  - Reis\n", ""))

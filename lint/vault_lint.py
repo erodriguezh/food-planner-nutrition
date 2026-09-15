@@ -31,7 +31,7 @@ Checks (v2):
 - state.md has its fields; Open items holds no unreviewed Food lines
 - index.md has one section per node type and no line without a node; every
   Food has exactly one line with its category and all aliases plus the label name
-- every routine file has the five sections
+- every routine file has the five sections and is under 300 tokens
 """
 from __future__ import annotations
 
@@ -47,6 +47,7 @@ NODE_TYPES = ("food", "meal", "day", "goals", "pantry")
 INDEX_SECTIONS = ("Food", "Meal", "Day", "Goals", "Pantry")
 ROUTINE_SECTIONS = ("When", "Read", "Steps", "Write", "Reply")
 ROUTER_TOKEN_LIMIT = 500
+ROUTINE_TOKEN_LIMIT = 300
 MACROS = ("kcal", "protein_g", "fat_g", "carbs_g")
 
 FOOD_CATEGORIES = ("protein", "dairy", "grain", "vegetable", "fruit", "fat", "snack", "drink")
@@ -594,18 +595,17 @@ def _check_body_notes_only(vault: Vault, node: Node) -> None:
             vault.fail(node.rel, f"body may hold only an optional `## Notes` section, found text outside it: {line.strip()!r}")
 
 
-def _check_wikilink_property(vault: Vault, node: Node, key: str, allowed_types: tuple) -> Node | None:
+def _check_wikilink_property(vault: Vault, node: Node, key: str, allowed_types: tuple) -> None:
     value = node.data.get(key)
     match = QUOTED_LINK_RE.match(value) if isinstance(value, str) else None
     if not match:
         vault.fail(node.rel, f"`{key}` must be a quoted wikilink like \"[[Name]]\", got {value!r}")
-        return None
+        return
     target = vault.node_by_name(match.group(1))
     if target is None:
         vault.fail(node.rel, f"`{key}` points to [[{match.group(1)}]], which does not exist")
     elif target.type not in allowed_types:
         vault.fail(node.rel, f"`{key}` points to [[{match.group(1)}]], a {target.type} node, not {' or '.join(allowed_types)}")
-    return target
 
 
 def check_foods(vault: Vault) -> None:
@@ -862,10 +862,14 @@ def check_routines(vault: Vault) -> None:
         return
     for path in sorted(routines.glob("*.md")):
         rel = path.relative_to(vault.root).as_posix()
-        sections = _sections(path.read_text(encoding="utf-8"))
+        text = path.read_text(encoding="utf-8")
+        sections = _sections(text)
         for name in ROUTINE_SECTIONS:
             if name not in sections:
                 vault.fail(rel, f"missing `## {name}` section")
+        tokens = estimate_tokens(text)
+        if tokens >= ROUTINE_TOKEN_LIMIT:
+            vault.fail(rel, f"about {tokens} tokens, limit is under {ROUTINE_TOKEN_LIMIT} (estimate: characters / 4)")
 
 
 def _sections(text: str) -> dict[str, list[str]]:

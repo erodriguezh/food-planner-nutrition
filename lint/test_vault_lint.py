@@ -324,6 +324,23 @@ class LintTest(unittest.TestCase):
         )
         self.assertEqual(self.errors(), [])
 
+    def test_routine_over_the_token_limit_fails(self):
+        # Spec #22, Routines: "Under 300 tokens each." One token is four characters.
+        filler = "word " * 250  # 1250 characters, about 313 tokens
+        self.vault.write(
+            "routines/goals.md",
+            f"# goals\n\n## When\nx\n\n## Read\nx\n\n## Steps\n{filler}\n\n## Write\nx\n\n## Reply\nx\n",
+        )
+        self.assertError("tokens")
+
+    def test_routine_just_under_the_token_limit_passes(self):
+        filler = "word " * 200  # 1000 characters, about 264 tokens
+        self.vault.write(
+            "routines/goals.md",
+            f"# goals\n\n## When\nx\n\n## Read\nx\n\n## Steps\n{filler}\n\n## Write\nx\n\n## Reply\nx\n",
+        )
+        self.assertEqual(self.errors(), [])
+
 
 if __name__ == "__main__":
     unittest.main()
