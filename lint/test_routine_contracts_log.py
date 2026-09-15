@@ -1,0 +1,213 @@
+"""Contract tests for the log, rebalance and create-meal routine texts (#25).
+
+The routine files are what the agent reads at runtime, so the rules the lint
+cannot see (which path the agent takes, what it asks, what it writes to the
+chat) live in their text. These tests read the text and the routine functions
+together, so the two cannot drift apart.
+
+Run: python3 -m unittest discover lint
+"""
+import re
+import unittest
+from pathlib import Path
+
+from vault_lint import (
+    ROUTINE_SECTIONS,
+    ROUTINE_TOKEN_LIMIT,
+    estimate_tokens,
+    parse_entry_line,
+)
+
+VAULT = Path(__file__).resolve().parent.parent
+LOG = VAULT / "routines" / "log.md"
+REBALANCE = VAULT / "routines" / "rebalance.md"
+CREATE_MEAL = VAULT / "routines" / "create-meal.md"
+
+
+def read(path: Path) -> str:
+    return path.read_text(encoding="utf-8")
+
+
+class RoutineTextTestCase(unittest.TestCase):
+    def one_line_with(self, text: str, needle: str) -> str:
+        hits = [line for line in text.split("\n") if needle in line]
+        self.assertEqual(len(hits), 1, f"expected exactly one line with {needle!r}, found {len(hits)}")
+        return hits[0]
+
+    def step(self, text: str, number: int) -> str:
+        return self.one_line_with(text, f"{number}. ")
+
+
+class ShapeTest(unittest.TestCase):
+    def test_the_three_routines_keep_the_five_sections_and_the_budget(self):
+        for path in (LOG, REBALANCE, CREATE_MEAL):
+            text = read(path)
+            headings = [line[3:].strip() for line in text.split("\n") if line.startswith("## ")]
+            self.assertEqual(headings, list(ROUTINE_SECTIONS), path.name)
+            self.assertLess(estimate_tokens(text), ROUTINE_TOKEN_LIMIT, path.name)
+
+    def test_the_router_points_at_all_three(self):
+        router = read(VAULT / "ROUTER.md")
+        for name in ("log", "rebalance", "create-meal"):
+            self.assertIn(f"routines/{name}.md", router)
+
+
+class LogRoutineTest(RoutineTextTestCase):
+    def setUp(self):
+        self.text = read(LOG)
+
+    def test_the_first_log_creates_the_day_the_state_and_the_month_line_in_one_commit(self):
+        write = self.text.split("## Write\n", 1)[1].split("## Reply", 1)[0]
+        for needle in ("`status: open`", '`goal: "[[Goals]]"`', "`open_day`", "month line", "`log: <date> <slot> <name> <amount>`"):
+            self.assertIn(needle, write)
+        self.assertEqual(write.count("commit"), 1)
+
+    def test_the_line_shape_in_the_routine_parses(self):
+        shape = self.one_line_with(self.text, "kcal · <P> P")
+        example = re.search(r"`(- \[\[Name\]\].*?C)`", shape).group(1)
+        line = (example.replace("[[Name]]", "[[Rice]]").replace("<n> g", "150 g")
+                .replace("<kcal>", "528").replace("<P>", "11").replace("<F>", "1").replace("<C>", "117"))
+        entry = parse_entry_line(line)
+        self.assertEqual((entry.name, entry.amount, entry.unit), ("Rice", 150.0, "g"))
+
+    def test_the_ingredient_change_form_stays_on_the_line(self):
+        rule = self.one_line_with(self.text, "changed ingredient")
+        self.assertIn("`, [[Food]] = <n> g`", rule)
+        self.assertIn("never on the Meal", rule)
+
+    def test_the_slot_rule_is_word_then_clock_then_next_in_order(self):
+        rule = self.one_line_with(self.text, "Slot:")
+        self.assertLess(rule.index("word"), rule.index("clock"))
+        self.assertLess(rule.index("clock"), rule.index("next in order"))
+        for boundary in ("11", "15", "18"):
+            self.assertIn(boundary, rule)
+        for slot in ("breakfast", "lunch", "snack", "dinner"):
+            self.assertIn(slot, rule)
+
+    def test_a_slot_word_makes_the_meal_win(self):
+        rule = self.one_line_with(self.text, "slot word")
+        self.assertIn("Meal wins", rule)
+        self.assertIn("ask", rule)
+
+    def test_an_unknown_food_is_created_first_with_its_own_commit(self):
+        rule = self.one_line_with(self.text, "Unknown Food")
+        self.assertIn("`routines/create-food.md`", rule)
+        self.assertIn("own commit", rule)
+        self.assertIn("then log", rule)
+
+    def test_the_mark_sits_after_the_bullet_for_an_estimate_or_a_guess(self):
+        rule = self.one_line_with(self.text, "`- ~ `")
+        self.assertIn("after the bullet", rule)
+        self.assertIn("estimate", rule)
+        self.assertIn("guess", rule)
+
+    def test_add_change_and_remove_are_one_routine(self):
+        self.assertIn("Add, change or remove", self.text)
+        when = self.text.split("## When\n", 1)[1].split("\n\n", 1)[0]
+        for phrase in ('"it was 200 g"', '"remove the snack"', '"yesterday I had'):
+            self.assertIn(phrase, when)
+
+    def test_a_past_date_writes_into_its_day(self):
+        self.assertIn("past date writes into its Day", self.text)
+
+    def test_the_rounding_rule_is_stated_here_once(self):
+        rule = self.one_line_with(self.text, "half up")
+        self.assertIn("whole", rule)
+        self.assertIn("one decimal", rule)
+        self.assertTrue(rule.startswith("4."), rule)
+        # create-meal points here instead of repeating the rule.
+        self.assertNotIn("half up", read(CREATE_MEAL))
+        self.assertIn("`routines/log.md` step 4", read(CREATE_MEAL))
+
+    def test_totals_and_estimated_are_rewritten_and_the_pantry_is_never_touched(self):
+        rule = self.one_line_with(self.text, "seven totals")
+        self.assertIn("`estimated`", rule)
+        self.assertIn("never the Pantry", rule)
+        self.assertIn("`routines/rebalance.md`", rule)
+
+    def test_the_reply_names_the_slot_and_what_is_left(self):
+        reply = self.text.split("## Reply\n", 1)[1]
+        self.assertIn("slot", reply)
+        self.assertIn("what is left", reply)
+        self.assertIn("`~`", reply)
+
+
+class RebalanceRoutineTest(RoutineTextTestCase):
+    def setUp(self):
+        self.text = read(REBALANCE)
+
+    def test_remaining_is_target_minus_running_totals_after_every_log(self):
+        rule = self.one_line_with(self.text, "Remaining =")
+        self.assertIn("target minus running totals", rule)
+        self.assertIn("after every log", rule)
+        self.assertIn("over its max", rule)
+
+    def test_a_suggestion_comes_only_on_request(self):
+        rule = self.one_line_with(self.text, "only on request")
+        self.assertIn('"Plan today"', rule)
+        self.assertIn("every open slot in full", rule)
+        self.assertIn("next slot in full", rule)
+        self.assertIn("one rough line", rule)
+
+    def test_pantry_only_in_the_picking_order_with_expiring_items_first(self):
+        rule = self.one_line_with(self.text, "Pantry only")
+        order = [rule.index(word) for word in ("protein", "grain", "vegetable", "fruit", "fat")]
+        self.assertEqual(order, sorted(order), rule)
+        self.assertIn("`until` today or tomorrow first", rule)
+        self.assertIn("10 g", rule)
+
+    def test_removed_slots_write_nothing_and_the_routine_writes_nothing(self):
+        self.assertIn('"no snack today" writes nothing', self.text)
+        write = self.text.split("## Write\n", 1)[1].split("## Reply", 1)[0]
+        self.assertTrue(write.strip().startswith("Nothing"), write)
+
+    def test_the_evening_question_and_the_mark(self):
+        rule = self.one_line_with(self.text, "did you skip lunch?")
+        self.assertIn("`~`", rule)
+
+
+class CreateMealRoutineTest(RoutineTextTestCase):
+    def setUp(self):
+        self.text = read(CREATE_MEAL)
+
+    def test_exactly_one_ok_question(self):
+        self.assertEqual(len(re.findall(r"ok\?", self.text)), 2)  # the step and the reply
+        steps = self.text.split("## Steps\n", 1)[1].split("## Write", 1)[0]
+        self.assertEqual(len(re.findall(r"ok\?", steps)), 1)
+
+    def test_the_ok_sets_reviewed_and_a_correction_is_written_instead(self):
+        steps = self.text.split("## Steps\n", 1)[1].split("## Write", 1)[0]
+        rule = self.one_line_with(steps, '"ok?"')
+        self.assertIn("`reviewed: true`", rule)
+        self.assertIn("correction", rule)
+
+    def test_unknown_foods_are_auto_created_with_one_summary_line(self):
+        rule = self.one_line_with(self.text, "Unknown Foods")
+        self.assertIn("`routines/create-food.md`", rule)
+        self.assertIn("`reviewed: false`", rule)
+        self.assertIn("one commit each", rule)
+        self.assertIn("one summary line", rule)
+
+    def test_the_name_must_be_free(self):
+        rule = self.step(self.text, 1)
+        self.assertIn("free of every Food and Meal name", rule)
+        self.assertIn("ask", rule)
+
+    def test_the_totals_come_from_the_food_nodes_with_the_estimate_mark(self):
+        rule = self.one_line_with(self.text, "Sum the Food nodes")
+        for key in ("`weight_g`", "`totals_date`", "`portions`", "`slots`", "`aliases`", "`estimated`", "`cooked_weight_g`"):
+            self.assertIn(key, rule)
+
+    def test_the_day_lines_stay_as_eaten(self):
+        self.assertIn("Day lines stay as eaten", self.text)
+
+    def test_the_write_has_the_index_line_shape_and_the_commit(self):
+        write = self.text.split("## Write\n", 1)[1].split("## Reply", 1)[0]
+        self.assertIn("`- [[Name]] | <slots or any> | <aliases>`", write)
+        self.assertIn("`create-meal: <name>`", write)
+        self.assertLess(write.index("New Foods first"), write.index("Meal"))
+
+
+
+if __name__ == "__main__":
+    unittest.main()

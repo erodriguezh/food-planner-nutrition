@@ -642,7 +642,7 @@ def round_total(value: float) -> int:
     the totals of a Meal or Day: nearest whole number, a half rounds up.
 
     Fiber, sugar and salt keep one decimal with round_food_value(). Stated for
-    the agent in routines/log.md step 5; the lint accepts a stored value that
+    the agent in routines/log.md step 4; the lint accepts a stored value that
     lies within half a unit of the exact one, so either neighbour of a half
     passes.
     """
