@@ -153,6 +153,8 @@ a Meal, so the Pantry preference must not decide a Food-versus-Meal collision. T
 of the one winner (None when the agent asks). The one exception to the Food-versus-Meal ask, an explicit slot word
 that makes the Meal win, belongs to the log routine and comes with ticket #25.
 
+The ask is a same-stage rule, because the stage order comes first: the first matching stage stops the search, so a name that is exact for one kind beats an alias of the other kind and the agent asks nothing. A Food named exactly what the user said wins over a Meal that carries the same word only as an alias, and an exact Meal name wins over a Food alias the same way. Only the candidates of that one matching stage can collide.
+
 ### Example
 
 ```

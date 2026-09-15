@@ -142,6 +142,25 @@ class FoodVersusMealCollisionTest(unittest.TestCase):
         result = resolve_name("oatmeal", [("Morning porridge", "meal", ["oatmeal"])])
         self.assertEqual((result.status, result.name, result.kind), ("alias", "Morning porridge", "meal"))
 
+    def test_a_food_name_beats_a_meal_alias_and_does_not_ask(self):
+        """The ask covers one stage, not two. Spec #22 gives the stage order
+        first ("exact name, alias, fuzzy"), so an exact canonical name stops the
+        search: the alias stage is never reached and there is no candidate set
+        to be mixed. A Food named exactly what the user said therefore wins over
+        a Meal that only carries that word as an alias, and the agent asks
+        nothing. The reverse holds too: an exact Meal name beats a Food alias.
+        """
+        table = [("Porridge", "food", []), ("Morning porridge", "meal", ["porridge"])]
+        result = resolve_name("porridge", table)
+        self.assertEqual((result.status, result.name, result.kind), ("exact", "Porridge", "food"))
+        result = resolve_name("porridge", table, pantry_names=["Morning porridge"])
+        self.assertEqual((result.status, result.name, result.kind), ("exact", "Porridge", "food"))
+
+    def test_a_meal_name_beats_a_food_alias_and_does_not_ask(self):
+        table = [("Usual breakfast", "meal", []), ("Skyr", "food", ["usual breakfast"])]
+        result = resolve_name("usual breakfast", table)
+        self.assertEqual((result.status, result.name, result.kind), ("exact", "Usual breakfast", "meal"))
+
 
 class NormalizedCollisionTest(unittest.TestCase):
     """Two canonical nodes can collapse to one normalized form. Then the agent asks."""

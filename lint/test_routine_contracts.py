@@ -228,5 +228,28 @@ class SpecNameCaseTest(unittest.TestCase):
             self.assertEqual(words[0], words[0][:1] + words[0][1:].lower(), path.name)
 
 
+class SpecAliasStagePrecedenceTest(unittest.TestCase):
+    """The Food-versus-Meal ask covers one stage. Spec #22 states the stage
+    order and the collision rule side by side without saying which wins when a
+    Food name and a Meal alias are the same word, so the specification document
+    has to say it. `resolve_name()` stops at the first stage that matches.
+    """
+
+    def setUp(self):
+        self.text = NODES_SPEC.read_text(encoding="utf-8")
+
+    def test_the_spec_says_the_first_matching_stage_stops_the_search(self):
+        hits = [line for line in self.text.split("\n") if "stops the search" in line]
+        self.assertEqual(len(hits), 1, hits)
+        rule = hits[0]
+        self.assertIn("exact", rule)
+        self.assertIn("asks nothing", rule)
+
+    def test_the_ask_is_scoped_to_one_stage(self):
+        hits = [line for line in self.text.split("\n") if "always ask" in line]
+        self.assertEqual(len(hits), 1, hits)
+        self.assertIn("same stage", hits[0])
+
+
 if __name__ == "__main__":
     unittest.main()

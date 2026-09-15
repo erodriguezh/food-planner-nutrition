@@ -236,6 +236,11 @@ def resolve_name(query: str, table: list[tuple[str, str, list[str]]], pantry_nam
     collision. Ticket #25 adds the one exception, an explicit slot word that
     makes the Meal win.
 
+    The stage order comes first, so the ask is a same-stage rule: the first
+    matching stage stops the search, and a name that is exact for one kind beats
+    an alias of the other kind without a question. Only the candidates of the
+    one matching stage can collide.
+
     Normalization can map two different canonical names to one form (case,
     umlauts, plurals). Every stage therefore keeps a set of candidates per
     normalized form, so a second candidate is never discarded in silence.

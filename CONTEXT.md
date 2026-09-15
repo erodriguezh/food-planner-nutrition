@@ -24,7 +24,7 @@ Glossary of the domain language for this vault. Terms are defined once here and 
 - **Estimated from**: the Food whose numbers an estimate was copied or scaled from. The only outgoing link a Food holds.
 - **Lookup order**: the fixed order of sources for missing or generic numbers: Open Food Facts, Swiss Food Composition Database, USDA FoodData Central, then an estimate from a similar Food. The reply names the source used.
 - **Alias table**: the Food and Meal lines of the Index read as one table: canonical name, category or slots, aliases plus label name. The agent resolves every name said in chat against it without opening nodes.
-- **Alias resolution**: how a name said in chat becomes one canonical name: exact name, then alias, then one fuzzy hit, all case-insensitive and tolerant of umlauts and plurals. Several hits of one kind: the Pantry one wins, else the agent asks. A Food and a Meal together always ask; the Pantry never decides that collision.
+- **Alias resolution**: how a name said in chat becomes one canonical name: exact name, then alias, then one fuzzy hit, all case-insensitive and tolerant of umlauts and plurals. Several hits of one kind: the Pantry one wins, else the agent asks. A Food and a Meal together in the one matching stage always ask; the Pantry never decides that collision. The first matching stage stops the search, so an exact name of one kind beats an alias of the other kind.
 - **Ok step**: the user's "ok" after a create or restock reply. On a Food it sets `reviewed: true` and nothing else. On a restock it writes the shown list. A corrected number is written instead of the ok.
 
 ## Meal terms
