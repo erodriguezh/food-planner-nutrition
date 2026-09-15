@@ -83,8 +83,9 @@ Folder `nodes/food/`, flat, one file per Food. Built by ticket
 [#24](https://github.com/erodriguezh/food-planner-nutrition/issues/24);
 written by `routines/create-food.md`, also when the log, meal or pantry routine meets an unknown Food.
 
-File name = canonical English name with spaces, first word capitalised (`Chicken breast.md`). A packaged product ends with the brand
+File name = canonical English name with spaces, in sentence case: the first word is capitalised, proper nouns and brands keep their capitalisation (`Chicken breast.md`, `Soy milk Alpro.md`). A packaged product ends with the brand
 (`Chicken meatballs Spar.md`); a generic Food has no brand (`Chicken breast.md`).
+Naming term: the spec issue [#22](https://github.com/erodriguezh/food-planner-nutrition/issues/22) writes "title case" for this rule, but every node in the vault is sentence case, so the #22 text needs an owner correction; "sentence case" is the one term used here.
 Every Food sits directly at `nodes/food/<Name>.md`. The lint fails a `type: food` file in another node folder, in a subfolder of `nodes/food/`, or outside `nodes/`.
 
 ### Frontmatter

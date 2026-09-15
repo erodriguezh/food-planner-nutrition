@@ -31,6 +31,7 @@ METRIC_TABLESPOON_ML = 15
 VAULT = Path(__file__).resolve().parent.parent
 CREATE_FOOD = VAULT / "routines" / "create-food.md"
 PANTRY = VAULT / "routines" / "pantry.md"
+NODES_SPEC = VAULT / "docs" / "spec" / "nodes.md"
 
 
 def read(path: Path) -> str:
@@ -193,3 +194,39 @@ class PantryOkTouchesNoFoodTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SpecNameCaseTest(unittest.TestCase):
+    """Spec issue #22 writes "title case" for the Food file name, but every node
+    in the repo is sentence case (`Chicken breast`, `Soy milk Alpro`). The
+    specification document uses one term, "sentence case", and says in one place
+    that #22 needs an owner correction. These tests keep that text from drifting
+    back to two terms for one rule.
+    """
+
+    def setUp(self):
+        self.text = NODES_SPEC.read_text(encoding="utf-8")
+
+    def test_the_spec_names_the_convention_sentence_case(self):
+        self.assertIn("sentence case", self.text)
+
+    def test_the_file_name_rule_uses_the_term_and_shows_both_examples(self):
+        hits = [line for line in self.text.split("\n") if "File name" in line]
+        self.assertEqual(len(hits), 1, hits)
+        rule = hits[0]
+        self.assertIn("sentence case", rule)
+        self.assertIn("`Chicken breast.md`", rule)
+        self.assertIn("`Soy milk Alpro.md`", rule)
+
+    def test_title_case_appears_only_in_the_issue_22_callout(self):
+        hits = [line for line in self.text.split("\n") if "title case" in line.lower()]
+        self.assertEqual(len(hits), 1, hits)
+        callout = hits[0]
+        self.assertIn("#22", callout)
+        self.assertIn("owner", callout.lower())
+
+    def test_the_repo_node_names_match_the_sentence_case_rule(self):
+        for path in sorted((VAULT / "nodes" / "food").glob("*.md")):
+            words = path.stem.split(" ")
+            self.assertTrue(words[0][:1].isupper(), path.name)
+            self.assertEqual(words[0], words[0][:1] + words[0][1:].lower(), path.name)
