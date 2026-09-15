@@ -149,19 +149,31 @@ class LogRoutineTest(RoutineTextTestCase):
         self.assertIn("`routines/log.md` step 4", read(CREATE_MEAL))
 
     def test_totals_and_estimated_are_rewritten_and_the_pantry_is_never_touched(self):
-        rule = self.one_line_with(self.text, "seven totals")
+        """The Day's own totals and its `estimated` checkbox. Step 4 names the
+        Meal's seven totals, so this line says whose totals it rewrites."""
+        rule = self.one_line_with(self.text, "Rewrite Day totals")
         self.assertIn("`estimated`", rule)
         self.assertIn("never the Pantry", rule)
         self.assertIn("`routines/rebalance.md`", self.text.split("## Reply\n", 1)[1])
 
     def test_a_stale_meal_is_recomputed_before_it_is_logged(self):
-        """Story 32 and owner feedback 4 on PR #31: an ingredient Food written
-        after the Meal totals makes the stored totals stale, so the routine
-        recomputes the Meal and writes it before the Day line uses it."""
+        """Story 32 and owner feedback 4 on PR #31, round 3: the daily agent
+        reads this file and not `docs/spec/nodes.md`, so the line states the
+        mutation. An ingredient Food with a `source_date` after the Meal's
+        `totals_date` makes the stored totals stale; the routine sums the
+        ingredient Foods again and writes the Meal's seven totals, `totals_date`
+        and `estimated` before the Day entry of step 5."""
         rule = self.one_line_with(self.text, "`totals_date`")
-        self.assertIn("Food newer than `totals_date`", rule)
-        self.assertIn("rewrite the Meal", rule)
-        self.assertTrue(rule.startswith("4."), rule)
+        self.assertRegex(rule, r"^4\. ")
+        self.assertIn("`source_date`", rule)
+        self.assertLess(rule.index("`source_date`"), rule.index("`totals_date`"), rule)
+        self.assertIn("Foods", rule)  # the totals are summed from the ingredients
+        written = rule.split("write", 1)[1]
+        for field in ("seven totals", "`totals_date`", "`estimated`"):
+            self.assertIn(field, written)
+        # The Meal is written first, before the Day entry of step 5.
+        self.assertIn("first", written)
+        self.assertRegex(self.one_line_with(self.text, "kcal \u00b7 <P> P"), r"^5\. ")
 
     def test_cooked_grams_convert_through_the_cooked_weight(self):
         """Stories 37 and 38: a leftover weighed cooked converts to the canonical
@@ -180,10 +192,13 @@ class LogRoutineTest(RoutineTextTestCase):
         rule = self.one_line_with(self.text, "was that the last of X?")
         self.assertIn("never the Pantry", rule)
 
-    def test_the_reply_names_the_slot_and_what_is_left(self):
+    def test_the_reply_names_the_slot_and_points_at_rebalance(self):
+        """The reply of a log is the rebalance reply plus the slot and the mark.
+        The token budget of this file keeps only the two the pointer does not
+        carry; `RebalanceRoutineTest` pins the one line and what is left."""
         reply = self.text.split("## Reply\n", 1)[1]
+        self.assertIn("`routines/rebalance.md`", reply)
         self.assertIn("slot", reply)
-        self.assertIn("what is left", reply)
         self.assertIn("`~`", reply)
 
 
@@ -224,6 +239,12 @@ class RebalanceRoutineTest(RoutineTextTestCase):
         self.assertIn('"no snack today" writes nothing', self.text)
         write = self.text.split("## Write\n", 1)[1].split("## Reply", 1)[0]
         self.assertTrue(write.strip().startswith("Nothing"), write)
+
+    def test_the_reply_after_a_log_is_one_line_with_what_is_left(self):
+        """`routines/log.md` points its Reply here, so the one line and what is
+        left are stated once, in this file."""
+        reply = self.text.split("## Reply\n", 1)[1]
+        self.assertIn("After a log: one line, what is left", reply)
 
     def test_the_evening_question_and_the_mark(self):
         rule = self.one_line_with(self.text, "did you skip lunch?")
