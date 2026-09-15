@@ -358,6 +358,42 @@ class SpecNameCaseTest(unittest.TestCase):
             self.assertEqual(words[0], words[0][:1] + words[0][1:].lower(), path.name)
 
 
+class SpecLabelIdentityTest(unittest.TestCase):
+    """The specification document must not let the Pantry into package identity.
+
+    It once said the label path falls back to the shared `resolve_name()`, whose
+    Pantry preference can break a same-kind tie. That is right for chat and wrong
+    for a label, so the text states the Foods-only stages, the brand filter, the
+    one Food that is reused and the Pantry rule together.
+    """
+
+    def setUp(self):
+        self.text = NODES_SPEC.read_text(encoding="utf-8")
+
+    def test_the_spec_says_the_pantry_is_not_package_identity(self):
+        hits = [line for line in self.text.split("\n") if "package identity" in line and "Pantry" in line]
+        self.assertEqual(len(hits), 1, hits)
+        self.assertIn("never", hits[0])
+
+    def test_the_spec_no_longer_falls_back_to_the_shared_name_resolution(self):
+        label = self.text.split("A label photo is the one exception", 1)[1].split("\n\n", 1)[0]
+        self.assertNotIn("else `resolve_name()`", label)
+        self.assertIn("Foods only", label)
+        self.assertIn("exact, alias and fuzzy", label)
+        self.assertIn("Exactly one Food", label)
+
+    def test_the_spec_states_the_label_statuses(self):
+        label = self.text.split("A label photo is the one exception", 1)[1].split("\n\n", 1)[0]
+        for status in ("`barcode`", "`label`", "`new`"):
+            self.assertIn(status, label)
+
+    def test_the_glossary_states_the_same_pantry_rule(self):
+        glossary = (VAULT / "CONTEXT.md").read_text(encoding="utf-8")
+        entry = [line for line in glossary.split("\n") if line.startswith("- **Alias resolution**")]
+        self.assertEqual(len(entry), 1, entry)
+        self.assertIn("never breaks a label tie", entry[0])
+
+
 class SpecAliasStagePrecedenceTest(unittest.TestCase):
     """The Food-versus-Meal ask covers one stage. Spec #22 states the stage
     order and the collision rule side by side without saying which wins when a

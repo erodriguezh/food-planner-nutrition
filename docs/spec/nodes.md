@@ -154,13 +154,20 @@ of the one winner (None when the agent asks). The one exception to the Food-vers
 that makes the Meal win, belongs to the log routine and comes with ticket #25.
 
 A label photo is the one exception to the ask. Issue #24 requires that a label produces the Food node with no question, so the
-label identity decides: one Food with the same `barcode`, else the printed `label_name` against the Foods only,
-else `resolve_name()` when it names one Food. A printed brand is part of the identity, so both name stages keep only a Food
-that carries that same brand; a Food of another brand and a generic Food with no brand are a different product. A label that
-prints no brand accepts any Food. No unique Food, an ambiguous name included, means a new Food whose name ends with the
-printed brand (a packaged product ends with the brand), and a count is added in the last resort, so the new name is free of
-every existing Food and Meal name. The lint module holds this as `resolve_label()`, which never returns `ambiguous` and never
-returns `none`, and never names a Meal, so a label never overwrites a Meal and never asks.
+package identity decides alone: one Food with the same `barcode`, else the printed `label_name` against the Foods only.
+That second stage runs the same exact, alias and fuzzy semantics on the Foods alone, where the forms of a Food are its
+canonical name, its aliases and its `label_name`; Meals never take part, so a Meal never blocks the Food the package names.
+The first matching stage keeps every Food it found, and the printed brand then filters them: a printed brand accepts only a
+Food of that same brand, because a Food of another brand, a generic Food with no brand and a Food that the caller did not
+hand over are all a different product. A label that prints no brand accepts any Food. Exactly one Food left is the package
+and is reused. Pantry membership never takes part in package identity: the Pantry preference of `resolve_name()` is right for
+chat, but it is not package identity, so it must never break a label tie. Zero or several Foods left, an ambiguous name
+included, therefore mean a new Food whose name ends with the printed brand (a packaged product ends with the brand), and a
+count is added in the last resort, so the new name is free of every existing Food and Meal name. The lint module holds this
+as `resolve_label()`, which takes no Pantry argument at all and has its own three statuses: `barcode` and `label` name the
+one existing Food, `new` names the Food to create. It never returns `ambiguous` and never returns `none`, and never names a
+Meal, so a label never overwrites a Meal and never asks. Both functions collect their stage candidates with one shared
+helper, `_stage_candidates()`, which applies no preference of its own.
 
 The ask is a same-stage rule, because the stage order comes first: the first matching stage stops the search, so a name that is exact for one kind beats an alias of the other kind and the agent asks nothing. A Food named exactly what the user said wins over a Meal that carries the same word only as an alias, and an exact Meal name wins over a Food alias the same way. Only the candidates of that one matching stage can collide.
 
