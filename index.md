@@ -10,6 +10,7 @@
 - [[Usual breakfast]] | breakfast | usual, the usual
 
 ## Day
+- 2026-09 | nodes/day/2026-09/
 
 ## Goals
 - [[Goals]]
