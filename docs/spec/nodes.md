@@ -144,11 +144,13 @@ The Food and Meal lines of the Index form one alias table. Matching is case-inse
 exact canonical name, then alias, then fuzzy. The fuzzy candidates are the union of two sets: the close matches
 (difflib, cutoff 0.8) and the forms that start with or contain what the user said. Normalization can map two
 different canonical names to one form, so every stage keeps every candidate of that form; a second candidate is
-never dropped in silence. One candidate is used, and a fuzzy one is named in the reply. Several candidates: one
-Pantry candidate wins; two or more Pantry candidates, or none, and the agent asks. The lint module holds this as
-`resolve_name()`, which returns `status`, `name` and the sorted `candidates` of the stage that matched. The
-Food-versus-Meal collision rule (ask, except a slot word makes the Meal win) belongs to the log routine and is
-not part of `resolve_name()` yet.
+never dropped in silence. One candidate is used, and a fuzzy one is named in the reply. Every candidate keeps its
+kind (`food` or `meal`). Several candidates of one kind: one Pantry candidate wins; two or more Pantry candidates,
+or none, and the agent asks. A Food and a Meal in the same stage always ask, because a Pantry item can be a Food or
+a Meal, so the Pantry preference must not decide a Food-versus-Meal collision. The lint module holds this as
+`resolve_name()`, which returns `status`, `name`, the sorted `candidates` of the stage that matched, and the `kind`
+of the one winner (None when the agent asks). The one exception to the Food-versus-Meal ask, an explicit slot word
+that makes the Meal win, belongs to the log routine and comes with ticket #25.
 
 ### Example
 
