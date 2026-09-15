@@ -1330,7 +1330,7 @@ def _check_summary(vault: Vault, node: Node, headings: list[str], sections: Mapp
         return
     if "Summary" not in headings:
         vault.fail(node.rel, f"a {status} Day needs a `## Summary` section with its table, the goal used and the verdict")
-    text = "\n".join(sections["Summary"])
+    text = "\n".join(sections.get("Summary", []))
     if "on target" not in text and "off target:" not in text:
         vault.fail(node.rel, "the `## Summary` needs the verdict in the fixed words `on target` or `off target: <macro> low|high`")
 
