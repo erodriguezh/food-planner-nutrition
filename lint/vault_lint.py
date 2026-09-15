@@ -713,10 +713,15 @@ def parse_ingredient(text: str) -> tuple[str, float]:
 
 @dataclass
 class Totals:
-    """The exact seven totals of a Meal or of one Day entry, its grams, and whether a node behind it is an estimate."""
+    """The exact seven totals of a Meal or of one Day entry, and whether a node behind it is an estimate.
+
+    `weight_g` is the ingredient gram sum, which only a Meal has; it stays 0
+    for one Day entry, whose amount may be a portion count and is read from
+    the entry line instead.
+    """
     exact: dict
-    weight_g: float
     estimated: bool
+    weight_g: float = 0.0
 
 
 def compute_meal(ingredients: Iterable[str], foods: Mapping[str, Mapping[str, object]]) -> Totals:
@@ -736,7 +741,7 @@ def compute_meal(ingredients: Iterable[str], foods: Mapping[str, Mapping[str, ob
             exact[key] += value
         weight += grams
         estimated = estimated or food.get("number_source") == "estimate"
-    return Totals(exact, weight, estimated)
+    return Totals(exact, estimated, weight)
 
 
 # --------------------------------------------------------------------------
@@ -793,7 +798,7 @@ def entry_totals(node: Mapping[str, object], amount: float, unit: str,
             raise ValueError(f"[[{node.get('name')}]] is a Food and is logged in grams, not `{unit}`")
         if change:
             raise ValueError(f"an ingredient change needs a Meal, [[{node.get('name')}]] is a Food")
-        return Totals(scale_food(node, amount), amount, node.get("number_source") == "estimate")
+        return Totals(scale_food(node, amount), node.get("number_source") == "estimate")
     factor = amount / float(node["portions"]) if unit == "portion" else amount / float(node["weight_g"])
     exact = {key: float(node.get(key) or 0) * factor for key in TOTALS}
     if change:
@@ -806,7 +811,7 @@ def entry_totals(node: Mapping[str, object], amount: float, unit: str,
         food = (foods or {})[food_name]
         for key in TOTALS:
             exact[key] += scale_food(food, grams)[key] - scale_food(food, listed[food_name])[key] * factor
-    return Totals(exact, amount, node.get("estimated") == "true")
+    return Totals(exact, node.get("estimated") == "true")
 
 
 # --------------------------------------------------------------------------

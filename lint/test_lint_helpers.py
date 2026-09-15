@@ -86,6 +86,12 @@ class EntryTotalsTest(unittest.TestCase):
         self.assertEqual(by_portion, {"kcal": 240, "protein_g": 15, "fat_g": 1, "carbs_g": 43})
         self.assertEqual(self.macros(MEAL, 150, "g"), by_portion)
 
+    def test_an_entry_never_reports_its_amount_as_a_gram_weight(self):
+        """`weight_g` is the ingredient gram sum of a Meal, which `compute_meal()`
+        fills. An entry amount may be a portion count, so this field stays 0."""
+        self.assertEqual(entry_totals(MEAL, 2, "portion").weight_g, 0.0)
+        self.assertEqual(entry_totals(FOODS["Rice"], 150, "g").weight_g, 0.0)
+
     def test_an_estimate_is_reported_from_the_node(self):
         self.assertTrue(entry_totals(FOODS["Bulgur"], 50, "g").estimated)
         self.assertFalse(entry_totals(FOODS["Rice"], 150, "g").estimated)
