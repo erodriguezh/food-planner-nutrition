@@ -1,4 +1,5 @@
 ## Food
+- [[Oats]] | grain | Haferflocken, oatmeal, rolled oats
 
 ## Meal
 
