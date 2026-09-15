@@ -568,6 +568,27 @@ class DayLintTest(LintCase):
         self.day(DAY.replace("[[Rice bowl]] = 1 portion —", "[[Rice bowl]] = 150 g —"))
         self.assertClean()
 
+    def test_a_guessed_cooked_amount_of_a_meal_carries_the_mark(self):
+        """Feedback item 5: a leftover logged in cooked grams converts through the
+        Meal's `cooked_weight_g` before the line is written. Without a cooked
+        weight the shrink is a guess, so the grams are an estimated input and the
+        line carries the mark, on a Meal that is not itself an estimate."""
+        marked = "- ~ [[Rice bowl]] = 150 g — 240 kcal · 15 P · 1 F · 43 C"
+        text = DAY.replace(BREAKFAST, marked)
+        self.assertIn(marked, text)
+        self.day(text)
+        self.assertClean()
+
+    def test_a_meal_with_a_cooked_weight_is_logged_in_canonical_grams(self):
+        """Feedback item 5: the Meal stores the cooked weight once; 130 cooked g
+        of a 260 g cooked, 300 g raw Meal are 150 canonical g, and the canonical
+        grams are what the line carries, so the lint recomputes the macros."""
+        self.vault.write("nodes/meal/Rice bowl.md", BOWL.replace("weight_g: 300", "weight_g: 300\ncooked_weight_g: 260"))
+        text = DAY.replace("[[Rice bowl]] = 1 portion —", "[[Rice bowl]] = 150 g —")
+        self.assertIn("- [[Rice bowl]] = 150 g —", text)
+        self.day(text)
+        self.assertClean()
+
     # --- the ingredient change ---------------------------------------------------
 
     def test_ingredient_change_needs_a_meal(self):
