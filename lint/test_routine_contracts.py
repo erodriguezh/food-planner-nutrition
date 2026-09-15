@@ -121,6 +121,30 @@ class CreateFoodDensityRuleTest(RoutineTextTestCase):
         self.assertEqual(data["servings"], ["1 tbsp = 9 g"])
 
 
+class CreateFoodNeverOverwritesAMealTest(RoutineTextTestCase):
+    """Spec #22 alias resolution: a Food and a Meal can share an alias, so a
+    resolution hit is not always a Food. A new label may overwrite an existing
+    Food; a Meal hit is not an existing Food and is never overwritten. Only the
+    routine text can hold this, because the lint never sees the chosen node.
+    """
+
+    def setUp(self):
+        self.text = read(CREATE_FOOD)
+
+    def test_only_a_food_hit_is_overwritten(self):
+        rule = self.one_line_with(self.text, "overwrites it")
+        self.assertIn("A Food hit", rule)
+        self.assertNotIn("A hit:", rule)
+
+    def test_a_meal_hit_is_never_overwritten(self):
+        rule = self.one_line_with(self.text, "never overwrite a Meal")
+        self.assertIn("A Meal hit is not a Food", rule)
+
+    def test_the_rule_sits_in_the_resolve_step(self):
+        step = self.one_line_with(self.text, "never overwrite a Meal")
+        self.assertIn("Resolve:", step)
+
+
 class PantryOkTouchesNoFoodTest(unittest.TestCase):
     """The function that applies the pantry additions never touches a Food. The
     "ok" that marks a Food reviewed is the separate `mark_reviewed`."""
