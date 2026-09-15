@@ -1,0 +1,21 @@
+---
+type: food
+name: Skyr
+aliases:
+  - skyr natur
+category: dairy
+kcal_per_100g: 63
+protein_g_per_100g: 11
+fat_g_per_100g: 0.2
+carbs_g_per_100g: 4
+fiber_g_per_100g: 0
+sugar_g_per_100g: 4
+salt_g_per_100g: 0.1
+servings:
+  - "1 portion = 200 g"
+label_basis: 100g
+number_source: database
+source_ref: https://world.openfoodfacts.org/product/skyr-natur
+source_date: 2026-09-14
+reviewed: true
+---
