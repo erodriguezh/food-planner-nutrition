@@ -392,6 +392,14 @@ LUNCH = "- [[Rice]] = 150 g — 528 kcal · 11 P · 1 F · 117 C"
 SNACK = "- ~ [[Bulgur]] = 50 g — 171 kcal · 6 P · 1 F · 38 C"
 DINNER = "- [[Rice bowl]] = 1 portion, [[Skyr]] = 300 g — 368 kcal · 37 P · 1 F · 51 C"
 
+# The same Day with the estimated Bulgur snack replaced by a plain Rice line of
+# the same amount, so no line carries the mark: Rice 50 g is 176 kcal, 3.7 -> 4 P,
+# 0.45 -> 0 F, 39 C.
+PLAIN_DAY = DAY.replace(SNACK, "- [[Rice]] = 50 g — 176 kcal · 4 P · 0 F · 39 C") \
+    .replace("kcal: 1307", "kcal: 1312").replace("protein_g: 69", "protein_g: 67") \
+    .replace("fat_g: 4", "fat_g: 3").replace("carbs_g: 249", "carbs_g: 250") \
+    .replace("fiber_g: 8.8", "fiber_g: 3").replace("sugar_g: 16.7", "sugar_g: 16.6")
+
 # The Summary a closed Day carries: the table, the goal line, one bullet per
 # macro that is off, and the verdict in the fixed words of spec #22.
 SUMMARY = """
@@ -433,12 +441,22 @@ class DayLintTest(LintCase):
     def day(self, text):
         self.vault.write("nodes/day/2026-09/2026-09-15.md", text)
 
-    def closed(self, text=DAY):
-        """The same Day, closed, with its Summary and the State cleared."""
+    def closed(self, text=DAY, status="closed"):
+        """The same Day, closed or auto-closed, with its Summary and the State cleared."""
         if "## Summary" not in text:
             text += SUMMARY
-        self.day(text.replace("status: open", "status: closed"))
+        self.day(text.replace("status: open", f"status: {status}"))
         self.vault.write("state.md", OPEN_STATE.replace('open_day: "[[2026-09-15]]"', 'open_day: ""'))
+
+    def rice_becomes_an_estimate(self):
+        """The owner's example: Rice is re-sourced as `number_source: estimate` after
+        the Day was written, and the Meal that holds it is recomputed. Its numbers do
+        not change, so `source_date` and `totals_date` still agree and the Meal is not
+        stale; only its `estimated` turns true.
+        """
+        self.vault.write("nodes/food/Rice.md", RICE.replace(
+            "number_source: database", 'number_source: estimate\nestimated_from: "[[Bulgur]]"'))
+        self.vault.write("nodes/meal/Rice bowl.md", BOWL.replace("estimated: false", "estimated: true"))
 
     # --- green path -----------------------------------------------------
 
@@ -635,13 +653,38 @@ class DayLintTest(LintCase):
         self.assertError("estimated")
 
     def test_day_estimated_true_without_a_marked_line_fails(self):
-        # Replace the estimated Bulgur line with a plain Rice line of the same numbers.
-        plain = DAY.replace(SNACK, "- [[Rice]] = 50 g — 176 kcal · 4 P · 0 F · 39 C").replace("kcal: 1307", "kcal: 1312") \
-            .replace("protein_g: 69", "protein_g: 67").replace("fat_g: 4", "fat_g: 3").replace("carbs_g: 249", "carbs_g: 250") \
-            .replace("fiber_g: 8.8", "fiber_g: 3").replace("sugar_g: 16.7", "sugar_g: 16.6")
-        self.day(plain)
+        self.day(PLAIN_DAY)
         self.assertError("estimated")
-        self.day(plain.replace("estimated: true", "estimated: false"))
+        self.day(PLAIN_DAY.replace("estimated: true", "estimated: false"))
+        self.assertClean()
+
+    def test_a_closed_day_keeps_its_marks_when_a_food_becomes_an_estimate(self):
+        """PR #31 review: the `~` of a closed Day is history. A Food that turns into an
+        estimate after the Day was written leaves the old unmarked line alone.
+        """
+        for status in ("closed", "auto-closed"):
+            with self.subTest(status=status):
+                self.closed(status=status)
+                self.rice_becomes_an_estimate()
+                self.assertClean()
+
+    def test_an_open_day_still_needs_the_mark_when_a_food_becomes_an_estimate(self):
+        """The mirror of the two above: current-node provenance belongs to an open Day."""
+        self.rice_becomes_an_estimate()
+        self.assertError("[[Rice bowl]] is an estimated Meal, so the line needs the `~` mark")
+        self.day(DAY.replace(BREAKFAST, "- ~ " + BREAKFAST[2:]))
+        self.assertError("[[Rice]] is an estimated Food, so the line needs the `~` mark")
+
+    def test_a_closed_day_estimated_must_still_match_its_lines(self):
+        """The invariant that stays on a closed Day: `estimated` is true exactly when a
+        line carries the mark, whatever the nodes say today.
+        """
+        self.closed(DAY.replace("estimated: true", "estimated: false"))
+        self.assertError("estimated")
+        plain = PLAIN_DAY + SUMMARY.replace("| 1307 |", "| 1312 |")
+        self.closed(plain)
+        self.assertError("estimated")
+        self.closed(plain.replace("estimated: true", "estimated: false"))
         self.assertClean()
 
     # --- totals from the lines ------------------------------------------------------
