@@ -562,6 +562,10 @@ def check_foods(vault: Vault) -> None:
         for key in ("aliases", "servings"):
             if key in data and not isinstance(data[key], list):
                 vault.fail(node.rel, f"`{key}` must be a list")
+        if "label_name" in data:
+            aliases = data.get("aliases")
+            if not isinstance(aliases, list) or data["label_name"] not in aliases:
+                vault.fail(node.rel, f"`label_name` {data['label_name']!r} must also be an item of `aliases`")
         for serving in data.get("servings", []):
             if not SERVING_RE.match(serving):
                 vault.fail(node.rel, f"`servings` item must be `<count> <unit> = <grams> g`, got {serving!r}")

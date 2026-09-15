@@ -93,7 +93,7 @@ File name = canonical English name with spaces, first word capitalised (`Chicken
 | `type` | text | yes | always `food` |
 | `name` | text | yes | canonical English name, equals the file base name |
 | `aliases` | list | no | other names the user says; includes the label name |
-| `label_name` | text | no | name as printed on the package, often German |
+| `label_name` | text | no | name as printed on the package, often German; must also be an item of `aliases` |
 | `brand` | text | no | brand of a packaged product |
 | `category` | text | yes | one of `protein`, `dairy`, `grain`, `vegetable`, `fruit`, `fat`, `snack`, `drink` |
 | `kcal_per_100g` | number | yes | per 100 g |
@@ -131,6 +131,7 @@ No other property is allowed.
 
 One line per Food under `## Food`: `- [[Name]] | <category> | <aliases plus label name, comma separated>`.
 The alias field is the set `aliases` ∪ {`label_name`}; a Food without aliases has the link and category only.
+A `label_name` is always one of the `aliases`, so the union adds nothing; the lint fails a Food whose `aliases` omit its `label_name`.
 The lint fails on a missing or extra alias, a wrong category, or a second line for the same Food.
 
 ### Alias resolution

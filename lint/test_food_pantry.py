@@ -173,6 +173,23 @@ class FoodPantryLintTest(unittest.TestCase):
         self.food(SKYR.replace("reviewed: false", "reviewed: false\nverified: true"))
         self.assertError("verified")
 
+    # --- label_name is one of the aliases -------------------------------
+
+    def test_food_label_name_must_be_listed_in_aliases(self):
+        # #22: the aliases list includes the label name.
+        self.vault.write("nodes/food/Soy milk Alpro.md", SOJA.replace("  - Sojadrink Original\n", ""))
+        self.assertError("label_name")
+
+    def test_food_label_name_without_any_aliases_fails(self):
+        self.vault.write(
+            "nodes/food/Soy milk Alpro.md",
+            SOJA.replace("aliases:\n  - Sojadrink Original\n  - soy milk\n", ""),
+        )
+        self.assertError("label_name")
+
+    def test_food_label_name_in_aliases_passes(self):
+        self.assertEqual(self.errors(), [])
+
     def test_food_body_allows_notes_only(self):
         self.food(SKYR + "\n## Notes\n\nGood.\n")
         self.assertEqual(self.errors(), [])
@@ -341,9 +358,7 @@ class FoodPantryLintTest(unittest.TestCase):
         self.assertError("Risotto")
 
     def test_food_index_line_includes_label_name(self):
-        # label_name must appear in the Index even when it is missing from `aliases`.
-        self.vault.write("nodes/food/Soy milk Alpro.md", SOJA.replace("  - Sojadrink Original\n", ""))
-        self.assertEqual(self.errors(), [])
+        # The label name is one of the aliases, so the Index line must carry it.
         self.vault.write("index.md", INDEX_WITH_FOODS.replace("| Sojadrink Original, soy milk\n", "| soy milk\n"))
         self.assertError("Sojadrink Original")
 
