@@ -203,7 +203,8 @@ class CreateFoodLabelPhotoAsksNothingTest(RoutineTextTestCase):
 
     def test_the_label_step_asks_nothing_on_an_ambiguous_name(self):
         step = self.one_line_with(self.text, "Identify")
-        self.assertIn("ambiguous", step)
+        # The rewritten step starts the sentence with the word, so match the case too.
+        self.assertIn("ambiguous", step.lower())
         self.assertIn("Ask nothing", step)
 
     def test_the_label_step_overwrites_one_food_and_no_meal(self):
@@ -217,6 +218,19 @@ class CreateFoodLabelPhotoAsksNothingTest(RoutineTextTestCase):
     def test_no_unique_food_becomes_a_new_food(self):
         step = self.one_line_with(self.text, "Identify")
         self.assertIn("new Food", step)
+
+    def test_one_food_is_overwritten_only_when_it_is_the_only_one_left(self):
+        """Two Foods left is a tie, and a tie is a new Food, never an overwrite."""
+        step = self.one_line_with(self.text, "Identify")
+        self.assertIn("Exactly one Food", step)
+        self.assertIn("zero or several", step)
+        self.assertLess(step.index("Exactly one Food"), step.index("zero or several"))
+
+    def test_the_pantry_never_breaks_a_label_tie(self):
+        """The reviewer's rule: Pantry membership is not package identity."""
+        step = self.one_line_with(self.text, "Identify")
+        self.assertIn("Pantry no tie-break", step)
+        self.assertLess(step.index("zero or several"), step.index("Pantry"))
 
     def test_the_brand_frees_a_taken_base_name(self):
         rule = self.one_line_with(self.text, "base name")
