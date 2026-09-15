@@ -364,7 +364,9 @@ All properties are required; no other property is allowed.
 
 ### Body
 
-Slot sections `## Breakfast`, `## Lunch`, `## Snack`, `## Dinner` in this fixed order, each present only when it has at least one entry line and holding entry lines only. Then `## Summary` (written at close, ticket #26), then optional `## Notes`. The lint fails any other heading, a slot twice, a slot out of order, an empty slot section, text before the first heading and a non-entry line under a slot.
+Slot sections `## Breakfast`, `## Lunch`, `## Snack`, `## Dinner` in this fixed order, each present only when it has at least one entry line and holding entry lines only. Then `## Summary`, written when the Day is closed, then optional `## Notes`. The lint fails any other heading, a slot twice, a slot out of order, an empty slot section, text before the first heading and a non-entry line under a slot.
+
+An open Day has no `## Summary`; a closed or auto-closed Day has one, and the lint fails either way round. The Summary holds one table row per slot with an entry plus a TOTAL row, one line with the goal numbers used, one bullet per macro over or under with the amount, the verdict, and one hint for tomorrow when useful. A `~` sits before each total when the Day is estimated. The verdict uses fixed words: `on target` when all four macros sit inside min and max, else `off target:` and each macro that is off with `low` or `high`. The lint fails a Summary without those words. `routines/close-day.md` (ticket #26) writes the text.
 
 ### Entry line
 
@@ -390,14 +392,14 @@ Canonical shapes, confirmed by the prototype branch:
 ### Slot rule
 
 The slot is picked by the user's word, else by the clock (before 11:00 breakfast, 11:00 to 15:00 lunch, 15:00 to 18:00 snack, after 18:00 dinner), else, when the clock slot already has an entry from an earlier message, the next slot in order that has none; after dinner there is no next slot. The reply names the slot so a wrong slot is corrected at once. The lint module holds this as `pick_slot()`.
-The fixed order is breakfast, lunch, snack, dinner, so the next slot after a filled breakfast is lunch. The story 50 example in #22 ("a 10:15 croissant after breakfast lands under Snack") does not follow from that order and needs an owner decision; until then the word "snack" in the log picks the slot.
+The fixed order is breakfast, lunch, snack, dinner, so the next slot after a filled breakfast is lunch. The story 50 example in #22 ("a 10:15 croissant after breakfast lands under Snack") does not follow from that order; the owner settled it on PR #31 in favour of the fixed order, and the word "snack" in the log still picks the slot.
 
 Alias resolution at log time uses the shared table with one exception: a slot word in the log makes the Meal win a Food-versus-Meal collision (`resolve_name(..., slot_word=True)`).
 
 ### Lifecycle, State and Index
 
 - The first log of a date creates the Day with `status: open`, sets the State `open_day` to its link and, on the first log of a month, adds the Index month line `- <YYYY-MM> | nodes/day/<YYYY-MM>/`, all in one commit `log: <date> <slot> <name> <amount>`. An unknown Food inside a log is created first in its own `create-food: <name>` commit.
-- A log for a past date writes into that Day. A log into a closed Day rewrites totals and Summary, keeps the status, and the agent says so. A log for a later date auto-closes the older open Day first; the auto-close and the Summary belong to `routines/close-day.md` (ticket #26), which does not exist yet.
+- A log for a past date writes into that Day. A log into a closed Day rewrites totals and Summary, keeps the status, and the agent says so. A log for a later date auto-closes the older open Day first; the auto-close and the Summary text belong to `routines/close-day.md` (ticket #26), which does not exist yet, so the lint holds the invariant in the meantime.
 - The State names the one open Day; the lint fails two open Days and an `open_day` that points elsewhere. Every existing `nodes/day/<YYYY-MM>/` folder has exactly one Index month line.
 - Logging never changes the Pantry.
 
