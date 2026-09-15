@@ -129,7 +129,7 @@ class LogRoutineTest(RoutineTextTestCase):
         leaves `status: closed` alone (story 54, owner feedback 6 on PR #31)."""
         rule = self.step(self.text, 1)
         self.assertIn("past date: its Day", rule)
-        self.assertIn("closed Day: rewrite Summary, keep status", rule)
+        self.assertIn("closed Day: rewrite Summary, keep status, say so", rule)
 
     def test_one_fuzzy_hit_is_used_and_named(self):
         rule = self.step(self.text, 2)
