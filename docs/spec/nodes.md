@@ -293,7 +293,7 @@ No other property is allowed. There is no `number_source` on a Meal; the ingredi
 
 ### Rules
 
-- Totals are stored, computed from the Food nodes: for each ingredient the per-100-g values times the grams, all added up. The lint recomputes them and fails a stored total outside the rounding rule, so a Meal whose Food changed after `totals_date` fails until the agent recomputes it (story 32). The rounding rule is stated in `routines/log.md` step 4 and applied by the lint in `round_total()` (kcal, protein, fat, carbs: whole number, a half rounds up) and `round_food_value()` (fiber, sugar, salt: one decimal); "within the rounding" means within half a unit of the exact value.
+- Totals are stored, computed from the Food nodes: for each ingredient the per-100-g values times the grams, all added up. The lint recomputes them and fails a stored total that is not the exact value rounded, so a Meal whose Food changed after `totals_date` fails until the agent recomputes it (story 32). The rounding rule is stated in `routines/log.md` step 4 and applied by the lint in `round_total()` (kcal, protein, fat, carbs: whole number, a half rounds up) and `round_food_value()` (fiber, sugar, salt: one decimal, a half rounds up); `matches_rounding()` compares a stored value against the rounded one exactly, so an unrounded value fails and a half has one correct neighbour, not two.
 - Every ingredient Food carries `fiber_g_per_100g`, `sugar_g_per_100g` and `salt_g_per_100g`; a missing one is filled and written to the Food before the Meal sums it. The lint fails a Meal whose ingredient Food lacks one.
 - `weight_g` equals the ingredient sum exactly; `cooked_weight_g` is stored only when stated and converts cooked grams of a leftover to raw grams.
 - Estimation mark: `estimated` is derived, `true` exactly when an ingredient Food is an estimate. It bubbles to the Day entry line as `- ~ ` when the Meal is logged. The user's ok never changes it.
@@ -385,7 +385,7 @@ Canonical shapes, confirmed by the prototype branch:
 ### Totals
 
 - `kcal`, `protein_g`, `fat_g`, `carbs_g` equal the sum of the entry lines exactly, on every Day. A closed or auto-closed Day keeps its totals when a Food is reformulated later.
-- An open Day is the one being written now, so its entry lines must also match their nodes within the rounding rule, and `fiber_g`, `sugar_g`, `salt_g` are the exact sum over the nodes rounded once to one decimal, so they must lie within the rounding of that sum. The lint checks both on `status: open` only. `day_totals()` computes the seven totals and `estimated`.
+- An open Day is the one being written now, so its entry lines must also equal their nodes by the rounding rule, and `fiber_g`, `sugar_g`, `salt_g` equal the exact sum over the nodes rounded once to one decimal. The lint checks both on `status: open` only.
 
 ### Slot rule
 
