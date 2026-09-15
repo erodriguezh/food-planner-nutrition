@@ -153,6 +153,12 @@ a Meal, so the Pantry preference must not decide a Food-versus-Meal collision. T
 of the one winner (None when the agent asks). The one exception to the Food-versus-Meal ask, an explicit slot word
 that makes the Meal win, belongs to the log routine and comes with ticket #25.
 
+A label photo is the one exception to the ask. Issue #24 requires that a label produces the Food node with no question, so the
+label identity decides: one Food with the same `barcode`, else the printed `label_name` with the `brand` against the Foods only,
+else `resolve_name()` when it names one Food. No unique Food, an ambiguous name included, means a new Food, and the brand
+qualifies the name until the base name is free. The lint module holds this as `resolve_label()`, which never returns `ambiguous`
+and never names a Meal, so a label never overwrites a Meal and never asks.
+
 The ask is a same-stage rule, because the stage order comes first: the first matching stage stops the search, so a name that is exact for one kind beats an alias of the other kind and the agent asks nothing. A Food named exactly what the user said wins over a Meal that carries the same word only as an alias, and an exact Meal name wins over a Food alias the same way. Only the candidates of that one matching stage can collide.
 
 ### Example
