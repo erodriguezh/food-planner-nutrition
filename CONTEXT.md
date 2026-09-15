@@ -93,4 +93,4 @@ Glossary of the domain language for this vault. Terms are defined once here and 
 - **Routine**: one file that tells the agent how to run one job: log, rebalance, close the day, create food, create meal, pantry, goals, review. A routine holds the method only; it never stores a result.
 - **Spec**: the documents that describe the vault for the build session. Not read in daily use.
 - **Context MCP**: the planned read-only retrieval service with one tool, `build_context(question)`. When connected, the agent calls it first instead of reading the Index. The vault works without it.
-- **Lint**: the script `lint/vault_lint.py` that checks every node, the Index, the State, the Router and the routines against the schemas. Runs locally and on every push to `main`. No model involved.
+- **Lint**: the script `lint/vault_lint.py` that checks every node, the Index, the State, the Router and the routines against the schemas. Runs locally, by hand or from the pre-commit hook in `.githooks/`. No model involved.
