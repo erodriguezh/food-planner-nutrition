@@ -233,5 +233,58 @@ class FuzzyUnionTest(unittest.TestCase):
         self.assertEqual((result.status, result.name), ("exact", "Yoghurt"))
 
 
+
+class ManyCloseCandidatesTest(unittest.TestCase):
+    """The fuzzy stage keeps every form above FUZZY_CUTOFF, not only the best few.
+
+    difflib.get_close_matches() takes a maximum count, so a fixed cap would drop
+    the sixth and later close form in silence and could name a wrong winner.
+    The nine names below are synthetic one-letter variants of one word: the
+    point is the count, not realism. None of them starts with or contains the
+    query, so only the close-match half of the fuzzy union can find them.
+    "Brambolix" is the least similar of the nine, still above the cutoff, so a
+    capped set would drop it first.
+    """
+
+    QUERY = "brambola"
+    NAMES = [
+        "Krambola",
+        "Bdambola",
+        "Brtmbola",
+        "Bravbola",
+        "Brammola",
+        "Brambpla",
+        "Bramboga",
+        "Brambolz",
+        "Brambolix",
+    ]
+    TABLE = [(name, "food", []) for name in NAMES]
+
+    def test_every_close_candidate_survives_and_the_agent_asks(self):
+        result = resolve_name(self.QUERY, self.TABLE)
+        self.assertEqual(result.status, "ambiguous")
+        self.assertIsNone(result.name)
+        self.assertIsNone(result.kind)
+        self.assertEqual(sorted(result.candidates), sorted(self.NAMES))
+
+    def test_the_pantry_rule_picks_the_least_similar_candidate(self):
+        """The one Pantry Food wins, even as the last of nine close candidates."""
+        result = resolve_name(self.QUERY, self.TABLE, pantry_names=["Brambolix"])
+        self.assertEqual((result.status, result.name, result.kind), ("fuzzy", "Brambolix", "food"))
+        self.assertEqual(sorted(result.candidates), sorted(self.NAMES))
+
+    def test_a_meal_among_the_many_candidates_still_asks(self):
+        table = [(name, "food", []) for name in self.NAMES[:-1]] + [("Brambolix", "meal", [])]
+        result = resolve_name(self.QUERY, table, pantry_names=["Brambolix"])
+        self.assertEqual(result.status, "ambiguous")
+        self.assertIsNone(result.name)
+        self.assertEqual(sorted(result.candidates), sorted(self.NAMES))
+
+    def test_an_empty_table_has_no_candidate(self):
+        result = resolve_name(self.QUERY, [])
+        self.assertEqual(result.status, "none")
+        self.assertIsNone(result.name)
+        self.assertEqual(result.candidates, ())
+
 if __name__ == "__main__":
     unittest.main()

@@ -225,8 +225,10 @@ def resolve_name(query: str, table: list[tuple[str, str, list[str]]], pantry_nam
     """Resolve what the user said to one canonical name, as routines/create-food.md describes.
 
     Order: exact canonical name, then alias, then fuzzy. Fuzzy candidates are
-    the union of the close matches and the forms that start with or contain
-    what the user said. One candidate is used (the reply names a fuzzy one).
+    the union of every close match above FUZZY_CUTOFF and the forms that start
+    with or contain what the user said; the close-match half has no maximum
+    count, so a late close candidate is never dropped in silence.
+    One candidate is used (the reply names a fuzzy one).
     Several candidates of one kind: prefer the single one in the Pantry; else
     ask (status `ambiguous`). Nothing close: status `none`.
 
@@ -257,7 +259,10 @@ def resolve_name(query: str, table: list[tuple[str, str, list[str]]], pantry_nam
     forms = _group_by_normalized_form(
         (form, name, kind) for name, kind, aliases in table for form in [name] + list(aliases)
     )
-    close = set(difflib.get_close_matches(wanted, list(forms), n=5, cutoff=FUZZY_CUTOFF))
+    # n=len(forms) keeps every form above the cutoff: a fixed maximum would
+    # drop a late close candidate in silence and could name a wrong winner.
+    # get_close_matches() needs n > 0, so an empty table finds nothing.
+    close = set(difflib.get_close_matches(wanted, list(forms), n=len(forms), cutoff=FUZZY_CUTOFF)) if forms else set()
     close |= {form for form in forms if form.startswith(wanted) or wanted in form}
     fuzzy_hits = {hit for form in close for hit in forms[form]}
     if not fuzzy_hits:

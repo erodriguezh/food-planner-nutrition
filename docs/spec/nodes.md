@@ -142,8 +142,8 @@ The lint fails on a missing or extra alias, a wrong category, or a second line f
 
 The Food and Meal lines of the Index form one alias table. Matching is case-insensitive and ignores umlauts
 (ä → a, ö → o, ü → u, ß → ss) and plurals (a trailing n, else es, else s is dropped on both sides). Order:
-exact canonical name, then alias, then fuzzy. The fuzzy candidates are the union of two sets: the close matches
-(difflib, cutoff 0.8) and the forms that start with or contain what the user said. Normalization can map two
+exact canonical name, then alias, then fuzzy. The fuzzy candidates are the union of two sets: every close match
+(difflib, cutoff 0.8, with no maximum count) and the forms that start with or contain what the user said. Normalization can map two
 different canonical names to one form, so every stage keeps every candidate of that form; a second candidate is
 never dropped in silence. One candidate is used, and a fuzzy one is named in the reply. Every candidate keeps its
 kind (`food` or `meal`). Several candidates of one kind: one Pantry candidate wins; two or more Pantry candidates,
