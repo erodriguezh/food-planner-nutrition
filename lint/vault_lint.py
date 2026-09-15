@@ -193,11 +193,16 @@ def normalize_alias(text: str) -> str:
 
 @dataclass
 class Resolution:
-    """Result of resolve_name(). status: exact, alias, fuzzy, ambiguous, none.
+    """Result of resolve_name() or resolve_label().
+
+    resolve_name() statuses: exact, alias, fuzzy, ambiguous, none.
+    resolve_label() adds barcode, label and new, and never returns ambiguous
+    or none.
 
     `candidates` holds every canonical name the winning stage found, sorted.
-    It is empty only for status `none`. `kind` is `food` or `meal`, the kind of
-    the one winner; it is None when there is no winner (`ambiguous`, `none`).
+    It is empty only for status `none` and for a `new` name that took no
+    existing base name. `kind` is `food` or `meal`, the kind of the one winner;
+    it is None when there is no winner (`ambiguous`, `none`).
     """
     status: str
     name: str | None = None
@@ -333,12 +338,15 @@ def resolve_label(
     1. `barcode`: exactly one Food carries the same barcode. The package is
        that Food.
     2. `label`: the label name matches the canonical name, the `label_name` or
-       an alias of exactly one Food. When the label prints a brand and any of
-       those Foods carries that brand, only the same-brand Foods stay; a brand
-       that matches none of them means a different product, so the stage finds
-       nothing. Meals never take part.
+       an alias of exactly one Food. Meals never take part.
     3. the shared resolve_name() on the label name, used only when it names one
        Food (`kind` is `food`); its `exact`, `alias` or `fuzzy` status is kept.
+
+    Stages 2 and 3 both keep only a Food of the brand the label prints: a
+    printed brand is part of the identity, so a Food of another brand, a
+    generic Food that carries no brand, and a Food that was not handed over in
+    `foods` are all a different product and the stage finds nothing. A label
+    that prints no brand accepts any Food.
     4. `new`: the canonical name to create. It is the label name, plus the brand
        as the qualifier when an existing Food or Meal already holds that base
        name as its canonical name or as an alias (spec #22: a packaged product
@@ -359,19 +367,26 @@ def resolve_label(
         if len(same_barcode) == 1:
             return Resolution("barcode", same_barcode[0], tuple(same_barcode), "food")
 
+    brands = {str(f["name"]): normalize_alias(str(f.get("brand") or "")) for f in food_records}
+
+    def same_brand(name: str) -> bool:
+        """The Food carries the brand the label prints.
+
+        A label with no brand accepts any Food. A printed brand accepts only the
+        same brand: a Food of another brand, a generic Food with no brand, and a
+        Food that was not handed over are all a different product.
+        """
+        return not brand or brands.get(name) == normalize_alias(brand)
+
     wanted = normalize_alias(label_name)
     if wanted:
         forms = _name_forms(table, food_records, kinds=("food",))
-        hits = sorted(forms.get(wanted, set()))
-        if hits and brand:
-            brands = {str(f["name"]): normalize_alias(str(f.get("brand") or "")) for f in food_records}
-            same_brand = [name for name in hits if brands.get(name) == normalize_alias(brand)]
-            hits = same_brand
+        hits = [name for name in sorted(forms.get(wanted, set())) if same_brand(name)]
         if len(hits) == 1:
             return Resolution("label", hits[0], (hits[0],), "food")
 
         by_name = resolve_name(label_name, table, pantry_names)
-        if by_name.kind == "food" and by_name.name:
+        if by_name.kind == "food" and by_name.name and same_brand(by_name.name):
             return by_name
 
     base = label_name.strip() or (brand or "").strip() or "New food"

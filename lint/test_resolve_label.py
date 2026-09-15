@@ -154,5 +154,47 @@ class ResolveLabelNamePathTest(unittest.TestCase):
         self.assertEqual((result.status, result.name), ("new", "Pudding Emmi"))
 
 
+class ResolveLabelBrandTest(unittest.TestCase):
+    """A printed brand is part of the identity: it may confirm a Food, never
+    replace one that carries another brand or no brand at all."""
+
+    GENERIC_TABLE = [("Chicken breast", "food", ["chicken"])]
+    GENERIC_FOODS = [{"name": "Chicken breast"}]
+    BRANDED_TABLE = [("Chicken breast Migros", "food", [])]
+    BRANDED_FOODS = [{"name": "Chicken breast Migros", "label_name": "Chicken breast", "brand": "Migros"}]
+
+    def test_a_branded_label_never_overwrites_a_generic_food(self):
+        label = LabelIdentity(label_name="Chicken breast", brand="Spar")
+        result = resolve_label(label, self.GENERIC_TABLE, self.GENERIC_FOODS)
+        self.assertEqual((result.status, result.name, result.kind), ("new", "Chicken breast Spar", "food"))
+        self.assertEqual(result.candidates, ("Chicken breast",))
+
+    def test_a_label_with_no_brand_still_resolves_to_the_generic_food(self):
+        label = LabelIdentity(label_name="Chicken breast")
+        result = resolve_label(label, self.GENERIC_TABLE, self.GENERIC_FOODS)
+        self.assertEqual((result.status, result.name), ("label", "Chicken breast"))
+
+    def test_a_branded_label_never_overwrites_another_brands_food(self):
+        label = LabelIdentity(label_name="Chicken breast", brand="Spar")
+        result = resolve_label(label, self.BRANDED_TABLE, self.BRANDED_FOODS)
+        self.assertEqual((result.status, result.name), ("new", "Chicken breast Spar"))
+        self.assertEqual(result.candidates, ("Chicken breast Migros",))
+
+    def test_the_same_brand_food_is_used_even_when_only_the_shared_table_finds_it(self):
+        """The Food prints no `label_name`, so the shared table decides; the
+        brand on the winner confirms it is the same product."""
+        table = [("Chicken breast Spar", "food", [])]
+        foods = [{"name": "Chicken breast Spar", "brand": "Spar"}]
+        label = LabelIdentity(label_name="Chicken breast", brand="Spar")
+        result = resolve_label(label, table, foods)
+        self.assertEqual((result.status, result.name, result.kind), ("fuzzy", "Chicken breast Spar", "food"))
+
+    def test_a_branded_label_does_not_take_a_food_of_unknown_brand(self):
+        """The Food node was not handed over, so its brand cannot confirm it."""
+        label = LabelIdentity(label_name="Chicken breast", brand="Spar")
+        result = resolve_label(label, self.GENERIC_TABLE, [])
+        self.assertEqual((result.status, result.name), ("new", "Chicken breast Spar"))
+
+
 if __name__ == "__main__":
     unittest.main()
