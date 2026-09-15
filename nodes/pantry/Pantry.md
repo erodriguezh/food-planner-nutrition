@@ -9,7 +9,7 @@ staples:
 items:
   - "[[Skyr]]"
   - "[[Blueberries]]"
-  - "[[Soja milk Alpro]]"
+  - "[[Soy milk Alpro]]"
   - "[[Chicken breast]]"
   - "[[Eggs]]"
 ---

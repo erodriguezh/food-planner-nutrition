@@ -1,6 +1,6 @@
 ---
 type: food
-name: Soja milk Alpro
+name: Soy milk Alpro
 aliases:
   - Soya Original
   - Sojadrink
@@ -15,7 +15,7 @@ fat_g_per_100g: 1.8
 carbs_g_per_100g: 2.5
 fiber_g_per_100g: 0.5
 sugar_g_per_100g: 2.5
-salt_g_per_100g: 0.09
+salt_g_per_100g: 0.1
 servings:
   - "1 glass = 250 g"
 label_basis: 100ml

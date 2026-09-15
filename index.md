@@ -4,7 +4,7 @@
 - [[Olive oil]] | fat | Olivenöl
 - [[Skyr]] | dairy | skyr natur
 - [[Blueberries]] | fruit | Heidelbeeren, Blaubeeren
-- [[Soja milk Alpro]] | drink | Soya Original, Sojadrink, soja milk, soy milk
+- [[Soy milk Alpro]] | drink | Soya Original, Sojadrink, soja milk, soy milk
 - [[Chicken breast]] | protein | Hühnerbrust, Hühnerbrustfilet, chicken
 - [[Eggs]] | protein | Eier, Ei, egg
 
