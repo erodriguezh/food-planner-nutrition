@@ -8,6 +8,7 @@ kcal_per_100g: 64
 protein_g_per_100g: 11
 fat_g_per_100g: 0.2
 carbs_g_per_100g: 4
+fiber_g_per_100g: 0
 sugar_g_per_100g: 4
 salt_g_per_100g: 0.1
 servings:
