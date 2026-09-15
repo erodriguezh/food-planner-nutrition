@@ -378,14 +378,14 @@ Canonical shapes, confirmed by the prototype branch:
 
 - `<amount>` is `<n> g` for a Food, `<n> g` or `<n> portion` for a Meal. Servings and millilitres convert to grams before the write. Several snacks are several lines. No time on the line, no checkbox, no italics.
 - The four macros are computed from the node at write time by the rounding rule in `routines/log.md` step 4: a Food from its per-100-g values times the grams; a Meal from its stored totals times portions / `portions` or times grams / `weight_g`. The Day is readable without opening the Foods.
-- Ingredient change: a Meal by portion whose one ingredient amount differs from the Meal node. The change is written on the line, after the amount, and never on the Meal. The macros are the stored Meal totals minus the ingredient as the Meal lists it plus the amount eaten, then per portion. The lint fails a change on a Food entry, on a Meal by grams, or naming a Food that is not an ingredient of the Meal.
+- Ingredient change: a Meal by portion whose one ingredient amount differs from the Meal node. The change is written on the line, after the amount, and never on the Meal. The grams on the line are what was on the plate: the macros are the eaten portions of the stored Meal totals, minus the eaten portions of the ingredient as the Meal lists it, plus the amount eaten. For a one-portion Meal that is the stored totals minus the listed ingredient plus the eaten one; for a two-portion Meal listing 200 g skyr, "1 portion with 300 g skyr" replaces 100 g by 300 g. The lint fails a change on a Food entry, on a Meal by grams, or naming a Food that is not an ingredient of the Meal.
 - Estimation mark: `~` right after the bullet, before the link, and nowhere else. It is written when the Food is an estimate (`number_source: estimate`), when the Meal is estimated (`estimated: true`), or when the agent guessed the amount. The lint requires the mark for an estimated Food or Meal and accepts it on a plain node (a guessed amount). The Day `estimated` is `true` exactly when a line carries the mark, and the chat totals then carry `~`.
 - The lint module holds the line as `parse_entry_line()`, `format_entry_line()`, `entry_totals()` and `log_entry()`.
 
 ### Totals
 
 - `kcal`, `protein_g`, `fat_g`, `carbs_g` equal the sum of the entry lines exactly, on every Day. A closed or auto-closed Day keeps its totals when a Food is reformulated later.
-- An open Day is the one being written now, so its entry lines must also match their nodes within the rounding rule, and `fiber_g`, `sugar_g`, `salt_g` must match the sum over the nodes within the rounding of the lines. The lint checks both on `status: open` only. `day_totals()` computes the seven totals and `estimated`.
+- An open Day is the one being written now, so its entry lines must also match their nodes within the rounding rule, and `fiber_g`, `sugar_g`, `salt_g` are the exact sum over the nodes rounded once to one decimal, so they must lie within the rounding of that sum. The lint checks both on `status: open` only. `day_totals()` computes the seven totals and `estimated`.
 
 ### Slot rule
 
@@ -397,7 +397,7 @@ Alias resolution at log time uses the shared table with one exception: a slot wo
 ### Lifecycle, State and Index
 
 - The first log of a date creates the Day with `status: open`, sets the State `open_day` to its link and, on the first log of a month, adds the Index month line `- <YYYY-MM> | nodes/day/<YYYY-MM>/`, all in one commit `log: <date> <slot> <name> <amount>`. An unknown Food inside a log is created first in its own `create-food: <name>` commit.
-- A log for a past date writes into that Day. A log into a closed Day rewrites totals and Summary and keeps the status. A log for a later date auto-closes the older open Day first (ticket #26).
+- A log for a past date writes into that Day. A log into a closed Day rewrites totals and Summary, keeps the status, and the agent says so. A log for a later date auto-closes the older open Day first; the auto-close and the Summary belong to `routines/close-day.md` (ticket #26), which does not exist yet.
 - The State names the one open Day; the lint fails two open Days and an `open_day` that points elsewhere. Every existing `nodes/day/<YYYY-MM>/` folder has exactly one Index month line.
 - Logging never changes the Pantry.
 

@@ -107,8 +107,14 @@ class LogRoutineTest(RoutineTextTestCase):
         for phrase in ('"it was 200 g"', '"remove the snack"', '"yesterday I had'):
             self.assertIn(phrase, when)
 
-    def test_a_past_date_writes_into_its_day(self):
-        self.assertIn("past date writes into its Day", self.text)
+    def test_a_past_date_writes_into_its_day_and_a_closed_day_keeps_its_status(self):
+        rule = self.step(self.text, 1)
+        self.assertIn("past date writes into its Day", rule)
+        self.assertIn("closed Day: rewrite, keep status, say so", rule)
+
+    def test_one_fuzzy_hit_is_used_and_named(self):
+        rule = self.step(self.text, 2)
+        self.assertIn("fuzzy hit is used and named", rule)
 
     def test_the_rounding_rule_is_stated_here_once(self):
         rule = self.one_line_with(self.text, "half up")
@@ -205,6 +211,7 @@ class CreateMealRoutineTest(RoutineTextTestCase):
         write = self.text.split("## Write\n", 1)[1].split("## Reply", 1)[0]
         self.assertIn("`- [[Name]] | <slots or any> | <aliases>`", write)
         self.assertIn("`create-meal: <name>`", write)
+        self.assertIn("`state.md`", write)  # ROUTER hard rule 5
         self.assertLess(write.index("New Foods first"), write.index("Meal"))
 
 

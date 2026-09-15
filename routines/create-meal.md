@@ -15,7 +15,7 @@
 6. Built from today's entries: Day lines stay as eaten. Prepare, Notes on request.
 
 ## Write
-New Foods first; Meal; `index.md` line `- [[Name]] | <slots or any> | <aliases>`. Commit `create-meal: <name>`.
+New Foods first; Meal; `index.md` line `- [[Name]] | <slots or any> | <aliases>`; `state.md`. Commit `create-meal: <name>`.
 
 ## Reply
 List, totals, "ok?", new Foods in one line; one line when written.
