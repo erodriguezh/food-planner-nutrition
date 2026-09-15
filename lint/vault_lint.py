@@ -49,6 +49,12 @@ Checks (v3):
   name; every Meal has exactly one line with its slots (or `any`) and all
   aliases; every Day month folder has exactly one month line
 - every routine file has the five sections and is under 300 tokens
+
+Every number that takes part in a rounding rule is read from the file with
+`Decimal(str)` and is scaled, divided and summed as a Decimal; the half-up
+rounding of `_rounded()` comes last and no tolerance stands in for it. So a
+value that is mathematically 34.5 is exactly 34.5 when the rule sees it, and
+stores 35. A rounded value becomes a float only to be written or shown.
 """
 from __future__ import annotations
 
@@ -118,21 +124,42 @@ ENTRY_LINE_RE = re.compile(
 # Rules stated once and applied everywhere
 # --------------------------------------------------------------------------
 
-def _decimal(value) -> Decimal:
+# Every number that takes part in a rounding rule is a Decimal from the moment
+# it is read to the moment it is rounded. `Number` is what the boundary
+# accepts: a string out of the frontmatter, a Decimal, or a float or int a
+# caller passes in.
+Number = Decimal | float | int | str
+
+
+def _decimal(value: Number) -> Decimal:
     """The number as written, not as the binary float approximates it.
 
-    `str()` gives the shortest decimal that round-trips, so a computed 0.35
-    stays 0.35 and rounds half up to 0.4 instead of down to 0.3.
+    A Decimal passes through, so decimal arithmetic never goes back through a
+    float. Anything else goes through `str()`, which gives the shortest
+    decimal that round-trips, so a stored 0.35 stays 0.35 and rounds half up
+    to 0.4 instead of down to 0.3.
     """
-    return Decimal(str(value))
+    return value if isinstance(value, Decimal) else Decimal(str(value))
 
 
-def _half_up(value: float) -> int:
+def _rounded(value: Number, decimals: int = 0) -> Decimal:
+    """`value` rounded half up, to a whole number or to one decimal. The one rounding step.
+
+    The half must already be exact: a value computed in binary floats reaches
+    this as 34.49999999999999 and rounds down. Every computation behind the
+    rounding rules is therefore decimal (`scale_food()`, `compute_meal()`,
+    `entry_totals()`), never float with a tolerance on top.
+    """
+    step = Decimal("0.1") if decimals else Decimal("1")
+    return _decimal(value).quantize(step, rounding=ROUND_HALF_UP)
+
+
+def _half_up(value: Number) -> int:
     """Nearest whole number, a half rounds up. Shared by the two whole-number rules."""
-    return int(_decimal(value).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+    return int(_rounded(value))
 
 
-def round_bound(value: float) -> int:
+def round_bound(value: Number) -> int:
     """Rounding rule for Goals bounds: nearest whole number, a half rounds up.
 
     The rule is stated for the agent in routines/goals.md step 4. This is the
@@ -141,20 +168,25 @@ def round_bound(value: float) -> int:
     return _half_up(value)
 
 
-def compute_bounds(targets: dict, tolerance_pct: float) -> dict:
-    """The eight stored bounds for the four targets, rounded with round_bound()."""
-    tolerance = tolerance_pct / 100
+def compute_bounds(targets: Mapping[str, Number], tolerance_pct: Number) -> dict:
+    """The eight stored bounds for the four targets, rounded with round_bound().
+
+    Decimal arithmetic, so a bound that lands exactly on a half rounds up:
+    a target of 1690 with a tolerance of 5 gives 1605.5, which stores 1606.
+    """
+    tolerance = _decimal(tolerance_pct) / 100
     bounds = {}
     for macro in MACROS:
-        bounds[f"{macro}_min"] = round_bound(targets[macro] * (1 - tolerance))
-        bounds[f"{macro}_max"] = round_bound(targets[macro] * (1 + tolerance))
+        target = _decimal(targets[macro])
+        bounds[f"{macro}_min"] = round_bound(target * (1 - tolerance))
+        bounds[f"{macro}_max"] = round_bound(target * (1 + tolerance))
     return bounds
 
 
 DEFAULT_TOLERANCE_PCT = 5
 
 
-def apply_goal_change(existing: dict | None, stated_targets: dict, stated_tolerance_pct: float | None, today: str) -> dict:
+def apply_goal_change(existing: dict | None, stated_targets: dict, stated_tolerance_pct: Number | None, today: str) -> dict:
     """The goals routine as a function: the Goals frontmatter after one chat change.
 
     First setup (no existing node): every one of the four targets must be
@@ -169,8 +201,8 @@ def apply_goal_change(existing: dict | None, stated_targets: dict, stated_tolera
         targets = {m: stated_targets[m] for m in MACROS}
         tolerance = DEFAULT_TOLERANCE_PCT if stated_tolerance_pct is None else stated_tolerance_pct
     else:
-        targets = {m: stated_targets.get(m, float(existing[m])) for m in MACROS}
-        tolerance = float(existing["tolerance_pct"]) if stated_tolerance_pct is None else stated_tolerance_pct
+        targets = {m: stated_targets.get(m, _decimal(existing[m])) for m in MACROS}
+        tolerance = _decimal(existing["tolerance_pct"]) if stated_tolerance_pct is None else stated_tolerance_pct
     result = {"type": "goals", "name": "Goals"}
     result.update(targets)
     result["tolerance_pct"] = tolerance
@@ -188,23 +220,25 @@ def estimate_tokens(text: str) -> int:
 # create-food routine as functions
 # --------------------------------------------------------------------------
 
-def round_food_value(value: float) -> float:
+def round_food_value(value: Number) -> float:
     """Rounding rule for Food numbers: one decimal, a half rounds up (2.25 -> 2.3).
 
-    Stated for the agent in routines/create-food.md step 3. A whole result is
-    returned as an int so `64.0` is written `64`.
+    Stated for the agent in routines/create-food.md step 3. The value arrives
+    as a Decimal from decimal arithmetic, or as a string, float or int at the
+    boundary; a whole result is returned as an int so `64.0` is written `64`.
     """
-    rounded = float(_decimal(value).quantize(Decimal("0.1"), rounding=ROUND_HALF_UP))
-    return int(rounded) if rounded == int(rounded) else rounded
+    rounded = _rounded(value, 1)
+    return int(rounded) if rounded == int(rounded) else float(rounded)
 
 
-def per_100g_from_per_100ml(values: dict, density_g_per_ml: float) -> dict:
+def per_100g_from_per_100ml(values: dict, density_g_per_ml: Number) -> dict:
     """Convert per-100-ml label values to per 100 g once, at creation.
 
     100 ml weigh 100 × density grams, so a per-100-g value is the per-100-ml
     value divided by the density. Every result uses round_food_value().
     """
-    return {key: round_food_value(float(value) / density_g_per_ml) for key, value in values.items()}
+    density = _decimal(density_g_per_ml)
+    return {key: round_food_value(_decimal(value) / density) for key, value in values.items()}
 
 
 def mark_reviewed(data: dict) -> dict:
@@ -597,7 +631,7 @@ def _add_amounts(old: str | None, new: str | None) -> str | None:
         old_num, _, old_unit = old.partition(" ")
         new_num, _, new_unit = new.partition(" ")
         if old_unit == new_unit and is_number(old_num) and is_number(new_num):
-            total = round_food_value(float(old_num) + float(new_num))
+            total = round_food_value(_decimal(old_num) + _decimal(new_num))
             return f"{total} {old_unit}"
     return new or old
 
@@ -669,7 +703,7 @@ def apply_restock(data: dict, additions: list[tuple[str, str | None, str | None]
 # Meal arithmetic the Meal totals check compares against
 # --------------------------------------------------------------------------
 
-def round_total(value: float) -> int:
+def round_total(value: Number) -> int:
     """Rounding rule for kcal, protein, fat and carbs on an entry line and in
     the totals of a Meal or Day: nearest whole number, a half rounds up.
 
@@ -682,38 +716,53 @@ def round_total(value: float) -> int:
     return _half_up(value)
 
 
-def rounded_total(exact: float, decimals: int = 0) -> float:
+def rounded_total(exact: Number, decimals: int = 0) -> float:
     """`exact` as it must be stored: a whole number, or one decimal when `decimals` is 1."""
     return round_food_value(exact) if decimals else round_total(exact)
 
 
-def matches_rounding(stored: float, exact: float, decimals: int = 0) -> bool:
+def matches_rounding(stored: Number, exact: Number, decimals: int = 0) -> bool:
     """`stored` is exactly `exact` rounded by the rule; a value the agent left
-    unrounded, or rounded the other way at a half, fails."""
-    return float(stored) == float(rounded_total(exact, decimals))
+    unrounded, or rounded the other way at a half, fails.
+
+    Both sides are compared as decimals, so 2.45 exactly stored as 2.5 holds.
+    """
+    return _decimal(stored) == _rounded(exact, decimals)
 
 
 def food_per_100g(food: Mapping[str, object]) -> dict:
-    """The seven totals per 100 g of a Food. A missing nutrient counts as 0."""
-    return {key: float(food.get(f"{key}_per_100g") or 0) for key in TOTALS}
+    """The seven totals per 100 g of a Food, as decimals. A missing nutrient counts as 0.
+
+    The stored numbers are read with `Decimal(str)`, never through a float, so
+    9.2 is exactly 9.2 and every value it scales to is exact.
+    """
+    return {key: _decimal(food.get(f"{key}_per_100g") or 0) for key in TOTALS}
 
 
-def scale_food(food: Mapping[str, object], grams: float) -> dict:
-    """The seven totals of `grams` of a Food, exact."""
-    return {key: value * grams / 100 for key, value in food_per_100g(food).items()}
+def scale_food(food: Mapping[str, object], grams: Number) -> dict:
+    """The seven totals of `grams` of a Food, exact, as decimals.
+
+    Decimal all the way, so 9.2 per 100 g of 375 g is exactly 34.5 and the
+    rounding rule stores 35.
+    """
+    weight = _decimal(grams)
+    return {key: value * weight / 100 for key, value in food_per_100g(food).items()}
 
 
-def parse_ingredient(text: str) -> tuple[str, float]:
-    """`[[Food]] = <grams> g` -> (name, grams)."""
+def parse_ingredient(text: str) -> tuple[str, Decimal]:
+    """`[[Food]] = <grams> g` -> (name, grams as a Decimal)."""
     match = INGREDIENT_RE.match(text)
     if not match:
         raise ValueError(f"not an ingredient string: {text!r}")
-    return match.group(1), float(match.group(2))
+    return match.group(1), _decimal(match.group(2))
 
 
 @dataclass
 class Totals:
     """The exact seven totals of a Meal or of one Day entry, and whether a node behind it is an estimate.
+
+    Every number here is a Decimal, so a total that lands exactly on a half
+    still is a half when the rounding rule sees it.
 
     `weight_g` is the ingredient gram sum, which only a Meal has; it stays 0
     for one Day entry, whose amount may be a portion count and is read from
@@ -721,18 +770,19 @@ class Totals:
     """
     exact: dict
     estimated: bool
-    weight_g: float = 0.0
+    weight_g: Decimal = Decimal(0)
 
 
 def compute_meal(ingredients: Iterable[str], foods: Mapping[str, Mapping[str, object]]) -> Totals:
     """routines/create-meal.md step 4: sum the ingredients over the Food nodes.
 
-    Exact totals, the raw weight, and `estimated` true exactly when an
-    ingredient Food has `number_source: estimate`. KeyError names an
-    ingredient with no Food.
+    Exact decimal totals, the raw weight, and `estimated` true exactly when an
+    ingredient Food has `number_source: estimate`. The sum is decimal, so it
+    does not depend on the order the ingredients are listed in and a sum that
+    lands on a half rounds up. KeyError names an ingredient with no Food.
     """
-    exact = {key: 0.0 for key in TOTALS}
-    weight = 0.0
+    exact = {key: Decimal(0) for key in TOTALS}
+    weight = Decimal(0)
     estimated = False
     for item in ingredients:
         name, grams = parse_ingredient(item)
@@ -755,13 +805,14 @@ class Entry:
     `unit` is `g` or `portion`. `marked` is the `~` right after the bullet.
     `change` is the ingredient change `(Food, grams)` or None. `macros` holds
     the four whole numbers on the line: kcal, protein_g, fat_g, carbs_g.
+    `amount` and the change grams are Decimals, read from the line as written.
     """
     name: str
-    amount: float
+    amount: Decimal
     unit: str
     macros: dict
     marked: bool = False
-    change: tuple[str, float] | None = None
+    change: tuple[str, Decimal] | None = None
 
 
 def parse_entry_line(line: str) -> Entry:
@@ -770,17 +821,18 @@ def parse_entry_line(line: str) -> Entry:
     if not match:
         raise ValueError(f"not an entry line: {line!r}")
     mark, name, amount, unit, change_name, change_grams, kcal, protein, fat, carbs = match.groups()
-    change = (change_name, float(change_grams)) if change_name else None
+    change = (change_name, _decimal(change_grams)) if change_name else None
     macros = {"kcal": int(kcal), "protein_g": int(protein), "fat_g": int(fat), "carbs_g": int(carbs)}
-    return Entry(name, float(amount), unit, macros, mark is not None, change)
+    return Entry(name, _decimal(amount), unit, macros, mark is not None, change)
 
 
-def _num(value: float) -> str:
-    return str(int(value)) if float(value) == int(value) else str(value)
+def _num(value: Number) -> str:
+    number = _decimal(value)
+    return str(int(number)) if number == int(number) else str(number)
 
 
-def entry_totals(node: Mapping[str, object], amount: float, unit: str,
-                 foods: Mapping[str, Mapping[str, object]] | None = None, change: tuple[str, float] | None = None) -> Totals:
+def entry_totals(node: Mapping[str, object], amount: Number, unit: str,
+                 foods: Mapping[str, Mapping[str, object]] | None = None, change: tuple[str, Number] | None = None) -> Totals:
     """routines/log.md steps 4 and 5: the exact seven totals of one entry from its node, and whether the node is an estimate.
 
     A Food: per 100 g times the grams; `unit` must be `g`. A Meal: its stored
@@ -792,6 +844,12 @@ def entry_totals(node: Mapping[str, object], amount: float, unit: str,
     estimate is `number_source: estimate` on a Food or `estimated: true` on a
     Meal; a guessed amount is the caller's flag. ValueError names a shape the
     routine forbids.
+
+    Decimal throughout, the portions and weight division included, so a total
+    that lands exactly on a half rounds up. Each total is multiplied before it
+    is divided: one portion of a 22-portion Meal of 121 kcal is exactly 5.5,
+    but a factor computed first is 1/22 rounded to 28 digits and gives
+    5.499999999999999999999999999, which would store 5.
     """
     if node.get("type") == "food":
         if unit != "g":
@@ -799,18 +857,19 @@ def entry_totals(node: Mapping[str, object], amount: float, unit: str,
         if change:
             raise ValueError(f"an ingredient change needs a Meal, [[{node.get('name')}]] is a Food")
         return Totals(scale_food(node, amount), node.get("number_source") == "estimate")
-    factor = amount / float(node["portions"]) if unit == "portion" else amount / float(node["weight_g"])
-    exact = {key: float(node.get(key) or 0) * factor for key in TOTALS}
+    eaten = _decimal(amount)
+    whole = _decimal(node["portions"]) if unit == "portion" else _decimal(node["weight_g"])
+    exact = {key: _decimal(node.get(key) or 0) * eaten / whole for key in TOTALS}
     if change:
         if unit != "portion":
             raise ValueError(f"an ingredient change is logged by portion, not `{unit}`")
-        food_name, grams = change
+        food_name, grams = change[0], _decimal(change[1])
         listed = dict(parse_ingredient(item) for item in node.get("ingredients") or [])
         if food_name not in listed:
             raise ValueError(f"ingredient change names [[{food_name}]], which is not an ingredient of [[{node.get('name')}]]")
         food = (foods or {})[food_name]
         for key in TOTALS:
-            exact[key] += scale_food(food, grams)[key] - scale_food(food, listed[food_name])[key] * factor
+            exact[key] += scale_food(food, grams)[key] - scale_food(food, listed[food_name])[key] * eaten / whole
     return Totals(exact, node.get("estimated") == "true")
 
 
@@ -990,13 +1049,15 @@ def check_goals(vault: Vault) -> None:
             vault.fail(node.rel, f"`since` must be a date YYYY-MM-DD, got {data['since']!r}")
         if not is_number(data.get("tolerance_pct", "")):
             continue
-        targets = {m: float(data[m]) for m in MACROS if is_number(data.get(m, ""))}
+        # The stored strings go to compute_bounds() as they are; it reads them
+        # as decimals, so a bound that lands on a half rounds up.
+        targets = {m: data[m] for m in MACROS if is_number(data.get(m, ""))}
         if len(targets) == len(MACROS):
-            expected = compute_bounds(targets, float(data["tolerance_pct"]))
+            expected = compute_bounds(targets, data["tolerance_pct"])
             for key, want in expected.items():
                 if key not in data:
                     vault.fail(node.rel, f"missing `{key}`")
-                elif not is_number(data[key]) or float(data[key]) != want:
+                elif not is_number(data[key]) or _decimal(data[key]) != want:
                     vault.fail(node.rel, f"`{key}` is {data[key]!r}, expected {want} by the rounding rule in routines/goals.md")
         allowed = set(MACROS) | {"type", "name", "tolerance_pct", "since"} | {f"{m}_{b}" for m in MACROS for b in ("min", "max")}
         for key in data:
@@ -1079,8 +1140,8 @@ def check_foods(vault: Vault) -> None:
             if key in data and not is_number(data[key]):
                 vault.fail(node.rel, f"`{key}` must be a number, got {data[key]!r}")
         for key in FOOD_MACROS + FOOD_NUTRIENTS:
-            if key in data and float(data[key]) != round_food_value(float(data[key])):
-                vault.fail(node.rel, f"`{key}` is {data[key]!r}, expected {round_food_value(float(data[key]))} by the rounding rule in routines/create-food.md")
+            if key in data and _decimal(data[key]) != _decimal(round_food_value(data[key])):
+                vault.fail(node.rel, f"`{key}` is {data[key]!r}, expected {round_food_value(data[key])} by the rounding rule in routines/create-food.md")
         _check_enum(vault, node, "category", FOOD_CATEGORIES)
         _check_enum(vault, node, "label_basis", LABEL_BASES)
         _check_enum(vault, node, "number_source", NUMBER_SOURCES)
@@ -1212,7 +1273,7 @@ def check_meals(vault: Vault) -> None:
                 vault.fail(node.rel, f"unexpected property `{key}` on a Meal")
         for key in ("portions", "weight_g", "cooked_weight_g") + TOTALS:
             _check_number(vault, node, key)
-        if float(data["portions"]) <= 0:
+        if _decimal(data["portions"]) <= 0:
             vault.fail(node.rel, f"`portions` must be above 0, got {data['portions']!r}")
         if not is_date(data["totals_date"]):
             vault.fail(node.rel, f"`totals_date` must be a date YYYY-MM-DD, got {data['totals_date']!r}")
@@ -1246,7 +1307,7 @@ def check_meals(vault: Vault) -> None:
                                      f"newer than `totals_date` {data['totals_date']}; recompute the seven totals, "
                                      f"`totals_date` and `estimated` before the Meal is used")
         totals = compute_meal(data["ingredients"], foods)
-        if abs(float(data["weight_g"]) - totals.weight_g) > 1e-6:
+        if _decimal(data["weight_g"]) != totals.weight_g:
             vault.fail(node.rel, f"`weight_g` is {data['weight_g']!r}, the ingredients sum to {_num(totals.weight_g)}")
         for key in TOTALS:
             decimals = 1 if key in NUTRIENTS else 0
@@ -1307,7 +1368,7 @@ def check_days(vault: Vault) -> None:
                 exact_totals.append(exact)
         for key in MACROS:
             want = sum(e.macros[key] for e in entries)
-            if float(data[key]) != want:
+            if _decimal(data[key]) != want:
                 vault.fail(node.rel, f"`{key}` is {data[key]!r}, the entry lines sum to {want}")
         want_estimated = "true" if any(e.marked for e in entries) else "false"
         if data["estimated"] != want_estimated:
@@ -1315,8 +1376,9 @@ def check_days(vault: Vault) -> None:
             vault.fail(node.rel, f"`estimated` is {data['estimated']!r} but {reason}; it must be {want_estimated}")
         if data["status"] == "open":
             for key in NUTRIENTS:
-                # fsum, so the total does not depend on the order the lines were added.
-                exact = math.fsum(t[key] for t in exact_totals)
+                # A decimal sum, so the total is exact and does not depend on
+                # the order the lines were added.
+                exact = sum((t[key] for t in exact_totals), Decimal(0))
                 if not matches_rounding(data[key], exact, 1):
                     vault.fail(node.rel, f"`{key}` is {data[key]!r}, the nodes give {round_food_value(exact)} for the entry lines")
 

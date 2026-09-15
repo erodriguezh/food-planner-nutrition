@@ -9,6 +9,7 @@ text (`test_routine_contracts_log.py`).
 Run: python3 -m unittest discover lint
 """
 import unittest
+from decimal import Decimal
 
 from test_meal_day import BOWL, BULGUR, RICE, SKYR, BREAKFAST, DINNER, LUNCH, SNACK
 from vault_lint import (
@@ -20,6 +21,7 @@ from vault_lint import (
     resolve_name,
     round_food_value,
     round_total,
+    scale_food,
 )
 
 FOODS = {name: parse_frontmatter(text)[0] for name, text in (("Skyr", SKYR), ("Rice", RICE), ("Bulgur", BULGUR))}
@@ -126,11 +128,12 @@ class ComputeMealTest(unittest.TestCase):
     """`compute_meal()` is the sum the Meal totals check compares against."""
 
     def test_compute_meal_sums_the_food_nodes(self):
+        """The sum is decimal, so 22 + 7.4 is exactly 29.4 and not a float near it."""
         totals = compute_meal(MEAL["ingredients"], FOODS)
         self.assertEqual(totals.weight_g, 300)
-        self.assertAlmostEqual(totals.exact["kcal"], 480)
-        self.assertAlmostEqual(totals.exact["protein_g"], 29.4)
-        self.assertAlmostEqual(totals.exact["sugar_g"], 8.2)
+        self.assertEqual(totals.exact["kcal"], Decimal("480"))
+        self.assertEqual(totals.exact["protein_g"], Decimal("29.4"))
+        self.assertEqual(totals.exact["sugar_g"], Decimal("8.2"))
         self.assertFalse(totals.estimated)
 
     def test_an_estimate_ingredient_makes_the_meal_estimated(self):
@@ -139,6 +142,76 @@ class ComputeMealTest(unittest.TestCase):
     def test_compute_meal_names_a_missing_food(self):
         with self.assertRaises(KeyError):
             compute_meal(["[[Quark]] = 100 g"], FOODS)
+
+
+def _food(name, macro, nutrient):
+    """A Food node as the frontmatter parser gives it: every value a string."""
+    return dict(
+        {"type": "food", "name": name, "number_source": "database"},
+        **{f"{key}_per_100g": str(macro) for key in ("kcal", "protein_g", "fat_g", "carbs_g")},
+        **{f"{key}_per_100g": str(nutrient) for key in ("fiber_g", "sugar_g", "salt_g")},
+    )
+
+
+class HalfFromMultiplicationTest(unittest.TestCase):
+    """Round-3 feedback item 1: the half that decides the rounding is produced
+    by the multiplication, so the multiplication itself must be decimal.
+
+    9.2 per 100 g times 375 g is exactly 34.5 and must store 35; as a binary
+    float it is 34.49999999999999 and rounds down to 34. 0.7 per 100 g times
+    350 g is exactly 2.45 and must store 2.5; as a float it is
+    2.4499999999999997 and rounds down to 2.4.
+    """
+
+    # 9.2 per 100 g of every macro, 0.7 per 100 g of every nutrient.
+    HALF_MAKER = _food("Half maker", 9.2, 0.7)
+    # 1 per 100 g of all seven, so 1000 g give exactly 10 of each.
+    TEST_UNIT = _food("Test unit", 1, 1)
+    FOODS = {"Half maker": HALF_MAKER, "Test unit": TEST_UNIT}
+
+    def test_a_whole_number_half_comes_out_of_the_multiplication(self):
+        exact = scale_food(self.HALF_MAKER, 375)["kcal"]
+        self.assertEqual(round_total(exact), 35)
+        self.assertTrue(matches_rounding(35, exact))
+        self.assertFalse(matches_rounding(34, exact))
+
+    def test_a_one_decimal_half_comes_out_of_the_multiplication(self):
+        exact = scale_food(self.HALF_MAKER, 350)["fiber_g"]
+        self.assertEqual(round_food_value(exact), 2.5)
+        self.assertTrue(matches_rounding(2.5, exact, 1))
+        self.assertFalse(matches_rounding(2.4, exact, 1))
+
+    def test_a_multi_ingredient_sum_lands_on_a_half(self):
+        totals = compute_meal(["[[Half maker]] = 375 g", "[[Test unit]] = 1000 g"], self.FOODS)
+        # 34.5 kcal plus 10 kcal is exactly 44.5.
+        self.assertEqual(round_total(totals.exact["kcal"]), 45)
+        self.assertTrue(matches_rounding(45, totals.exact["kcal"]))
+        self.assertEqual(totals.weight_g, 1375)
+
+    def test_an_entry_of_a_food_by_grams_lands_on_a_half(self):
+        totals = entry_totals(self.HALF_MAKER, 375, "g")
+        self.assertEqual(round_total(totals.exact["kcal"]), 35)
+        self.assertEqual(round_food_value(entry_totals(self.HALF_MAKER, 350, "g").exact["fiber_g"]), 2.5)
+
+    def test_a_meal_total_is_multiplied_before_it_is_divided(self):
+        """121 kcal over 22 portions is exactly 5.5 and stores 6. A factor
+        computed first is 1 / 22 in 28 digits, and 121 times it gives
+        5.499999999999999999999999999, which stores 5."""
+        meal = {"type": "meal", "name": "Portion meal", "portions": "22", "weight_g": "12100",
+                "kcal": "121", "protein_g": "121", "fat_g": "121", "carbs_g": "121",
+                "fiber_g": "121", "sugar_g": "121", "salt_g": "121", "estimated": "false"}
+        self.assertEqual(entry_totals(meal, 1, "portion").exact["kcal"], Decimal("5.5"))
+        self.assertEqual(round_total(entry_totals(meal, 1, "portion").exact["kcal"]), 6)
+        self.assertEqual(round_total(entry_totals(meal, 550, "g").exact["kcal"]), 6)
+
+    def test_an_entry_of_a_meal_by_portion_lands_on_a_half(self):
+        """The portions division stays decimal too: 69 kcal over 2 portions is 34.5."""
+        meal = {"type": "meal", "name": "Half meal", "portions": "2", "weight_g": "750",
+                "kcal": "69", "protein_g": "69", "fat_g": "69", "carbs_g": "69",
+                "fiber_g": "4.9", "sugar_g": "4.9", "salt_g": "4.9", "estimated": "false"}
+        totals = entry_totals(meal, 1, "portion")
+        self.assertEqual(round_total(totals.exact["kcal"]), 35)
+        self.assertEqual(round_total(entry_totals(meal, 375, "g").exact["kcal"]), 35)
 
 
 class SlotWordMakesTheMealWinTest(unittest.TestCase):

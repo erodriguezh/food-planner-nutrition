@@ -69,7 +69,7 @@ Glossary of the domain language for this vault. Terms are defined once here and 
 - **Tolerance**: one percent applied to every target to build its range. Default 5.
 - **Goal change**: the user states a new target in chat. Range and tolerance are rewritten with it. The Goals node is edited; git keeps the old values. Each closed Day summary records the targets it used.
 - **Bound**: one end of a range, stored as `<macro>_min` or `<macro>_max`. Eight bounds per Goals node.
-- **Rounding rule**: how a computed number becomes the stored one. Goals bounds: whole number, a half rounds up, stated in `routines/goals.md` step 4. Food numbers: one decimal, a half rounds up, stated in `routines/create-food.md` step 3. Entry line macros and the kcal, protein, fat and carbs totals of a Meal or Day: whole number, a half rounds up; their fiber, sugar and salt: one decimal; stated in `routines/log.md` step 4. The lint applies all three rules.
+- **Rounding rule**: how a computed number becomes the stored one. Goals bounds: whole number, a half rounds up, stated in `routines/goals.md` step 4. Food numbers: one decimal, a half rounds up, stated in `routines/create-food.md` step 3. Entry line macros and the kcal, protein, fat and carbs totals of a Meal or Day: whole number, a half rounds up; their fiber, sugar and salt: one decimal; stated in `routines/log.md` step 4. The lint applies all three rules; it reads the stored numbers as decimals and scales, divides and sums them as decimals, so a half the arithmetic itself produces still rounds up.
 
 ## Pantry terms
 
