@@ -121,7 +121,7 @@ No other property is allowed.
 
 - Stored macro values are always per 100 g. A per-100-ml label converts once at creation: per 100 g = per 100 ml ÷ `density_g_per_ml`. The original per-100-ml values are not stored. Water-like liquids (milk, plant drinks, juice) may use `1.0` with `density_source: estimate`; oils and syrups need a real density.
 - Rounding rule for Food numbers (macros, fiber, sugar, salt): one decimal, a half rounds up (2.25 → 2.3). Stated in `routines/create-food.md` step 3; the lint applies it in `round_food_value()` and fails a value with more decimals. Density is a conversion factor and may keep two decimals.
-- Serving aliases end in grams; ml servings convert with the density at creation (`"1 tbsp = 9 g"` for olive oil). The unit is singular.
+- Serving aliases end in grams; ml servings convert with the density at creation (`"1 tbsp = 9 g"` for olive oil). The unit is singular. Any ml to g step, a per-100-ml label or a serving given in ml, stores `density_g_per_ml` and `density_source`, also when `label_basis` is `100g`. The lint cannot see the input unit, so `routines/create-food.md` step 3 is the contract for it.
 - Provenance (`number_source`) and review (`reviewed`) are separate. A label read by the agent is unreviewed until the user says ok. "ok" sets `reviewed: true` and changes nothing else; a corrected number is written instead and the Food stays unreviewed. Review never removes an estimate mark; only label or database numbers do.
 - Lookup order for missing or generic numbers: Open Food Facts (packaged, barcode), Swiss Food Composition Database (generic, German names), USDA FoodData Central (English), then an estimate from a similar Food with `estimated_from`. The reply names the source.
 - A reformulated product overwrites the node and bumps `source_date`. Closed Days keep their totals.
@@ -206,9 +206,11 @@ No other property is allowed.
 - Every link resolves to an existing Food (staples) or Food or Meal (items) by canonical name. A name appears at most once across both lists.
 - Staple or item is the agent's call from its own knowledge; the user's word overrides it. "Gone" removes the name from whichever list holds it. "Make X a staple" moves it.
 - "I bought ..." appends an item; an existing item gets the amounts added when the units match, else the stated amount wins.
-- Restock from a receipt, shopping-list or product photo: the agent resolves every line, creates unknown Foods unreviewed, shows one list "Add to Pantry: ... Ok?" and writes after the ok. Staples in the photo are skipped with a note.
+- Restock from a receipt, shopping-list or product photo takes exactly one ok: the agent resolves every line, stages the unknown Foods without writing them, and shows one list "Add to Pantry: ... Ok?". Nothing is written before that ok.
+- After the ok the agent creates each staged Food as `routines/create-food.md` describes, `reviewed: false`, one commit `create-food: <name>` each and no reply of its own, then applies the additions in one commit `pantry: <one line>`. The restock ok is not a Food review; the new Foods stay unreviewed and the pantry reply names them. Staples in the photo are skipped with a note.
+- A chat form ("I bought 1 kg chicken breast") with an unknown Food keeps the create-food path: the Food is written at once with its own reply and its own ok.
 - Logging never changes the Pantry.
-- One change is one commit `pantry: <one line>`. `updated` is set on every change.
+- One change is one commit `pantry: <one line>`; a restock commits each staged Food first. `updated` is set on every change.
 - The Index holds one pointer line under `## Pantry`: `- [[Pantry]]`.
 - Body: optional `## Notes` section only, under the same rule as the Food body: empty, or one `## Notes` heading with its content and nothing outside it.
 
