@@ -203,9 +203,11 @@ class Resolution:
     only when the identity leaves exactly one, so which stage matched changes
     nothing the caller does. resolve_label() never returns ambiguous or none.
 
-    `candidates` holds every canonical name the winning stage found, sorted.
-    It is empty only for status `none` and for a `new` name that took no
-    existing base name. `kind` is `food` or `meal`, the kind of the one winner;
+    `candidates` holds the sorted canonical names the winning stage found: every
+    candidate for a resolve_name() status, the one winner for `barcode` and
+    `label`, and for `new` the existing names that hold the base name the label
+    printed. It is empty only for status `none` and for a `new` name that took
+    no existing base name. `kind` is `food` or `meal`, the kind of the one winner;
     it is None when there is no winner (`ambiguous`, `none`).
     """
     status: str
@@ -370,11 +372,13 @@ def resolve_label(
        canonical name, its aliases and its `label_name`. Meals never take part,
        so a Meal never blocks the Food the package names. The first matching
        stage keeps every Food it found, and the printed brand then filters
-       them: a printed brand accepts only a Food of that same brand, because a
-       Food of another brand, a generic Food that carries no brand and a Food
-       that was not handed over in `foods` are all a different product. A label
-       that prints no brand accepts any Food. Exactly one Food left is the
-       package, and it is reused; zero or several left fall through to `new`.
+       them: the printed brand and the brand the Food carries must agree both
+       ways, so a Food of another brand, a generic Food that carries no brand
+       and a Food that was not handed over in `foods` are all a different
+       product, and a label that prints no brand keeps only a Food that carries
+       no brand (a Food that was not handed over is the one exception: nothing
+       disagrees, so it stays). Exactly one Food left is the package, and it is
+       reused; zero or several left fall through to `new`.
     3. `new`: the canonical name to create. It is the label name, and it ends
        with the printed brand (spec #22: a packaged product ends with the
        brand), so a packaged name never takes the generic base name. The name
@@ -395,15 +399,27 @@ def resolve_label(
             return Resolution("barcode", same_barcode[0], tuple(same_barcode), "food")
 
     brands = {str(f["name"]): normalize_alias(str(f.get("brand") or "")) for f in food_records}
+    printed = normalize_alias(brand or "")
 
     def same_brand(name: str) -> bool:
-        """The Food carries the brand the label prints.
+        """The brand the label prints and the brand the Food carries agree.
 
-        A label with no brand accepts any Food. A printed brand accepts only the
-        same brand: a Food of another brand, a generic Food with no brand, and a
-        Food that was not handed over are all a different product.
+        The agreement holds both ways, because the brand is part of the product:
+        a printed brand accepts only the same brand, so a Food of another brand
+        and a generic Food with no brand are a different product; and a label
+        that prints no brand accepts only a Food that carries no brand, because
+        the package never names the brand the Food claims. The fuzzy stage
+        matches a substring, so without this second half a generic `Milk` label
+        would overwrite `Soy milk Alpro` with no question asked.
+
+        A Food that was not handed over in `foods` has no brand to compare. It
+        cannot confirm a printed brand, so a printed brand rejects it; a label
+        with no brand still accepts it, because nothing disagrees.
         """
-        return not brand or brands.get(name) == normalize_alias(brand)
+        carried = brands.get(name)
+        if carried is None:
+            return not printed
+        return carried == printed
 
     if normalize_alias(label_name):
         _stage, hits = _stage_candidates(label_name, _food_table(table, food_records))

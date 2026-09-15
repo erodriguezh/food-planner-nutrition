@@ -157,10 +157,13 @@ A label photo is the one exception to the ask. Issue #24 requires that a label p
 package identity decides alone: one Food with the same `barcode`, else the printed `label_name` against the Foods only.
 That second stage runs the same exact, alias and fuzzy semantics on the Foods alone, where the forms of a Food are its
 canonical name, its aliases and its `label_name`; Meals never take part, so a Meal never blocks the Food the package names.
-The first matching stage keeps every Food it found, and the printed brand then filters them: a printed brand accepts only a
-Food of that same brand, because a Food of another brand, a generic Food with no brand and a Food that the caller did not
-hand over are all a different product. A label that prints no brand accepts any Food. Exactly one Food left is the package
-and is reused. Pantry membership never takes part in package identity: the Pantry preference of `resolve_name()` is right for
+The first matching stage keeps every Food it found, and the brand then filters them. The printed brand and the brand the
+Food carries must agree both ways: a printed brand accepts only a Food of that same brand, because a Food of another brand
+and a generic Food with no brand are a different product; and a label that prints no brand keeps only a Food that carries
+no brand, because the package never names the brand the Food claims. The fuzzy stage matches a substring, so without that
+second half a generic `Milk` label would overwrite `Soy milk Alpro` with no question. A Food that the caller did not hand
+over has no brand to compare: a printed brand rejects it, and a label with no brand keeps it, because nothing disagrees.
+Exactly one Food left is the package and is reused. Pantry membership never takes part in package identity: the Pantry preference of `resolve_name()` is right for
 chat, but it is not package identity, so it must never break a label tie. Zero or several Foods left, an ambiguous name
 included, therefore mean a new Food whose name ends with the printed brand (a packaged product ends with the brand), and a
 count is added in the last resort, so the new name is free of every existing Food and Meal name. The lint module holds this

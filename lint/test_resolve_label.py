@@ -207,6 +207,23 @@ class ResolveLabelBrandTest(unittest.TestCase):
         result = resolve_label(label, self.GENERIC_TABLE, [])
         self.assertEqual((result.status, result.name), ("new", "Chicken breast Spar"))
 
+    def test_an_unbranded_label_never_overwrites_a_branded_food(self):
+        """The brand agreement is symmetric, because a generic label is not the
+        branded product. The fuzzy stage matches a substring, so an unbranded
+        `Milk` label reaches `Soy milk Alpro`; overwriting it would lose the
+        numbers of a product the package never names.
+        """
+        label = LabelIdentity(label_name="Chicken breast")
+        result = resolve_label(label, self.BRANDED_TABLE, self.BRANDED_FOODS)
+        self.assertEqual((result.status, result.kind), ("new", "food"))
+        self.assertEqual(result.candidates, ("Chicken breast Migros",))
+
+    def test_an_unbranded_label_still_takes_a_food_of_unknown_brand(self):
+        """The deliberate asymmetry: a Food that was not handed over has no
+        brand to disagree with, so only a printed brand rejects it."""
+        label = LabelIdentity(label_name="Chicken breast")
+        result = resolve_label(label, self.GENERIC_TABLE, [])
+        self.assertEqual((result.status, result.name), ("label", "Chicken breast"))
 
 
 class ResolveLabelIgnoresPantryTest(unittest.TestCase):
@@ -275,7 +292,7 @@ class ResolveLabelIgnoresPantryTest(unittest.TestCase):
         with self.assertRaises(TypeError):
             resolve_label(LabelIdentity(label_name="Pudding"), self.SHARED_TABLE, self.SHARED_FOODS, ["Pudding Alpha"])
 
-    def test_no_label_returns_ambiguous_or_none_or_a_meal(self):
+    def test_no_label_ever_returns_ambiguous_none_or_a_meal(self):
         cases = [
             (self.SHARED_TABLE, self.SHARED_FOODS),
             (self.ONE_BRAND_TABLE, self.ONE_BRAND_FOODS),
