@@ -39,7 +39,7 @@ import difflib
 import math
 import re
 import sys
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -296,6 +296,128 @@ def _one_or_ask(status: str, hits: set[tuple[str, str]], pantry_names: Iterable[
     if len(in_pantry) == 1:
         return Resolution(status, in_pantry[0], candidates, by_name[in_pantry[0]])
     return Resolution("ambiguous", None, candidates)
+
+
+@dataclass
+class LabelIdentity:
+    """What a label photo gives about the product: printed name, brand, barcode.
+
+    `label_name` is the name as printed, often in German. `brand` and `barcode`
+    are absent on a label that does not print them.
+    """
+    label_name: str
+    brand: str | None = None
+    barcode: str | None = None
+
+
+def resolve_label(
+    label: LabelIdentity | Mapping[str, str | None],
+    table: list[tuple[str, str, list[str]]],
+    foods: Iterable[Mapping[str, object]] = (),
+    pantry_names: list[str] | tuple[str, ...] = (),
+) -> Resolution:
+    """Resolve a label photo to one Food, with no question, as routines/create-food.md describes.
+
+    Issue #24: "A label photo produces a Food node ... with no question asked."
+    The shared resolve_name() asks on a Food-versus-Meal collision and on two
+    candidates of one kind. A label carries its own identity, so this function
+    decides alone: it never returns `ambiguous` and never returns `none`, and
+    its winner is always a Food.
+
+    `label` is a LabelIdentity or the same fields as a mapping. `table` is the
+    shared alias table from parse_alias_table(). `foods` are the existing Food
+    nodes as frontmatter mappings, each with `name` and optionally `label_name`,
+    `brand` and `barcode`; an entry whose `type` is not `food` is ignored.
+
+    Stages, first hit wins:
+    1. `barcode`: exactly one Food carries the same barcode. The package is
+       that Food.
+    2. `label`: the label name matches the canonical name, the `label_name` or
+       an alias of exactly one Food. When the label prints a brand and any of
+       those Foods carries that brand, only the same-brand Foods stay; a brand
+       that matches none of them means a different product, so the stage finds
+       nothing. Meals never take part.
+    3. the shared resolve_name() on the label name, used only when it names one
+       Food (`kind` is `food`); its `exact`, `alias` or `fuzzy` status is kept.
+    4. `new`: the canonical name to create. It is the label name, plus the brand
+       as the qualifier when an existing Food or Meal already holds that base
+       name as its canonical name or as an alias (spec #22: a packaged product
+       ends with the brand), so the base name is free and resolves to the new
+       Food alone. `candidates` holds the existing names that took the base
+       name. A last resort adds a count, so the returned name is always free.
+
+    Only an existing Food is ever named, so a new label never overwrites a Meal.
+    """
+    label_name, brand, barcode = _label_fields(label)
+    food_records = [dict(food) for food in foods if str(food.get("type", "food")) == "food"]
+
+    if barcode:
+        same_barcode = sorted({str(f["name"]) for f in food_records if _clean(f.get("barcode")) == barcode})
+        if len(same_barcode) == 1:
+            return Resolution("barcode", same_barcode[0], tuple(same_barcode), "food")
+
+    wanted = normalize_alias(label_name)
+    if wanted:
+        forms: dict[str, set[str]] = {}
+        for name, kind, aliases in table:
+            if kind != "food":
+                continue
+            for form in [name] + list(aliases):
+                forms.setdefault(normalize_alias(form), set()).add(name)
+        for food in food_records:
+            for form in (food["name"], food.get("label_name")):
+                if form:
+                    forms.setdefault(normalize_alias(str(form)), set()).add(str(food["name"]))
+        hits = sorted(forms.get(wanted, set()))
+        if hits and brand:
+            brands = {str(f["name"]): normalize_alias(str(f.get("brand") or "")) for f in food_records}
+            same_brand = [name for name in hits if brands.get(name) == normalize_alias(brand)]
+            hits = same_brand
+        if len(hits) == 1:
+            return Resolution("label", hits[0], (hits[0],), "food")
+
+        by_name = resolve_name(label_name, table, pantry_names)
+        if by_name.kind == "food" and by_name.name:
+            return by_name
+
+    base = label_name.strip() or (brand or "").strip() or "New food"
+    taken: dict[str, set[str]] = {}
+    for name, _kind, aliases in table:
+        for form in [name] + list(aliases):
+            taken.setdefault(normalize_alias(form), set()).add(name)
+    for food in food_records:
+        for form in (food["name"], food.get("label_name")):
+            if form:
+                taken.setdefault(normalize_alias(str(form)), set()).add(str(food["name"]))
+    blocked = tuple(sorted(taken.get(normalize_alias(base), set())))
+    return Resolution("new", _free_name(base, brand, taken), blocked, "food")
+
+
+def _label_fields(label: LabelIdentity | Mapping[str, str | None]) -> tuple[str, str | None, str | None]:
+    """A LabelIdentity or the same fields as a mapping -> (label name, brand, barcode)."""
+    if isinstance(label, LabelIdentity):
+        return label.label_name or "", _clean(label.brand), _clean(label.barcode)
+    return str(label.get("label_name") or ""), _clean(label.get("brand")), _clean(label.get("barcode"))
+
+
+def _clean(value: object) -> str | None:
+    text = str(value).strip() if value is not None else ""
+    return text or None
+
+
+def _free_name(base: str, brand: str | None, taken: Mapping[str, set[str]]) -> str:
+    """The first free canonical name: the base name, then the brand as qualifier, then a count."""
+    wanted = [base]
+    if brand:
+        wanted.append(f"{base} {brand}")
+    for name in wanted:
+        if normalize_alias(name) not in taken:
+            return name
+    stem = wanted[-1]
+    count = 2
+    while normalize_alias(f"{stem} {count}") in taken:
+        count += 1
+    return f"{stem} {count}"
 
 
 # --------------------------------------------------------------------------
