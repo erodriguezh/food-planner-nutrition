@@ -196,6 +196,34 @@ class FoodPantryLintTest(unittest.TestCase):
         self.food(SKYR + "\n## Label\n\n64 kcal\n")
         self.assertError("Notes")
 
+    def test_food_empty_body_passes(self):
+        self.food(SKYR)
+        self.assertEqual(self.errors(), [])
+
+    def test_food_free_prose_without_a_heading_fails(self):
+        self.food(SKYR + "\nBought at the corner shop.\n")
+        self.assertError("Notes")
+
+    def test_food_prose_before_the_notes_heading_fails(self):
+        self.food(SKYR + "\nBought at the corner shop.\n\n## Notes\n\nGood.\n")
+        self.assertError("Notes")
+
+    def test_food_second_notes_heading_fails(self):
+        self.food(SKYR + "\n## Notes\n\nGood.\n\n## Notes\n\nAlso good.\n")
+        self.assertError("Notes")
+
+    def test_food_level_one_heading_fails(self):
+        self.food(SKYR + "\n# Skyr\n\n## Notes\n\nGood.\n")
+        self.assertError("Notes")
+
+    def test_food_level_three_heading_fails(self):
+        self.food(SKYR + "\n## Notes\n\n### Taste\n\nSour.\n")
+        self.assertError("Notes")
+
+    def test_food_notes_heading_without_content_passes(self):
+        self.food(SKYR + "\n## Notes\n")
+        self.assertEqual(self.errors(), [])
+
     # --- density rules --------------------------------------------------
 
     def test_100ml_needs_density(self):
@@ -345,6 +373,18 @@ class FoodPantryLintTest(unittest.TestCase):
 
     def test_pantry_body_allows_notes_only(self):
         self.vault.write("nodes/pantry/Pantry.md", PANTRY + "\n## Shopping\n\n- milk\n")
+        self.assertError("Notes")
+
+    def test_pantry_notes_body_passes(self):
+        self.vault.write("nodes/pantry/Pantry.md", PANTRY + "\n## Notes\n\nSeeded today.\n")
+        self.assertEqual(self.errors(), [])
+
+    def test_pantry_free_prose_without_a_heading_fails(self):
+        self.vault.write("nodes/pantry/Pantry.md", PANTRY + "\nI still need milk.\n")
+        self.assertError("Notes")
+
+    def test_pantry_second_notes_heading_fails(self):
+        self.vault.write("nodes/pantry/Pantry.md", PANTRY + "\n## Notes\n\nOne.\n\n## Notes\n\nTwo.\n")
         self.assertError("Notes")
 
     # --- Index Food lines -----------------------------------------------

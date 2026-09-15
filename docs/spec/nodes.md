@@ -127,6 +127,7 @@ No other property is allowed.
 - `number_source: estimate` needs `estimated_from`: an estimate always names the Food it came from. The reverse is not true; `estimated_from` may stay after label or database numbers replace the estimate, so the provenance survives.
 - A Food links only through `estimated_from`. Pantry and Meal link to the Food; backlinks give the reverse view.
 - Body: optional `## Notes` section only (taste, shop, price). No label transcription.
+  The body is either empty or one `## Notes` heading with its content. The lint fails text outside that section (free prose before the first heading included), any other heading at any level, and a second `## Notes` heading.
 
 ### Index line
 
@@ -204,7 +205,7 @@ No other property is allowed.
 - Logging never changes the Pantry.
 - One change is one commit `pantry: <one line>`. `updated` is set on every change.
 - The Index holds one pointer line under `## Pantry`: `- [[Pantry]]`.
-- Body: optional `## Notes` section only.
+- Body: optional `## Notes` section only, under the same rule as the Food body: empty, or one `## Notes` heading with its content and nothing outside it.
 
 ### Example
 

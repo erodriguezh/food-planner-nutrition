@@ -18,7 +18,9 @@ Checks (v2):
 - every Food has its required properties and enums, numbers with at most one
   decimal, servings in grams,
   density fields with a 100ml label basis, `estimated_from` as a link to a Food,
-  no unknown property and a body of at most one `## Notes` section
+  no unknown property, `estimated_from` when the number source is an estimate,
+  a `label_name` that is one of the aliases, and a body that is empty or holds
+  one `## Notes` section with no heading and no text outside it
 - the Pantry node has `updated`, staples as `"[[Food]]"`, items as
   `"[[Food or Meal]]"` with a grams, portion or cooked-grams amount and an
   optional `until` date; every link resolves by canonical name
@@ -66,6 +68,7 @@ QUOTED_LINK_RE = re.compile(r"^\[\[([^\]|#]+)\]\]$")
 PANTRY_ITEM_RE = re.compile(r"^\[\[([^\]|#]+)\]\](?: = ([^,]+?))?(?:, until (\d{4}-\d{2}-\d{2}))?$")
 FOOD_AMOUNT_RE = re.compile(r"^\d+(\.\d+)? g$")
 MEAL_AMOUNT_RE = re.compile(r"^\d+(\.\d+)? (portion|g cooked)$")
+HEADING_RE = re.compile(r"^(#{1,6})\s+(.*)$")
 
 
 # --------------------------------------------------------------------------
@@ -517,9 +520,35 @@ def _check_enum(vault: Vault, node: Node, key: str, allowed: tuple) -> None:
 
 
 def _check_body_notes_only(vault: Vault, node: Node) -> None:
-    extra = [s for s in _sections(node.body) if s != "Notes"]
-    if extra:
-        vault.fail(node.rel, f"body may hold only an optional `## Notes` section, found {extra}")
+    """The body is empty, or one `## Notes` section and nothing else.
+
+    `_sections()` drops the lines before the first heading, so it cannot see
+    free prose. This walks every body line instead: no heading other than one
+    `## Notes`, and no text before that heading.
+    """
+    in_notes = False
+    seen_notes = False
+    in_fence = False
+    for line in node.body.split("\n"):
+        if line.lstrip().startswith("```"):
+            in_fence = not in_fence
+            if not in_notes:
+                vault.fail(node.rel, "body may hold only an optional `## Notes` section, found text before the heading")
+            continue
+        if in_fence:
+            continue
+        match = HEADING_RE.match(line)
+        if match:
+            heading = f"{match.group(1)} {match.group(2).strip()}"
+            if match.group(1) != "##" or match.group(2).strip() != "Notes":
+                vault.fail(node.rel, f"body may hold only an optional `## Notes` section, found heading `{heading}`")
+            if seen_notes:
+                vault.fail(node.rel, "body has a second `## Notes` heading; one is the maximum")
+            seen_notes = True
+            in_notes = True
+            continue
+        if not in_notes and line.strip():
+            vault.fail(node.rel, f"body may hold only an optional `## Notes` section, found text outside it: {line.strip()!r}")
 
 
 def _check_wikilink_property(vault: Vault, node: Node, key: str, allowed_types: tuple) -> Node | None:
