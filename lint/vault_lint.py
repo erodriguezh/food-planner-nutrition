@@ -666,7 +666,7 @@ def apply_restock(data: dict, additions: list[tuple[str, str | None, str | None]
 
 
 # --------------------------------------------------------------------------
-# create-meal routine as functions
+# Meal arithmetic the Meal totals check compares against
 # --------------------------------------------------------------------------
 
 def round_total(value: float) -> int:
@@ -691,14 +691,6 @@ def matches_rounding(stored: float, exact: float, decimals: int = 0) -> bool:
     """`stored` is exactly `exact` rounded by the rule; a value the agent left
     unrounded, or rounded the other way at a half, fails."""
     return float(stored) == float(rounded_total(exact, decimals))
-
-
-def round_totals(exact: Mapping[str, float]) -> dict:
-    """The seven totals as stored: whole numbers for the four macros, one decimal for the nutrients."""
-    return {
-        **{key: round_total(exact[key]) for key in MACROS},
-        **{key: round_food_value(exact[key]) for key in NUTRIENTS},
-    }
 
 
 def food_per_100g(food: Mapping[str, object]) -> dict:
@@ -747,43 +739,13 @@ def compute_meal(ingredients: Iterable[str], foods: Mapping[str, Mapping[str, ob
     return Totals(exact, weight, estimated)
 
 
-def build_meal(name: str, ingredients: list[str], foods: Mapping[str, Mapping[str, object]], today: str,
-               portions: int = 1, slots: Iterable[str] = (), aliases: Iterable[str] = (), reviewed: bool = False) -> dict:
-    """routines/create-meal.md steps 4 and 5: the Meal frontmatter, before the ok (`reviewed: false`) or after it."""
-    totals = compute_meal(ingredients, foods)
-    aliases, slots = list(aliases), list(slots)
-    data: dict = {"type": "meal", "name": name}
-    if aliases:
-        data["aliases"] = aliases
-    if slots:
-        data["slots"] = slots
-    data["ingredients"] = list(ingredients)
-    data["portions"] = portions
-    data["weight_g"] = round_food_value(totals.weight_g)
-    data.update(round_totals(totals.exact))
-    data["totals_date"] = today
-    data["estimated"] = "true" if totals.estimated else "false"
-    data["reviewed"] = "true" if reviewed else "false"
-    return data
-
-
-def meal_index_line(data: Mapping[str, object]) -> str:
-    """routines/create-meal.md Write: `- [[Name]] | <slots or any> | <aliases>`, the Meal line of the shared alias table."""
-    slots = data.get("slots") or []
-    line = f"- [[{data['name']}]] | {', '.join(slots) if slots else 'any'}"
-    aliases = data.get("aliases") or []
-    if aliases:
-        line += f" | {', '.join(aliases)}"
-    return line
-
-
 # --------------------------------------------------------------------------
-# log routine as functions
+# Day entry lines: the parser and the arithmetic the Day check compares against
 # --------------------------------------------------------------------------
 
 @dataclass
 class Entry:
-    """One entry line of a Day, parsed or about to be written.
+    """One entry line of a Day, as the lint read it.
 
     `unit` is `g` or `portion`. `marked` is the `~` right after the bullet.
     `change` is the ingredient change `(Food, grams)` or None. `macros` holds
@@ -806,16 +768,6 @@ def parse_entry_line(line: str) -> Entry:
     change = (change_name, float(change_grams)) if change_name else None
     macros = {"kcal": int(kcal), "protein_g": int(protein), "fat_g": int(fat), "carbs_g": int(carbs)}
     return Entry(name, float(amount), unit, macros, mark is not None, change)
-
-
-def format_entry_line(entry: Entry) -> str:
-    """Entry -> the canonical line of routines/log.md steps 5 and 6: `- ~ [[Name]] = <n> g — <kcal> kcal · <P> P · <F> F · <C> C`."""
-    text = "- ~ " if entry.marked else "- "
-    text += f"[[{entry.name}]] = {_num(entry.amount)} {entry.unit}"
-    if entry.change:
-        text += f", [[{entry.change[0]}]] = {_num(entry.change[1])} g"
-    m = entry.macros
-    return text + f" — {m['kcal']} kcal · {m['protein_g']} P · {m['fat_g']} F · {m['carbs_g']} C"
 
 
 def _num(value: float) -> str:
@@ -855,80 +807,6 @@ def entry_totals(node: Mapping[str, object], amount: float, unit: str,
         for key in TOTALS:
             exact[key] += scale_food(food, grams)[key] - scale_food(food, listed[food_name])[key] * factor
     return Totals(exact, amount, node.get("estimated") == "true")
-
-
-def log_entry(node: Mapping[str, object], amount: float, unit: str, guessed: bool = False,
-              foods: Mapping[str, Mapping[str, object]] | None = None, change: tuple[str, float] | None = None) -> Entry:
-    """routines/log.md steps 4 to 6: the Entry to write, macros by the rounding rule, the mark when the node or the amount is estimated."""
-    totals = entry_totals(node, amount, unit, foods, change)
-    macros = {key: round_total(totals.exact[key]) for key in MACROS}
-    return Entry(str(node["name"]), amount, unit, macros, totals.estimated or guessed, change)
-
-
-def day_totals(entries: Iterable[Entry], exact_nutrients: Iterable[Mapping[str, float]] = ()) -> dict:
-    """routines/log.md step 7: the seven Day totals and `estimated`.
-
-    The four macros are the sum of the line numbers. Fiber, sugar and salt
-    are the exact sum over the entries' Totals, rounded once to one decimal.
-    """
-    entries = list(entries)
-    result: dict = {key: sum(e.macros[key] for e in entries) for key in MACROS}
-    nutrients = list(exact_nutrients)
-    for key in NUTRIENTS:
-        result[key] = round_food_value(sum(n[key] for n in nutrients))
-    result["estimated"] = "true" if any(e.marked for e in entries) else "false"
-    return result
-
-
-def pick_slot(word: str | None, clock: str | None, filled: Iterable[str] = ()) -> str:
-    """routines/log.md step 3, the slot rule: the user's word, else the clock, else the next slot in order.
-
-    Clock: before 11:00 breakfast, 11:00 to 15:00 lunch, 15:00 to 18:00 snack,
-    after 18:00 dinner. When the clock slot already holds an entry from an
-    earlier message (`filled`), the next slot in order that is not filled;
-    after dinner there is no next slot, so dinner takes it.
-    """
-    if word:
-        if word.lower() not in SLOTS:
-            raise ValueError(f"{word!r} is not a slot word")
-        return word.lower()
-    if clock is None:
-        raise ValueError("a slot needs the user's word or the clock")
-    hour, _, minute = clock.partition(":")
-    minutes = int(hour) * 60 + int(minute or 0)
-    if minutes < 11 * 60:
-        slot = "breakfast"
-    elif minutes < 15 * 60:
-        slot = "lunch"
-    elif minutes < 18 * 60:
-        slot = "snack"
-    else:
-        slot = "dinner"
-    filled_set = set(filled)
-    for candidate in SLOTS[SLOTS.index(slot):]:
-        if candidate not in filled_set:
-            return candidate
-    return "dinner"
-
-
-# --------------------------------------------------------------------------
-# rebalance routine as functions
-# --------------------------------------------------------------------------
-
-def remaining(goals: Mapping[str, object], day: Mapping[str, object]) -> dict:
-    """routines/rebalance.md step 1: remaining = target minus running totals, for kcal, protein, fat, carbs."""
-    return {key: round_total(float(goals[key]) - float(day.get(key) or 0)) for key in MACROS}
-
-
-def over_max(goals: Mapping[str, object], day: Mapping[str, object]) -> list[str]:
-    """routines/rebalance.md step 1: the macros whose running total is above the stored max."""
-    return [key for key in MACROS if float(day.get(key) or 0) > float(goals[f"{key}_max"])]
-
-
-def open_slots(filled: Iterable[str], removed: Iterable[str] = ()) -> list[str]:
-    """routines/rebalance.md step 2: slots with no entry, in the fixed order, minus the slots removed in chat."""
-    taken = set(filled) | set(removed)
-    return [slot for slot in SLOTS if slot not in taken]
 
 
 # --------------------------------------------------------------------------

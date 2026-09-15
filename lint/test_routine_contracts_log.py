@@ -76,13 +76,17 @@ class LogRoutineTest(RoutineTextTestCase):
         self.assertIn("never on the Meal", rule)
 
     def test_the_slot_rule_is_word_then_clock_then_next_in_order(self):
+        """The slot rule lives in this line only. The owner settled the fixed
+        order on PR #31, so the line names the four slots in that order and
+        sends a filled slot to the next one, not to the clock's own slot."""
         rule = self.one_line_with(self.text, "Slot:")
         self.assertLess(rule.index("word"), rule.index("clock"))
         self.assertLess(rule.index("clock"), rule.index("next in order"))
         for boundary in ("11", "15", "18"):
             self.assertIn(boundary, rule)
-        for slot in ("breakfast", "lunch", "snack", "dinner"):
-            self.assertIn(slot, rule)
+        order = [rule.index(slot) for slot in ("breakfast", "lunch", "snack", "dinner")]
+        self.assertEqual(order, sorted(order), rule)
+        self.assertIn("filled earlier: next in order", rule)
 
     def test_a_slot_word_makes_the_meal_win(self):
         rule = self.one_line_with(self.text, "slot word")
@@ -147,6 +151,15 @@ class RebalanceRoutineTest(RoutineTextTestCase):
         self.assertIn("target minus running totals", rule)
         self.assertIn("after every log", rule)
         self.assertIn("over its max", rule)
+
+    def test_open_slots_are_the_empty_ones_in_the_fixed_order(self):
+        """The open-slot list is the fixed order minus the filled and the
+        removed slots; a removed slot is chat only and writes nothing."""
+        rule = self.one_line_with(self.text, "Open slots:")
+        self.assertIn("no entry yet", rule)
+        order = [rule.index(slot) for slot in ("breakfast", "lunch", "snack", "dinner")]
+        self.assertEqual(order, sorted(order), rule)
+        self.assertIn("minus slots removed in chat", rule)
 
     def test_a_suggestion_comes_only_on_request(self):
         rule = self.one_line_with(self.text, "only on request")

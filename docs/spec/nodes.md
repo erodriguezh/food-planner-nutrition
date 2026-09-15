@@ -300,7 +300,7 @@ No other property is allowed. There is no `number_source` on a Meal; the ingredi
 - Unknown Foods in a create-meal flow are created unreviewed first, one `create-food: <name>` commit each with no reply of their own, and named in one summary line; the Meal's one "ok?" sets the Meal `reviewed: true` and touches no Food. A corrected amount is written instead of the ok.
 - A Meal built from today's entries leaves the Day lines as they were eaten.
 - Edges: Meal to Food only. Body: optional `## Prepare` and `## Notes` sections, in that order, filled only on request; the lint fails any other heading, a second copy, the wrong order and text before the first heading.
-- The lint module holds the routine as `compute_meal()`, `build_meal()` and `meal_index_line()`.
+- The lint sums the ingredients with `compute_meal()` and compares the stored totals against that sum. Writing the Meal and its Index line belongs to `routines/create-meal.md`, not to the lint.
 
 ### Index line
 
@@ -382,7 +382,7 @@ Canonical shapes, confirmed by the prototype branch:
 - The four macros are computed from the node at write time by the rounding rule in `routines/log.md` step 4: a Food from its per-100-g values times the grams; a Meal from its stored totals times portions / `portions` or times grams / `weight_g`. The Day is readable without opening the Foods.
 - Ingredient change: a Meal by portion whose one ingredient amount differs from the Meal node. The change is written on the line, after the amount, and never on the Meal. The grams on the line are what was on the plate: the macros are the eaten portions of the stored Meal totals, minus the eaten portions of the ingredient as the Meal lists it, plus the amount eaten. For a one-portion Meal that is the stored totals minus the listed ingredient plus the eaten one; for a two-portion Meal listing 200 g skyr, "1 portion with 300 g skyr" replaces 100 g by 300 g. The lint fails a change on a Food entry, on a Meal by grams, or naming a Food that is not an ingredient of the Meal.
 - Estimation mark: `~` right after the bullet, before the link, and nowhere else. It is written when the Food is an estimate (`number_source: estimate`), when the Meal is estimated (`estimated: true`), or when the agent guessed the amount. The lint requires the mark for an estimated Food or Meal and accepts it on a plain node (a guessed amount). The Day `estimated` is `true` exactly when a line carries the mark, and the chat totals then carry `~`.
-- The lint module holds the line as `parse_entry_line()`, `format_entry_line()`, `entry_totals()` and `log_entry()`.
+- The lint reads the line with `parse_entry_line()` and recomputes it with `entry_totals()`. The vault files are the seam: the routine text tells the agent what to write, the lint judges what is on disk, and the lint holds no second implementation of the routine.
 
 ### Totals
 
@@ -391,7 +391,7 @@ Canonical shapes, confirmed by the prototype branch:
 
 ### Slot rule
 
-The slot is picked by the user's word, else by the clock (before 11:00 breakfast, 11:00 to 15:00 lunch, 15:00 to 18:00 snack, after 18:00 dinner), else, when the clock slot already has an entry from an earlier message, the next slot in order that has none; after dinner there is no next slot. The reply names the slot so a wrong slot is corrected at once. The lint module holds this as `pick_slot()`.
+The slot is picked by the user's word, else by the clock (before 11:00 breakfast, 11:00 to 15:00 lunch, 15:00 to 18:00 snack, after 18:00 dinner), else, when the clock slot already has an entry from an earlier message, the next slot in order that has none; after dinner there is no next slot. The reply names the slot so a wrong slot is corrected at once. The rule lives in `routines/log.md` step 3; the lint sees only which section a line landed in.
 The fixed order is breakfast, lunch, snack, dinner, so the next slot after a filled breakfast is lunch. The story 50 example in #22 ("a 10:15 croissant after breakfast lands under Snack") does not follow from that order; the owner settled it on PR #31 in favour of the fixed order, and the word "snack" in the log still picks the slot.
 
 Alias resolution at log time uses the shared table with one exception: a slot word in the log makes the Meal win a Food-versus-Meal collision (`resolve_name(..., slot_word=True)`).
