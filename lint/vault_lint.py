@@ -412,7 +412,7 @@ def resolve_label(
             return Resolution("label", kept[0], (kept[0],), "food")
 
     base = label_name.strip() or (brand or "").strip() or "New food"
-    taken = _name_forms(table, food_records, kinds=("food", "meal"))
+    taken = _taken_forms(table, food_records)
     blocked = tuple(sorted(taken.get(normalize_alias(base), set())))
     return Resolution("new", _free_name(base, brand, taken), blocked, "food")
 
@@ -443,21 +443,18 @@ def _food_table(
     return [(name, "food", aliases) for name, aliases in rows.items()]
 
 
-def _name_forms(
+def _taken_forms(
     table: list[tuple[str, str, list[str]]],
     food_records: list[dict],
-    kinds: tuple[str, ...],
 ) -> dict[str, set[str]]:
-    """Map each normalized form to the canonical names that hold it.
+    """Map each normalized form of every Food and Meal to the names that hold it.
 
     The forms of one node are its canonical name, its aliases and, for a Food
-    node, its `label_name`. `kinds` selects which Index sections take part, so
-    the label stages can look at Foods alone.
+    node, its `label_name`. A new label name must be free of all of them, so
+    both kinds take part here; the label-name stages use _food_table() instead.
     """
     forms: dict[str, set[str]] = {}
-    for name, kind, aliases in table:
-        if kind not in kinds:
-            continue
+    for name, _kind, aliases in table:
         for form in [name] + list(aliases):
             forms.setdefault(normalize_alias(form), set()).add(name)
     for food in food_records:
