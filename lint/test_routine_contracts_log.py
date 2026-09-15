@@ -167,8 +167,12 @@ class LogRoutineTest(RoutineTextTestCase):
         self.assertRegex(rule, r"^4\. ")
         self.assertIn("`source_date`", rule)
         self.assertLess(rule.index("`source_date`"), rule.index("`totals_date`"), rule)
-        self.assertIn("Foods", rule)  # the totals are summed from the ingredients
-        written = rule.split("write", 1)[1]
+        self.assertIn("sum its Foods", rule)  # the totals are summed from the ingredients
+        # The Meal node is written, not recomputed in memory: the verb `write` on
+        # its own, not the tail of `rewrite`, and the Meal named as its target.
+        match = re.search(r"\bwrite the Meal's\b(.*)$", rule)
+        self.assertIsNotNone(match, rule)
+        written = match.group(1)
         for field in ("seven totals", "`totals_date`", "`estimated`"):
             self.assertIn(field, written)
         # The Meal is written first, before the Day entry of step 5.
