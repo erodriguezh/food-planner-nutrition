@@ -36,7 +36,7 @@ Glossary of the domain language for this vault. Terms are defined once here and 
 - **Cooked weight**: the weight of the whole Meal after cooking, stored only when the user weighed it. Used to convert cooked grams of a leftover to raw grams. Without it the agent estimates the shrink and states the error.
 - **Totals**: the macros of the whole Meal, all ingredients added up: calories, protein, fat, carbs, fiber, sugar, salt.
 - **Totals date**: the day the totals were last computed. Totals are recomputed when an ingredient Food changed after that day.
-- **Slot**: the place of a Meal in a day. One of `breakfast`, `lunch`, `snack`, `dinner`, in that fixed order. A Meal may fit several slots or any slot. At log time the user's word picks the slot; else the clock (before 11:00 breakfast, 11:00 to 15:00 lunch, 15:00 to 18:00 snack, after 18:00 dinner); if that slot already has an entry from an earlier message, the next slot in order.
+- **Slot**: the place of a Meal in a day. One of `breakfast`, `lunch`, `snack`, `dinner`, in that fixed order. A Meal may fit several slots or any slot. At log time the user's word picks the slot; else the clock, in the bands `routines/log.md` step 3 states; if that slot already has an entry from an earlier message, the next slot in order.
 - **Slot word**: one of the four slot names said in a log ("breakfast: usual"). It picks the slot before the clock, and it makes the Meal win a Food-versus-Meal collision in alias resolution.
 - **New Food**: a Food the user names in chat that has no node yet. The agent creates it as a generic Food with standard values and marks it unreviewed. It asks nothing.
 - **Unnamed combination**: Foods logged together without a Meal name. Recorded on the Day only; it never becomes a Meal.
