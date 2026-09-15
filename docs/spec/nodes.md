@@ -239,7 +239,7 @@ No other property is allowed.
 - Restock from a receipt, shopping-list or product photo takes exactly one ok: the agent resolves every line, stages the unknown Foods without writing them, and shows one list "Add to Pantry: ... Ok?". Nothing is written before that ok.
 - After the ok the agent creates each staged Food as `routines/create-food.md` describes, `reviewed: false`, one commit `create-food: <name>` each and no reply of its own, then applies the additions in one commit `pantry: <one line>`. The restock ok is not a Food review; the new Foods stay unreviewed and the pantry reply names them. Staples in the photo are skipped with a note.
 - A chat form ("I bought 1 kg chicken breast") with an unknown Food keeps the create-food path: the Food is written at once with its own reply and its own ok.
-- Logging never changes the Pantry.
+- Logging never changes the Pantry. When the logged amount of a Food is more than the Pantry records for that Food, the agent asks "was that the last of X?" and still writes nothing to the Pantry; with no amount recorded the question does not come up (story 59).
 - One change is one commit `pantry: <one line>`; a restock commits each staged Food first. `updated` is set on every change.
 - The Index holds one pointer line under `## Pantry`: `- [[Pantry]]`.
 - Body: optional `## Notes` section only, under the same rule as the Food body: empty, or one `## Notes` heading with its content and nothing outside it.
@@ -295,7 +295,9 @@ No other property is allowed. There is no `number_source` on a Meal; the ingredi
 
 - Totals are stored, computed from the Food nodes: for each ingredient the per-100-g values times the grams, all added up. The lint recomputes them and fails a stored total that is not the exact value rounded, so a Meal whose Food changed after `totals_date` fails until the agent recomputes it (story 32). The rounding rule is stated in `routines/log.md` step 4 and applied by the lint in `round_total()` (kcal, protein, fat, carbs: whole number, a half rounds up) and `round_food_value()` (fiber, sugar, salt: one decimal, a half rounds up); `matches_rounding()` compares a stored value against the rounded one exactly, so an unrounded value fails and a half has one correct neighbour, not two.
 - Every ingredient Food carries `fiber_g_per_100g`, `sugar_g_per_100g` and `salt_g_per_100g`; a missing one is filled and written to the Food before the Meal sums it. The lint fails a Meal whose ingredient Food lacks one.
-- `weight_g` equals the ingredient sum exactly; `cooked_weight_g` is stored only when stated and converts cooked grams of a leftover to raw grams.
+- `weight_g` equals the ingredient sum exactly; `cooked_weight_g` is stored only when the user weighed the Meal after cooking.
+- Stale Meal: a Meal is stale when an ingredient Food has a `source_date` newer than the Meal's `totals_date`, whether or not the numbers moved. The lint fails it, and `routines/log.md` step 4 recomputes the seven totals, `totals_date` and `estimated` from the Food nodes and writes the Meal before the log uses it (story 32).
+- Cooked-weight conversion: an amount the user gives in cooked grams becomes canonical grams as cooked grams × `weight_g` / `cooked_weight_g` before the entry line is written, so the Day line always carries canonical grams. Without `cooked_weight_g` the agent estimates the shrink, states the error in the reply and marks the entry `~`, which makes the Day `estimated` (stories 37 and 38). `routines/log.md` step 4 converts; the lint has no converter of its own.
 - Estimation mark: `estimated` is derived, `true` exactly when an ingredient Food is an estimate. It bubbles to the Day entry line as `- ~ ` when the Meal is logged. The user's ok never changes it.
 - Unknown Foods in a create-meal flow are created unreviewed first, one `create-food: <name>` commit each with no reply of their own, and named in one summary line; the Meal's one "ok?" sets the Meal `reviewed: true` and touches no Food. A corrected amount is written instead of the ok.
 - A Meal built from today's entries leaves the Day lines as they were eaten.
@@ -319,22 +321,22 @@ aliases:
 slots:
   - breakfast
 ingredients:
-  - "[[Skyr]] = 200 g"
-  - "[[Blueberries]] = 100 g"
-  - "[[Oats]] = 50 g"
-  - "[[Soy milk Alpro]] = 150 g"
+  - "[[Skyr]] = 300 g"
+  - "[[Blueberries]] = 150 g"
+  - "[[Oats]] = 60 g"
+  - "[[Soy milk Milsani]] = 100 g"
 portions: 1
-weight_g: 500
-kcal: 428
-protein_g: 34
+weight_g: 610
+kcal: 540
+protein_g: 46
 fat_g: 7
-carbs_g: 52
-fiber_g: 7.5
-sugar_g: 22.3
+carbs_g: 67
+fiber_g: 9.1
+sugar_g: 30.6
 salt_g: 0.4
 totals_date: 2026-09-15
 estimated: false
-reviewed: false
+reviewed: true
 ---
 ```
 
@@ -401,7 +403,7 @@ Alias resolution at log time uses the shared table with one exception: a slot wo
 - The first log of a date creates the Day with `status: open`, sets the State `open_day` to its link and, on the first log of a month, adds the Index month line `- <YYYY-MM> | nodes/day/<YYYY-MM>/`, all in one commit `log: <date> <slot> <name> <amount>`. An unknown Food inside a log is created first in its own `create-food: <name>` commit.
 - A log for a past date writes into that Day. A log into a closed Day rewrites totals and Summary, keeps the status, and the agent says so. A log for a later date auto-closes the older open Day first; the auto-close and the Summary text belong to `routines/close-day.md` (ticket #26), which does not exist yet, so the lint holds the invariant in the meantime.
 - The State names the one open Day; the lint fails two open Days and an `open_day` that points elsewhere. Every existing `nodes/day/<YYYY-MM>/` folder has exactly one Index month line.
-- Logging never changes the Pantry.
+- Logging never changes the Pantry. When the logged amount of a Food is more than the Pantry records for that Food, the agent asks "was that the last of X?" and still writes nothing to the Pantry; with no amount recorded the question does not come up (story 59).
 
 ### Example
 
@@ -412,19 +414,19 @@ name: 2026-09-15
 date: 2026-09-15
 status: open
 goal: "[[Goals]]"
-kcal: 672
-protein_g: 39
+kcal: 784
+protein_g: 51
 fat_g: 20
-carbs_g: 80
-fiber_g: 9.4
-sugar_g: 26.3
+carbs_g: 95
+fiber_g: 11
+sugar_g: 34.6
 salt_g: 0.7
 estimated: true
 ---
 
 ## Breakfast
 
-- [[Usual breakfast]] = 1 portion — 428 kcal · 34 P · 7 F · 52 C
+- [[Usual breakfast]] = 1 portion — 540 kcal · 46 P · 7 F · 67 C
 - ~ [[Croissant]] = 60 g — 244 kcal · 5 P · 13 F · 28 C
 ```
 

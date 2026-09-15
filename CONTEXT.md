@@ -75,7 +75,7 @@ Glossary of the domain language for this vault. Terms are defined once here and 
 
 - **Staple**: a Food that is always available. Listed by name only, no amount, no expiry. The agent never asks about it. The user says in chat when it runs out.
 - **Item**: a Food or a Meal that runs out or expires. Listed with an optional rough amount and an optional expiry date.
-- **Amount**: the rough quantity of an item. Foods in grams; Meals in portions or cooked grams. Never exact. Logging never changes it.
+- **Amount**: the rough quantity of an item. Foods in grams; Meals in portions or cooked grams. Never exact. Logging never changes it; a log of more than the recorded amount only makes the agent ask "was that the last of X?".
 - **Expiry**: the `until` date of an item. Set only when the user states it. Items near expiry get priority at plan time.
 - **Leftover**: a cooked Meal kept as a Pantry item, in portions or cooked grams, with an optional expiry.
 - **Restock**: the user says they went shopping and adds photos of the receipt, the shopping list, or the bought items. The agent proposes the items to add and appends them after the user's ok.
