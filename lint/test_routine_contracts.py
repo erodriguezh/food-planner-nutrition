@@ -128,6 +128,29 @@ class PantryPhotoOneOkTest(RoutineTextTestCase):
         self.assertIn("Staples are skipped with a note", after)
 
 
+class CreateFoodLabelStagesTest(RoutineTextTestCase):
+    """The routine is the file the agent reads at runtime, so the label step
+    must say that the printed label name runs the same stages as the chat step:
+    exact, then alias, then fuzzy, on the Foods alone. Without it the agent
+    reads `label_name` as an exact match, misses the Food a misread label names
+    and creates a duplicate. The 300-token budget pays for a cross-reference to
+    step 1, not for a second copy of the list.
+    """
+
+    def setUp(self):
+        self.text = read(CREATE_FOOD)
+
+    def test_the_chat_step_is_step_one_and_lists_the_stages(self):
+        step = self.one_line_with(self.text, "Resolve:")
+        self.assertTrue(step.startswith("1."), step)
+        self.assertIn("exact, alias, fuzzy", step)
+
+    def test_the_label_step_runs_those_stages_on_the_label_name(self):
+        step = self.one_line_with(self.text, "Identify")
+        self.assertIn("`label_name` as in 1", step)
+        self.assertIn("Foods only", step)
+
+
 class CreateFoodLookupOrderTest(RoutineTextTestCase):
     """Spec #22 and issue #24: a missing number comes from the databases "in
     order". The token trim dropped the words "in order" and left three names in
@@ -145,10 +168,12 @@ class CreateFoodLookupOrderTest(RoutineTextTestCase):
         self.assertEqual(positions, sorted(positions), step)
 
     def test_the_step_marks_the_sequence_as_an_order(self):
-        """A comma between the names says nothing about rank; an arrow does."""
+        """A comma between the names says nothing about rank. The words "in
+        order" or an arrow between every pair both say it; the routine picks
+        whichever the token budget allows, so accept either."""
         step = self.one_line_with(self.text, "Open Food Facts")
         run = step[step.index(self.SOURCES[0]):step.index(self.SOURCES[-1])]
-        self.assertEqual(run.count("\u2192"), 2, step)
+        self.assertTrue("in order" in step or run.count("\u2192") == 2, step)
 
     def test_the_glossary_fixes_the_same_order(self):
         glossary = self.one_line_with(read(VAULT / "CONTEXT.md"), "**Lookup order**")
@@ -236,7 +261,7 @@ class CreateFoodLabelPhotoAsksNothingTest(RoutineTextTestCase):
 
     def test_the_label_step_asks_nothing_on_an_ambiguous_name(self):
         step = self.one_line_with(self.text, "Identify")
-        # The rewritten step starts the sentence with the word, so match the case too.
+        # Compare without the case, so a wording change may open a sentence with it.
         self.assertIn("ambiguous", step.lower())
         self.assertIn("Ask nothing", step)
 
