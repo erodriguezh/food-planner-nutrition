@@ -22,6 +22,9 @@ Glossary of the domain language for this vault. Terms are defined once here and 
 - **Density**: grams per millilitre of a liquid Food. Used once, at creation, to convert per-100-ml label values and ml serving aliases to grams. Its origin is recorded with the same vocabulary as number source.
 - **Category**: a coarse class of a Food used by rebalance: `protein`, `dairy`, `grain`, `vegetable`, `fruit`, `fat`, `snack`, `drink`.
 - **Estimated from**: the Food whose numbers an estimate was copied or scaled from. The only outgoing link a Food holds.
+- **Lookup order**: the fixed order of sources for missing or generic numbers: Open Food Facts, Swiss Food Composition Database, USDA FoodData Central, then an estimate from a similar Food. The reply names the source used.
+- **Alias resolution**: how a name said in chat becomes one canonical name: exact name, then alias, then one fuzzy hit, all case-insensitive and tolerant of umlauts and plurals. Several hits: the Pantry Food wins, else the agent asks.
+- **Ok step**: the user's "ok" after a create or restock reply. On a Food it sets `reviewed: true` and nothing else. On a restock it writes the shown list. A corrected number is written instead of the ok.
 
 ## Meal terms
 
@@ -59,7 +62,7 @@ Glossary of the domain language for this vault. Terms are defined once here and 
 - **Tolerance**: one percent applied to every target to build its range. Default 5.
 - **Goal change**: the user states a new target in chat. Range and tolerance are rewritten with it. The Goals node is edited; git keeps the old values. Each closed Day summary records the targets it used.
 - **Bound**: one end of a range, stored as `<macro>_min` or `<macro>_max`. Eight bounds per Goals node.
-- **Rounding rule**: how a computed bound becomes the stored whole number. Stated in one place, `routines/goals.md` step 4; the lint applies the same rule.
+- **Rounding rule**: how a computed number becomes the stored one. Goals bounds: whole number, a half rounds up, stated in `routines/goals.md` step 4. Food numbers: one decimal, a half rounds up, stated in `routines/create-food.md` step 3. The lint applies both rules.
 
 ## Pantry terms
 
@@ -69,6 +72,7 @@ Glossary of the domain language for this vault. Terms are defined once here and 
 - **Expiry**: the `until` date of an item. Set only when the user states it. Items near expiry get priority at plan time.
 - **Leftover**: a cooked Meal kept as a Pantry item, in portions or cooked grams, with an optional expiry.
 - **Restock**: the user says they went shopping and adds photos of the receipt, the shopping list, or the bought items. The agent proposes the items to add and appends them after the user's ok.
+- **Expired item**: an item whose `until` date is today or past. Flagged in the pantry reply and suggested first at plan time.
 
 ## Review terms
 

@@ -77,7 +77,151 @@ since: 2026-09-15
 ---
 ```
 
-## Food, Meal, Day, Pantry
+## Food
+
+Folder `nodes/food/`, flat, one file per Food. Built by ticket
+[#24](https://github.com/erodriguezh/food-planner-nutrition/issues/24);
+written by `routines/create-food.md`, also when the log, meal or pantry routine meets an unknown Food.
+
+File name = canonical English name in title case with spaces. A packaged product ends with the brand
+(`Chicken meatballs Spar.md`); a generic Food has no brand (`Chicken breast.md`).
+
+### Frontmatter
+
+| Property | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `type` | text | yes | always `food` |
+| `name` | text | yes | canonical English name, equals the file base name |
+| `aliases` | list | no | other names the user says; includes the label name |
+| `label_name` | text | no | name as printed on the package, often German |
+| `brand` | text | no | brand of a packaged product |
+| `category` | text | yes | one of `protein`, `dairy`, `grain`, `vegetable`, `fruit`, `fat`, `snack`, `drink` |
+| `kcal_per_100g` | number | yes | per 100 g |
+| `protein_g_per_100g` | number | yes | per 100 g |
+| `fat_g_per_100g` | number | yes | per 100 g |
+| `carbs_g_per_100g` | number | yes | per 100 g |
+| `fiber_g_per_100g` | number | no | per 100 g, when the source has it |
+| `sugar_g_per_100g` | number | no | per 100 g |
+| `salt_g_per_100g` | number | no | per 100 g |
+| `servings` | list | no | items `"<count> <unit> = <grams> g"`; the first item is the default portion |
+| `label_basis` | text | yes | `100g` or `100ml`: what the package states |
+| `density_g_per_ml` | number | when `label_basis` is `100ml` or a serving was given in ml | grams per millilitre |
+| `density_source` | text | with `density_g_per_ml` only | `label`, `database` or `estimate` |
+| `number_source` | text | yes | `label`, `database` or `estimate` |
+| `source_ref` | text | no | database name and id, or URL |
+| `barcode` | text | no | EAN/GTIN as a quoted string |
+| `source_date` | date | yes | day of the scan, lookup or estimate |
+| `reviewed` | checkbox | yes | `true` after the user said ok; `false` when the agent wrote the node without an ok |
+| `estimated_from` | text | with `number_source: estimate` only | `"[[Food]]"` the estimate was scaled from; the only outgoing edge |
+
+No other property is allowed.
+
+### Rules
+
+- Stored macro values are always per 100 g. A per-100-ml label converts once at creation: per 100 g = per 100 ml ÷ `density_g_per_ml`. The original per-100-ml values are not stored. Water-like liquids (milk, plant drinks, juice) may use `1.0` with `density_source: estimate`; oils and syrups need a real density.
+- Rounding rule for Food numbers: one decimal, a half rounds up (2.25 → 2.3). Stated in `routines/create-food.md` step 3; the lint applies it in `round_food_value()`.
+- Serving aliases end in grams; ml servings convert with the density at creation (`"1 tbsp = 9 g"` for olive oil). The unit is singular.
+- Provenance (`number_source`) and review (`reviewed`) are separate. A label read by the agent is unreviewed until the user says ok. "ok" sets `reviewed: true` and changes nothing else; a corrected number is written instead and the Food stays unreviewed. Review never removes an estimate mark; only label or database numbers do.
+- Lookup order for missing or generic numbers: Open Food Facts (packaged, barcode), Swiss Food Composition Database (generic, German names), USDA FoodData Central (English), then an estimate from a similar Food with `estimated_from`. The reply names the source.
+- A reformulated product overwrites the node and bumps `source_date`. Closed Days keep their totals.
+- A Food links only through `estimated_from`. Pantry and Meal link to the Food; backlinks give the reverse view.
+- Body: optional `## Notes` section only (taste, shop, price). No label transcription.
+
+### Index line
+
+One line per Food under `## Food`: `- [[Name]] | <category> | <aliases plus label name, comma separated>`.
+The alias field is the set `aliases` ∪ {`label_name`}; a Food without aliases has the link and category only.
+The lint fails on a missing or extra alias, a wrong category, or a second line for the same Food.
+
+### Alias resolution
+
+The Food and Meal lines of the Index form one alias table. Matching is case-insensitive and ignores umlauts
+(ä → a, ö → o, ü → u, ß → ss) and plurals (a trailing n, else es, else s is dropped on both sides). Order:
+exact canonical name, then alias, then fuzzy. One fuzzy candidate is used and named in the reply. Several
+candidates: the one in the Pantry wins; else the agent asks. The lint module holds this as `resolve_name()`.
+
+### Example
+
+```
+---
+type: food
+name: Soja milk Alpro
+aliases:
+  - Soya Original
+  - Sojadrink
+  - soy milk
+label_name: Soya Original
+brand: Alpro
+category: drink
+kcal_per_100g: 39
+protein_g_per_100g: 3
+fat_g_per_100g: 1.8
+carbs_g_per_100g: 2.5
+servings:
+  - "1 glass = 250 g"
+label_basis: 100ml
+density_g_per_ml: 1.0
+density_source: estimate
+number_source: database
+source_ref: https://world.openfoodfacts.org/product/5411188121923
+source_date: 2026-09-15
+reviewed: false
+---
+```
+
+Index line: `- [[Soja milk Alpro]] | drink | Soya Original, Sojadrink, soy milk`.
+
+## Pantry
+
+One file: `nodes/pantry/Pantry.md`. Built by ticket
+[#24](https://github.com/erodriguezh/food-planner-nutrition/issues/24);
+written by `routines/pantry.md`. The default answer to "what do I have"; the conversation overrides it.
+
+### Frontmatter
+
+| Property | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `type` | text | yes | always `pantry` |
+| `name` | text | yes | always `Pantry` |
+| `updated` | date | yes | day of the last change |
+| `staples` | list | no | items `"[[Food]]"`: always available, no amount, no date |
+| `items` | list | no | items `"[[Food or Meal]]"`, optionally ` = <amount>`, optionally `, until <YYYY-MM-DD>` |
+
+No other property is allowed.
+
+### Rules
+
+- Amount shapes: a Food in grams (`= 1000 g`); a Meal (leftover) in `= <n> portion` or `= <n> g cooked`. The amount is optional and rough.
+- `until` only when the user states a date. The agent never guesses one. Items at or past `until` are flagged in the reply and get priority at plan time.
+- Every link resolves to an existing Food (staples) or Food or Meal (items) by canonical name. A name appears at most once across both lists.
+- Staple or item is the agent's call from its own knowledge; the user's word overrides it. "Gone" removes the name from whichever list holds it. "Make X a staple" moves it.
+- "I bought ..." appends an item; an existing item gets the amounts added when the units match, else the stated amount wins.
+- Restock from a receipt, shopping-list or product photo: the agent resolves every line, creates unknown Foods unreviewed, shows one list "Add to Pantry: ... Ok?" and writes after the ok. Staples in the photo are skipped with a note.
+- Logging never changes the Pantry.
+- One change is one commit `pantry: <one line>`. `updated` is set on every change.
+- The Index holds one pointer line under `## Pantry`: `- [[Pantry]]`.
+- Body: optional `## Notes` section only.
+
+### Example
+
+```
+---
+type: pantry
+name: Pantry
+updated: 2026-09-15
+staples:
+  - "[[Oats]]"
+  - "[[Rice]]"
+  - "[[Olive oil]]"
+items:
+  - "[[Skyr]] = 1000 g"
+  - "[[Chicken breast]] = 600 g, until 2026-09-18"
+  - "[[Blueberries]]"
+  - "[[Chili]] = 2 portion, until 2026-09-19"
+---
+```
+
+## Meal, Day
 
 Written by the tickets that build those nodes. Until then the spec issue
 [#22](https://github.com/erodriguezh/food-planner-nutrition/issues/22) is the source.
