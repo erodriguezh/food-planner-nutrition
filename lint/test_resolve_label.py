@@ -7,6 +7,7 @@ decide alone and never return `ambiguous` or `none`.
 
 Run: python3 -m unittest discover lint
 """
+import inspect
 import unittest
 
 from vault_lint import LabelIdentity, resolve_label, resolve_name
@@ -67,12 +68,12 @@ class ResolveLabelNeverAsksTest(unittest.TestCase):
 
     def test_the_identified_food_wins_the_collision(self):
         label = LabelIdentity(label_name="Pudding", brand="Migros")
-        result = resolve_label(label, TABLE, FOODS, pantry_names=["Pudding bowl"])
+        result = resolve_label(label, TABLE, FOODS)
         self.assertEqual((result.status, result.name, result.kind), ("label", "Protein pudding Migros", "food"))
 
     def test_an_unidentified_label_becomes_a_new_food_never_the_meal(self):
         label = LabelIdentity(label_name="Pudding", brand="Dr. Oetker")
-        result = resolve_label(label, TABLE, FOODS, pantry_names=["Pudding bowl"])
+        result = resolve_label(label, TABLE, FOODS)
         self.assertEqual((result.status, result.name, result.kind), ("new", "Pudding Dr. Oetker", "food"))
         self.assertEqual(result.candidates, ("Protein pudding Migros", "Pudding bowl"))
 
@@ -85,7 +86,7 @@ class ResolveLabelNeverAsksTest(unittest.TestCase):
             LabelIdentity(label_name="", brand="Alpro"),
         ]
         for label in labels:
-            result = resolve_label(label, TABLE, FOODS, pantry_names=["Pudding bowl", "Skyr"])
+            result = resolve_label(label, TABLE, FOODS)
             self.assertNotIn(result.status, ("ambiguous", "none"), label)
             self.assertIsNotNone(result.name, label)
             self.assertEqual(result.kind, "food", label)
@@ -128,7 +129,7 @@ class ResolveLabelNewNameTest(unittest.TestCase):
         for label_name in ("Pudding", "Porridge", "Haferbrei"):
             for brand in (None, "Emmi", "Migros"):
                 label = LabelIdentity(label_name=label_name, brand=brand)
-                result = resolve_label(label, TABLE, FOODS, pantry_names=meals)
+                result = resolve_label(label, TABLE, FOODS)
                 self.assertNotIn(result.name, meals, (label_name, brand))
                 self.assertEqual(result.kind, "food")
 
@@ -139,16 +140,16 @@ class ResolveLabelNewNameTest(unittest.TestCase):
 
 
 class ResolveLabelNamePathTest(unittest.TestCase):
-    """Without a label identity match the shared table still decides, but only
-    when it names one Food."""
+    """Without an exact label-name form the alias and fuzzy stages still
+    decide, but on the Foods alone and only when one Food is left."""
 
     def test_one_fuzzy_food_winner_from_the_shared_table_is_used(self):
-        """A misread label name matches no form exactly, so the shared table decides."""
+        """A misread label name matches no form exactly, so the fuzzy stage decides."""
         label = LabelIdentity(label_name="Skyr Naturr")
         result = resolve_label(label, TABLE, [])
-        self.assertEqual((result.status, result.name, result.kind), ("fuzzy", "Skyr", "food"))
+        self.assertEqual((result.status, result.name, result.kind), ("label", "Skyr", "food"))
 
-    def test_a_meal_winner_from_the_shared_table_is_not_used(self):
+    def test_a_meal_form_is_never_a_label_candidate(self):
         table = [("Pudding", "meal", ["pudding"])]
         label = LabelIdentity(label_name="Pudding", brand="Emmi")
         result = resolve_label(label, table, [])
@@ -161,7 +162,7 @@ class ResolveLabelNamePathTest(unittest.TestCase):
     def test_a_meal_in_the_foods_list_is_ignored(self):
         foods = FOODS + [{"name": "Pudding bowl", "label_name": "Pudding", "brand": "Emmi", "type": "meal"}]
         label = LabelIdentity(label_name="Pudding", brand="Emmi")
-        result = resolve_label(label, TABLE, foods, pantry_names=["Pudding bowl"])
+        result = resolve_label(label, TABLE, foods)
         self.assertEqual((result.status, result.name), ("new", "Pudding Emmi"))
 
 
@@ -191,20 +192,104 @@ class ResolveLabelBrandTest(unittest.TestCase):
         self.assertEqual((result.status, result.name), ("new", "Chicken breast Spar"))
         self.assertEqual(result.candidates, ("Chicken breast Migros",))
 
-    def test_the_same_brand_food_is_used_even_when_only_the_shared_table_finds_it(self):
-        """The Food prints no `label_name`, so the shared table decides; the
-        brand on the winner confirms it is the same product."""
+    def test_the_same_brand_food_is_used_even_when_only_the_index_finds_it(self):
+        """The Food prints no `label_name`, so the fuzzy stage on the Index
+        name decides; the brand on the winner confirms the same product."""
         table = [("Chicken breast Spar", "food", [])]
         foods = [{"name": "Chicken breast Spar", "brand": "Spar"}]
         label = LabelIdentity(label_name="Chicken breast", brand="Spar")
         result = resolve_label(label, table, foods)
-        self.assertEqual((result.status, result.name, result.kind), ("fuzzy", "Chicken breast Spar", "food"))
+        self.assertEqual((result.status, result.name, result.kind), ("label", "Chicken breast Spar", "food"))
 
     def test_a_branded_label_does_not_take_a_food_of_unknown_brand(self):
         """The Food node was not handed over, so its brand cannot confirm it."""
         label = LabelIdentity(label_name="Chicken breast", brand="Spar")
         result = resolve_label(label, self.GENERIC_TABLE, [])
         self.assertEqual((result.status, result.name), ("new", "Chicken breast Spar"))
+
+
+
+class ResolveLabelIgnoresPantryTest(unittest.TestCase):
+    """The Pantry is not package identity.
+
+    Ordinary chat resolution may break a same-kind tie by choosing the single
+    Pantry candidate. A label photo must not: it overwrites an existing Food
+    only when the package identity itself names exactly one Food. Two Foods
+    that share the printed name are ambiguous whichever one is in the Pantry.
+    """
+
+    # Two Foods share the alias "pudding" and nothing else separates them.
+    SHARED_TABLE = [
+        ("Pudding Alpha", "food", ["pudding"]),
+        ("Pudding Beta", "food", ["pudding"]),
+    ]
+    SHARED_FOODS = [{"name": "Pudding Alpha"}, {"name": "Pudding Beta"}]
+
+    # Two Foods of one brand share the alias, so the printed brand separates nothing.
+    ONE_BRAND_TABLE = [
+        ("Pudding Migros 500", "food", ["pudding"]),
+        ("Pudding Migros 200", "food", ["pudding"]),
+    ]
+    ONE_BRAND_FOODS = [
+        {"name": "Pudding Migros 500", "label_name": "Pudding", "brand": "Migros"},
+        {"name": "Pudding Migros 200", "label_name": "Pudding", "brand": "Migros"},
+    ]
+
+    # A misread label name fuzzy-matches one Food and one Meal.
+    FUZZY_TABLE = [
+        ("Skyr Emmi", "food", ["Skyr Natur"]),
+        ("Skyr bowl", "meal", ["Skyr Natur bowl"]),
+    ]
+    FUZZY_FOODS = [{"name": "Skyr Emmi", "label_name": "Skyr Natur", "brand": "Emmi"}]
+
+    def test_two_foods_share_the_label_name_and_one_is_in_the_pantry(self):
+        """The Pantry candidate must not win the label tie."""
+        result = resolve_label(LabelIdentity(label_name="Pudding"), self.SHARED_TABLE, self.SHARED_FOODS)
+        self.assertEqual((result.status, result.kind), ("new", "food"))
+        self.assertNotIn(result.name, ("Pudding Alpha", "Pudding Beta"))
+
+    def test_the_ordinary_name_path_does_use_the_pantry_here(self):
+        """The contrast: resolve_name() may still prefer the Pantry candidate."""
+        result = resolve_name("Pudding", self.SHARED_TABLE, ["Pudding Alpha"])
+        self.assertEqual((result.status, result.name), ("alias", "Pudding Alpha"))
+
+    def test_several_foods_of_the_printed_brand_are_still_ambiguous(self):
+        label = LabelIdentity(label_name="Pudding", brand="Migros")
+        result = resolve_label(label, self.ONE_BRAND_TABLE, self.ONE_BRAND_FOODS)
+        self.assertEqual((result.status, result.kind), ("new", "food"))
+        self.assertNotIn(result.name, ("Pudding Migros 500", "Pudding Migros 200"))
+
+    def test_a_fuzzy_food_and_meal_collision_still_identifies_the_food(self):
+        """Foods only, so the Meal never blocks the Food the package names."""
+        label = LabelIdentity(label_name="Skyr Natu", brand="Emmi")
+        result = resolve_label(label, self.FUZZY_TABLE, self.FUZZY_FOODS)
+        self.assertEqual((result.status, result.name, result.kind), ("label", "Skyr Emmi", "food"))
+
+    def test_resolve_label_takes_no_pantry_argument(self):
+        """The Pantry cannot decide a label, because it is not an input.
+
+        The reviewer's rule, held by the signature: a Pantry list handed over
+        by mistake raises instead of breaking a tie in silence.
+        """
+        self.assertNotIn("pantry_names", inspect.signature(resolve_label).parameters)
+        with self.assertRaises(TypeError):
+            resolve_label(LabelIdentity(label_name="Pudding"), self.SHARED_TABLE, self.SHARED_FOODS, ["Pudding Alpha"])
+
+    def test_no_label_returns_ambiguous_or_none_or_a_meal(self):
+        cases = [
+            (self.SHARED_TABLE, self.SHARED_FOODS),
+            (self.ONE_BRAND_TABLE, self.ONE_BRAND_FOODS),
+            (self.FUZZY_TABLE, self.FUZZY_FOODS),
+        ]
+        for table, foods in cases:
+            meals = [name for name, kind, _aliases in table if kind == "meal"]
+            for label_name in ("Pudding", "Skyr Natu", "Skyr Natur bowl", "Quark"):
+                for brand in (None, "Migros", "Emmi", "Coop"):
+                    label = LabelIdentity(label_name=label_name, brand=brand)
+                    result = resolve_label(label, table, foods)
+                    self.assertIn(result.status, ("barcode", "label", "new"), (label_name, brand))
+                    self.assertEqual(result.kind, "food", (label_name, brand))
+                    self.assertNotIn(result.name, meals, (label_name, brand))
 
 
 if __name__ == "__main__":

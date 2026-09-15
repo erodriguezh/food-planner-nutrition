@@ -196,8 +196,12 @@ class Resolution:
     """Result of resolve_name() or resolve_label().
 
     resolve_name() statuses: exact, alias, fuzzy, ambiguous, none.
-    resolve_label() adds barcode, label and new, and never returns ambiguous
-    or none.
+    resolve_label() has three statuses of its own and never returns any
+    resolve_name() status: `barcode` and `label` name the one existing Food the
+    package identifies, and `new` names the Food to create. One `label` status
+    covers all three label-name stages, because the label path reuses a Food
+    only when the identity leaves exactly one, so which stage matched changes
+    nothing the caller does. resolve_label() never returns ambiguous or none.
 
     `candidates` holds every canonical name the winning stage found, sorted.
     It is empty only for status `none` and for a `new` name that took no
@@ -252,15 +256,33 @@ def resolve_name(query: str, table: list[tuple[str, str, list[str]]], pantry_nam
     umlauts, plurals). Every stage therefore keeps a set of candidates per
     normalized form, so a second candidate is never discarded in silence.
     """
+    stage, hits = _stage_candidates(query, table)
+    if stage is None:
+        return Resolution("none")
+    return _one_or_ask(stage, hits, pantry_names)
+
+
+def _stage_candidates(query: str, table: list[tuple[str, str, list[str]]]) -> tuple[str | None, set[tuple[str, str]]]:
+    """The first matching stage and every (canonical name, kind) it found.
+
+    Stages in order: exact canonical name, then alias, then fuzzy. The first
+    stage with a candidate wins and stops the search. Nothing close: (None, an
+    empty set).
+
+    No preference is applied here: the caller decides what several candidates
+    of one stage mean. resolve_name() hands them to _one_or_ask(), which may
+    prefer the one Pantry candidate. resolve_label() must not, so it filters
+    them by the printed package identity instead.
+    """
     wanted = normalize_alias(query)
     name_forms = _group_by_normalized_form((name, name, kind) for name, kind, _aliases in table)
     if wanted in name_forms:
-        return _one_or_ask("exact", name_forms[wanted], pantry_names)
+        return "exact", name_forms[wanted]
     alias_forms = _group_by_normalized_form(
         (alias, name, kind) for name, kind, aliases in table for alias in aliases
     )
     if wanted in alias_forms:
-        return _one_or_ask("alias", alias_forms[wanted], pantry_names)
+        return "alias", alias_forms[wanted]
     forms = _group_by_normalized_form(
         (form, name, kind) for name, kind, aliases in table for form in [name] + list(aliases)
     )
@@ -271,8 +293,8 @@ def resolve_name(query: str, table: list[tuple[str, str, list[str]]], pantry_nam
     close |= {form for form in forms if form.startswith(wanted) or wanted in form}
     fuzzy_hits = {hit for form in close for hit in forms[form]}
     if not fuzzy_hits:
-        return Resolution("none")
-    return _one_or_ask("fuzzy", fuzzy_hits, pantry_names)
+        return None, set()
+    return "fuzzy", fuzzy_hits
 
 
 def _group_by_normalized_form(triples: Iterable[tuple[str, str, str]]) -> dict[str, set[tuple[str, str]]]:
@@ -319,7 +341,6 @@ def resolve_label(
     label: LabelIdentity | Mapping[str, str | None],
     table: list[tuple[str, str, list[str]]],
     foods: Iterable[Mapping[str, object]] = (),
-    pantry_names: list[str] | tuple[str, ...] = (),
 ) -> Resolution:
     """Resolve a label photo to one Food, with no question, as routines/create-food.md describes.
 
@@ -329,6 +350,13 @@ def resolve_label(
     decides alone: it never returns `ambiguous` and never returns `none`, and
     its winner is always a Food.
 
+    The package identity alone decides. There is no Pantry parameter, because
+    Pantry membership is not package identity: the ordinary chat resolution may
+    break a same-kind tie by choosing the single Pantry candidate, but a label
+    photo overwrites an existing Food only when the printed identity names
+    exactly one Food. Two Foods that share the printed name stay ambiguous
+    whichever one is in the Pantry, and an ambiguous label creates a new Food.
+
     `label` is a LabelIdentity or the same fields as a mapping. `table` is the
     shared alias table from parse_alias_table(). `foods` are the existing Food
     nodes as frontmatter mappings, each with `name` and optionally `label_name`,
@@ -337,17 +365,17 @@ def resolve_label(
     Stages, first hit wins:
     1. `barcode`: exactly one Food carries the same barcode. The package is
        that Food.
-    2. `label`: the label name matches the canonical name, the `label_name` or
-       an alias of exactly one Food. Meals never take part.
-    3. the shared resolve_name() on the label name, used only when it names one
-       Food (`kind` is `food`); its `exact`, `alias` or `fuzzy` status is kept.
-
-    Stages 2 and 3 both keep only a Food of the brand the label prints: a
-    printed brand is part of the identity, so a Food of another brand, a
-    generic Food that carries no brand, and a Food that was not handed over in
-    `foods` are all a different product and the stage finds nothing. A label
-    that prints no brand accepts any Food.
-    4. `new`: the canonical name to create. It is the label name, and it ends
+    2. `label`: the label name against the Foods alone, with the same exact ->
+       alias -> fuzzy semantics as resolve_name(); the forms of a Food are its
+       canonical name, its aliases and its `label_name`. Meals never take part,
+       so a Meal never blocks the Food the package names. The first matching
+       stage keeps every Food it found, and the printed brand then filters
+       them: a printed brand accepts only a Food of that same brand, because a
+       Food of another brand, a generic Food that carries no brand and a Food
+       that was not handed over in `foods` are all a different product. A label
+       that prints no brand accepts any Food. Exactly one Food left is the
+       package, and it is reused; zero or several left fall through to `new`.
+    3. `new`: the canonical name to create. It is the label name, and it ends
        with the printed brand (spec #22: a packaged product ends with the
        brand), so a packaged name never takes the generic base name. The name
        is free of every existing Food and Meal name; a last resort adds a
@@ -377,21 +405,42 @@ def resolve_label(
         """
         return not brand or brands.get(name) == normalize_alias(brand)
 
-    wanted = normalize_alias(label_name)
-    if wanted:
-        forms = _name_forms(table, food_records, kinds=("food",))
-        hits = [name for name in sorted(forms.get(wanted, set())) if same_brand(name)]
-        if len(hits) == 1:
-            return Resolution("label", hits[0], (hits[0],), "food")
-
-        by_name = resolve_name(label_name, table, pantry_names)
-        if by_name.kind == "food" and by_name.name and same_brand(by_name.name):
-            return by_name
+    if normalize_alias(label_name):
+        _stage, hits = _stage_candidates(label_name, _food_table(table, food_records))
+        kept = sorted({name for name, _kind in hits if same_brand(name)})
+        if len(kept) == 1:
+            return Resolution("label", kept[0], (kept[0],), "food")
 
     base = label_name.strip() or (brand or "").strip() or "New food"
     taken = _name_forms(table, food_records, kinds=("food", "meal"))
     blocked = tuple(sorted(taken.get(normalize_alias(base), set())))
     return Resolution("new", _free_name(base, brand, taken), blocked, "food")
+
+
+def _food_table(
+    table: list[tuple[str, str, list[str]]],
+    food_records: list[dict],
+) -> list[tuple[str, str, list[str]]]:
+    """The alias table of the Foods alone, for the label-name stages.
+
+    Only the Index rows of kind `food` take part, so a Meal can never be a
+    label candidate. Each Food's `label_name` joins its aliases when no form of
+    that Food already normalizes to it, and a Food that is handed over in
+    `foods` but is missing from the Index still takes part.
+    """
+    rows: dict[str, list[str]] = {}
+    for name, kind, aliases in table:
+        if kind == "food":
+            rows.setdefault(name, []).extend(aliases)
+    for food in food_records:
+        name = str(food["name"])
+        aliases = rows.setdefault(name, [])
+        label_name = food.get("label_name")
+        if label_name:
+            forms = {normalize_alias(form) for form in [name] + aliases}
+            if normalize_alias(str(label_name)) not in forms:
+                aliases.append(str(label_name))
+    return [(name, "food", aliases) for name, aliases in rows.items()]
 
 
 def _name_forms(

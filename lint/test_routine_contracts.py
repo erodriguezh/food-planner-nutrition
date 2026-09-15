@@ -235,7 +235,8 @@ class CreateFoodLabelPhotoAsksNothingTest(RoutineTextTestCase):
 class LabelPhotoCollisionRegressionTest(unittest.TestCase):
     """Regression for the reviewer's case: a label name that collides with a
     Food alias and a Meal alias, the Meal in the Pantry. The name path asks;
-    the label path must still end in one Food and no question."""
+    the label path must still end in one Food and no question. The Pantry is
+    handed to the name path only: the label path takes no Pantry at all."""
 
     INDEX = """# Index
 
@@ -259,18 +260,18 @@ class LabelPhotoCollisionRegressionTest(unittest.TestCase):
 
     def test_the_same_brand_label_identifies_the_existing_food(self):
         label = LabelIdentity(label_name="Pudding", brand="Migros")
-        result = resolve_label(label, self.table, self.FOODS, self.pantry)
+        result = resolve_label(label, self.table, self.FOODS)
         self.assertEqual((result.status, result.name, result.kind), ("label", "Protein pudding Migros", "food"))
 
     def test_another_brand_label_creates_one_new_food(self):
         label = LabelIdentity(label_name="Pudding", brand="Dr. Oetker")
-        result = resolve_label(label, self.table, self.FOODS, self.pantry)
+        result = resolve_label(label, self.table, self.FOODS)
         self.assertEqual((result.status, result.name, result.kind), ("new", "Pudding Dr. Oetker", "food"))
         self.assertNotIn(result.name, [name for name, kind, _a in self.table if kind == "meal"])
 
     def test_neither_label_ever_asks(self):
         for brand in (None, "Migros", "Dr. Oetker", "Coop"):
-            result = resolve_label(LabelIdentity("Pudding", brand), self.table, self.FOODS, self.pantry)
+            result = resolve_label(LabelIdentity("Pudding", brand), self.table, self.FOODS)
             self.assertNotIn(result.status, ("ambiguous", "none"), brand)
             self.assertEqual(result.kind, "food", brand)
 
