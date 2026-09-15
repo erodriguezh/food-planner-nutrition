@@ -24,4 +24,4 @@ reviewed: false
 
 ## Notes
 
-Density 0.91 g/ml; 1 tbsp = 10 ml = 9 g.
+Density 0.91 g/ml; 1 tbsp = 10 ml ≈ 9 g, rounded (10 × 0.91 = 9.1).

@@ -159,6 +159,7 @@ name: Soy milk Alpro
 aliases:
   - Soya Original
   - Sojadrink
+  - soja milk
   - soy milk
 label_name: Soya Original
 brand: Alpro
@@ -167,6 +168,9 @@ kcal_per_100g: 39
 protein_g_per_100g: 3
 fat_g_per_100g: 1.8
 carbs_g_per_100g: 2.5
+fiber_g_per_100g: 0.5
+sugar_g_per_100g: 2.5
+salt_g_per_100g: 0.1
 servings:
   - "1 glass = 250 g"
 label_basis: 100ml
@@ -179,7 +183,9 @@ reviewed: false
 ---
 ```
 
-Index line: `- [[Soy milk Alpro]] | drink | Soya Original, Sojadrink, soy milk`.
+The example is the real node `nodes/food/Soy milk Alpro.md`.
+
+Index line: `- [[Soy milk Alpro]] | drink | Soya Original, Sojadrink, soja milk, soy milk`.
 
 ## Pantry
 
