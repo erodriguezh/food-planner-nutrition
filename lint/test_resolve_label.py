@@ -92,16 +92,27 @@ class ResolveLabelNeverAsksTest(unittest.TestCase):
 
 
 class ResolveLabelNewNameTest(unittest.TestCase):
-    """No unique Food: a new canonical name, with the brand as the qualifier
-    so the base name is free (spec #22: a packaged product ends with the brand)."""
+    """No unique Food: a new canonical name that ends with the brand
+    (spec #22: "a packaged product ends with the brand")."""
 
-    def test_a_label_with_no_match_keeps_the_base_name(self):
+    def test_a_packaged_label_always_ends_with_the_brand(self):
+        """The base name is free, and the brand still goes last."""
         label = LabelIdentity(label_name="Quark", brand="Emmi")
         result = resolve_label(label, TABLE, FOODS)
-        self.assertEqual((result.status, result.name), ("new", "Quark"))
+        self.assertEqual((result.status, result.name), ("new", "Quark Emmi"))
         self.assertEqual(result.candidates, ())
 
-    def test_a_base_name_taken_by_a_meal_gets_the_brand_qualifier(self):
+    def test_a_label_with_no_brand_keeps_the_base_name(self):
+        label = LabelIdentity(label_name="Quark")
+        result = resolve_label(label, TABLE, FOODS)
+        self.assertEqual((result.status, result.name), ("new", "Quark"))
+
+    def test_the_brand_is_not_repeated_when_the_label_name_ends_with_it(self):
+        label = LabelIdentity(label_name="Sojadrink Alpro", brand="Alpro")
+        result = resolve_label(label, [], [])
+        self.assertEqual((result.status, result.name), ("new", "Sojadrink Alpro"))
+
+    def test_a_base_name_taken_by_a_meal_is_freed_by_the_brand(self):
         label = LabelIdentity(label_name="Porridge", brand="Emmi")
         result = resolve_label(label, TABLE, FOODS)
         self.assertEqual((result.status, result.name), ("new", "Porridge Emmi"))
@@ -124,7 +135,7 @@ class ResolveLabelNewNameTest(unittest.TestCase):
     def test_an_empty_vault_creates_the_base_name(self):
         label = LabelIdentity(label_name="Skyr Natur", brand="Emmi")
         result = resolve_label(label, [], [])
-        self.assertEqual((result.status, result.name, result.kind), ("new", "Skyr Natur", "food"))
+        self.assertEqual((result.status, result.name, result.kind), ("new", "Skyr Natur Emmi", "food"))
 
 
 class ResolveLabelNamePathTest(unittest.TestCase):

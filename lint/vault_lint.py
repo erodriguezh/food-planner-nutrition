@@ -347,12 +347,11 @@ def resolve_label(
     generic Food that carries no brand, and a Food that was not handed over in
     `foods` are all a different product and the stage finds nothing. A label
     that prints no brand accepts any Food.
-    4. `new`: the canonical name to create. It is the label name, plus the brand
-       as the qualifier when an existing Food or Meal already holds that base
-       name as its canonical name or as an alias (spec #22: a packaged product
-       ends with the brand), so the base name is free and resolves to the new
-       Food alone. `candidates` holds the existing names that took the base
-       name. A last resort adds a count, so the returned name is always free.
+    4. `new`: the canonical name to create. It is the label name, and it ends
+       with the printed brand (spec #22: a packaged product ends with the
+       brand), so a packaged name never takes the generic base name. The name
+       is free of every existing Food and Meal name; a last resort adds a
+       count. `candidates` holds the existing names that hold the base name.
 
     Only an existing Food is ever named, so a new label never overwrites a Meal.
     """
@@ -432,14 +431,18 @@ def _clean(value: object) -> str | None:
 
 
 def _free_name(base: str, brand: str | None, taken: Mapping[str, set[str]]) -> str:
-    """The first free canonical name: the base name, then the brand as qualifier, then a count."""
-    wanted = [base]
-    if brand:
-        wanted.append(f"{base} {brand}")
-    for name in wanted:
-        if normalize_alias(name) not in taken:
-            return name
-    stem = wanted[-1]
+    """The canonical name to create, always free.
+
+    Spec #22: "a packaged product ends with the brand", so a printed brand goes
+    last whether or not the base name is taken; it is not added twice when the
+    label name already ends with it. A last resort adds a count, because the
+    returned name must be free of every existing Food and Meal name.
+    """
+    stem = base
+    if brand and not normalize_alias(stem).endswith(normalize_alias(brand)):
+        stem = f"{base} {brand}"
+    if normalize_alias(stem) not in taken:
+        return stem
     count = 2
     while normalize_alias(f"{stem} {count}") in taken:
         count += 1
