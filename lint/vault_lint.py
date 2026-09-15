@@ -7,11 +7,11 @@ Run from the repository root:
 
 Exit code 0 when the vault is clean, 1 on the first violation. The checks run
 in a fixed order (nodes load, common conventions, node locations, Goals, Foods,
-Pantry, Router, State, Index, routines), files in sorted path order, so the
-first violation is deterministic.
+Meals, Days, Pantry, Router, State, Index, routines), files in sorted path
+order, so the first violation is deterministic.
 No dependencies beyond the Python 3 standard library.
 
-Checks (v2):
+Checks (v3):
 - every node under nodes/ has flat YAML frontmatter with core types only
 - every node has `type` and `name`; `name` equals the file base name;
   base names are unique across the vault
@@ -23,14 +23,31 @@ Checks (v2):
   aliases, `estimated_from` as a quoted link to a Food and present whenever
   `number_source` is `estimate`, no unknown property, and a body that is empty
   or holds one `## Notes` section with no text outside it
+- every Meal sits directly at nodes/meal/<Name>.md and has its required
+  properties, slots as slot words, ingredients as `"[[Food]] = <grams> g"` one
+  per Food, `weight_g` equal to the exact ingredient sum, the seven totals
+  equal to the sum over the Food nodes by the rounding rule, no ingredient
+  Food with a `source_date` newer than `totals_date`, `estimated` true exactly
+  when an ingredient Food is an estimate, and a body of Prepare and Notes only
+- every Day sits at nodes/day/<YYYY-MM>/<date>.md with name and date equal to
+  the file name, its required properties, `goal` as the Goals link, slot
+  sections in the fixed order with canonical entry lines (the `~` right after
+  the bullet, the ingredient change by portion), the mark on every estimated
+  Food or Meal, the four totals equal to the sum of the lines, `estimated`
+  true exactly when a line is marked; an open Day also matches its nodes and
+  carries no `## Summary`, a closed or auto-closed Day carries one with the
+  verdict words
 - exactly one Pantry node sits at nodes/pantry/Pantry.md
 - the Pantry node has `updated`, staples as `"[[Food]]"`, items as
   `"[[Food or Meal]]"` with a grams, portion or cooked-grams amount and an
   optional `until` date; every link resolves by canonical name
 - ROUTER.md is under 500 tokens
-- state.md has its fields; Open items holds no unreviewed Food lines
+- state.md has its fields and names the one open Day; Open items holds no
+  unreviewed Food lines
 - index.md has one section per node type and no line without a node; every
-  Food has exactly one line with its category and all aliases plus the label name
+  Food has exactly one line with its category and all aliases plus the label
+  name; every Meal has exactly one line with its slots (or `any`) and all
+  aliases; every Day month folder has exactly one month line
 - every routine file has the five sections and is under 300 tokens
 """
 from __future__ import annotations
@@ -41,6 +58,7 @@ import re
 import sys
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
+from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 
 NODE_TYPES = ("food", "meal", "day", "goals", "pantry")
@@ -62,6 +80,17 @@ PANTRY_REQUIRED = ("type", "name", "updated")
 PANTRY_OPTIONAL = ("staples", "items")
 CHECKBOX_VALUES = ("true", "false")
 
+SLOTS = ("breakfast", "lunch", "snack", "dinner")
+SLOT_HEADINGS = tuple(slot.capitalize() for slot in SLOTS)
+DAY_STATUSES = ("open", "closed", "auto-closed")
+NUTRIENTS = ("fiber_g", "sugar_g", "salt_g")
+TOTALS = MACROS + NUTRIENTS
+MEAL_REQUIRED = ("type", "name", "ingredients", "portions", "weight_g") + TOTALS + ("totals_date", "estimated", "reviewed")
+MEAL_OPTIONAL = ("aliases", "slots", "cooked_weight_g")
+MEAL_BODY_SECTIONS = ("Prepare", "Notes")
+DAY_REQUIRED = ("type", "name", "date", "status", "goal") + TOTALS + ("estimated",)
+DAY_BODY_SECTIONS = SLOT_HEADINGS + ("Summary", "Notes")
+
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 NUMBER_RE = re.compile(r"^-?\d+(\.\d+)?$")
 WIKILINK_RE = re.compile(r"\[\[([^\]|#]+)(?:[|#][^\]]*)?\]\]")
@@ -74,11 +103,34 @@ PANTRY_ITEM_RE = re.compile(r"^\[\[([^\]|#]+)\]\](?: = ([^,]+?))?(?:, until (\d{
 FOOD_AMOUNT_RE = re.compile(r"^\d+(\.\d+)? g$")
 MEAL_AMOUNT_RE = re.compile(r"^\d+(\.\d+)? (portion|g cooked)$")
 HEADING_RE = re.compile(r"^(#{1,6})\s+(.*)$")
+INGREDIENT_RE = re.compile(r"^\[\[([^\]|#]+)\]\] = (\d+(?:\.\d+)?) g$")
+# `- [[Name]] = <n> g|portion — <kcal> kcal · <P> P · <F> F · <C> C`, with an
+# optional `~ ` right after the bullet and an optional ingredient change
+# `, [[Food]] = <n> g` after the amount.
+ENTRY_LINE_RE = re.compile(
+    r"^- (~ )?\[\[([^\]|#]+)\]\] = (\d+(?:\.\d+)?) (g|portion)"
+    r"(?:, \[\[([^\]|#]+)\]\] = (\d+(?:\.\d+)?) g)?"
+    r" — (\d+) kcal · (\d+) P · (\d+) F · (\d+) C$"
+)
 
 
 # --------------------------------------------------------------------------
 # Rules stated once and applied everywhere
 # --------------------------------------------------------------------------
+
+def _decimal(value) -> Decimal:
+    """The number as written, not as the binary float approximates it.
+
+    `str()` gives the shortest decimal that round-trips, so a computed 0.35
+    stays 0.35 and rounds half up to 0.4 instead of down to 0.3.
+    """
+    return Decimal(str(value))
+
+
+def _half_up(value: float) -> int:
+    """Nearest whole number, a half rounds up. Shared by the two whole-number rules."""
+    return int(_decimal(value).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+
 
 def round_bound(value: float) -> int:
     """Rounding rule for Goals bounds: nearest whole number, a half rounds up.
@@ -86,7 +138,7 @@ def round_bound(value: float) -> int:
     The rule is stated for the agent in routines/goals.md step 4. This is the
     lint's application of it.
     """
-    return int(math.floor(value + 0.5))
+    return _half_up(value)
 
 
 def compute_bounds(targets: dict, tolerance_pct: float) -> dict:
@@ -142,7 +194,7 @@ def round_food_value(value: float) -> float:
     Stated for the agent in routines/create-food.md step 3. A whole result is
     returned as an int so `64.0` is written `64`.
     """
-    rounded = math.floor(value * 10 + 0.5) / 10
+    rounded = float(_decimal(value).quantize(Decimal("0.1"), rounding=ROUND_HALF_UP))
     return int(rounded) if rounded == int(rounded) else rounded
 
 
@@ -232,7 +284,8 @@ def parse_alias_table(index_text: str) -> list[tuple[str, str, list[str]]]:
     return table
 
 
-def resolve_name(query: str, table: list[tuple[str, str, list[str]]], pantry_names: list[str] | tuple[str, ...] = ()) -> Resolution:
+def resolve_name(query: str, table: list[tuple[str, str, list[str]]], pantry_names: list[str] | tuple[str, ...] = (),
+                 slot_word: bool = False) -> Resolution:
     """Resolve what the user said to one canonical name, as routines/create-food.md describes.
 
     Order: exact canonical name, then alias, then fuzzy. Fuzzy candidates are
@@ -246,8 +299,10 @@ def resolve_name(query: str, table: list[tuple[str, str, list[str]]], pantry_nam
     Every candidate keeps its kind (`food` or `meal`). A Food and a Meal in the
     same winning stage always ask, as spec #22 requires: a Pantry item can be a
     Food or a Meal, so the Pantry preference must not decide a cross-kind
-    collision. Ticket #25 adds the one exception, an explicit slot word that
-    makes the Meal win.
+    collision. The one exception (story 49, ticket #25): `slot_word` is true
+    when the log carries a slot word ("breakfast: usual"), and then the Meal
+    candidates of the stage win over the Food ones. Two Meals still follow the
+    same-kind rule: one Pantry Meal wins, else the agent asks.
 
     The stage order comes first, so the ask is a same-stage rule: the first
     matching stage stops the search, and a name that is exact for one kind beats
@@ -261,6 +316,10 @@ def resolve_name(query: str, table: list[tuple[str, str, list[str]]], pantry_nam
     stage, hits = _stage_candidates(query, table)
     if stage is None:
         return Resolution("none")
+    if slot_word:
+        meals = {hit for hit in hits if hit[1] == "meal"}
+        if meals:
+            hits = meals
     return _one_or_ask(stage, hits, pantry_names)
 
 
@@ -607,6 +666,155 @@ def apply_restock(data: dict, additions: list[tuple[str, str | None, str | None]
 
 
 # --------------------------------------------------------------------------
+# Meal arithmetic the Meal totals check compares against
+# --------------------------------------------------------------------------
+
+def round_total(value: float) -> int:
+    """Rounding rule for kcal, protein, fat and carbs on an entry line and in
+    the totals of a Meal or Day: nearest whole number, a half rounds up.
+
+    Fiber, sugar and salt keep one decimal with round_food_value(). Stated for
+    the agent in routines/log.md step 4; the lint compares a stored value
+    against the rounded one exactly, so an unrounded neighbour fails. The same
+    arithmetic as round_bound(); the two rules are stated in two routines
+    because they round two different things.
+    """
+    return _half_up(value)
+
+
+def rounded_total(exact: float, decimals: int = 0) -> float:
+    """`exact` as it must be stored: a whole number, or one decimal when `decimals` is 1."""
+    return round_food_value(exact) if decimals else round_total(exact)
+
+
+def matches_rounding(stored: float, exact: float, decimals: int = 0) -> bool:
+    """`stored` is exactly `exact` rounded by the rule; a value the agent left
+    unrounded, or rounded the other way at a half, fails."""
+    return float(stored) == float(rounded_total(exact, decimals))
+
+
+def food_per_100g(food: Mapping[str, object]) -> dict:
+    """The seven totals per 100 g of a Food. A missing nutrient counts as 0."""
+    return {key: float(food.get(f"{key}_per_100g") or 0) for key in TOTALS}
+
+
+def scale_food(food: Mapping[str, object], grams: float) -> dict:
+    """The seven totals of `grams` of a Food, exact."""
+    return {key: value * grams / 100 for key, value in food_per_100g(food).items()}
+
+
+def parse_ingredient(text: str) -> tuple[str, float]:
+    """`[[Food]] = <grams> g` -> (name, grams)."""
+    match = INGREDIENT_RE.match(text)
+    if not match:
+        raise ValueError(f"not an ingredient string: {text!r}")
+    return match.group(1), float(match.group(2))
+
+
+@dataclass
+class Totals:
+    """The exact seven totals of a Meal or of one Day entry, and whether a node behind it is an estimate.
+
+    `weight_g` is the ingredient gram sum, which only a Meal has; it stays 0
+    for one Day entry, whose amount may be a portion count and is read from
+    the entry line instead.
+    """
+    exact: dict
+    estimated: bool
+    weight_g: float = 0.0
+
+
+def compute_meal(ingredients: Iterable[str], foods: Mapping[str, Mapping[str, object]]) -> Totals:
+    """routines/create-meal.md step 4: sum the ingredients over the Food nodes.
+
+    Exact totals, the raw weight, and `estimated` true exactly when an
+    ingredient Food has `number_source: estimate`. KeyError names an
+    ingredient with no Food.
+    """
+    exact = {key: 0.0 for key in TOTALS}
+    weight = 0.0
+    estimated = False
+    for item in ingredients:
+        name, grams = parse_ingredient(item)
+        food = foods[name]
+        for key, value in scale_food(food, grams).items():
+            exact[key] += value
+        weight += grams
+        estimated = estimated or food.get("number_source") == "estimate"
+    return Totals(exact, estimated, weight)
+
+
+# --------------------------------------------------------------------------
+# Day entry lines: the parser and the arithmetic the Day check compares against
+# --------------------------------------------------------------------------
+
+@dataclass
+class Entry:
+    """One entry line of a Day, as the lint read it.
+
+    `unit` is `g` or `portion`. `marked` is the `~` right after the bullet.
+    `change` is the ingredient change `(Food, grams)` or None. `macros` holds
+    the four whole numbers on the line: kcal, protein_g, fat_g, carbs_g.
+    """
+    name: str
+    amount: float
+    unit: str
+    macros: dict
+    marked: bool = False
+    change: tuple[str, float] | None = None
+
+
+def parse_entry_line(line: str) -> Entry:
+    """The canonical entry line of routines/log.md step 5 -> Entry. ValueError when the shape is off."""
+    match = ENTRY_LINE_RE.match(line)
+    if not match:
+        raise ValueError(f"not an entry line: {line!r}")
+    mark, name, amount, unit, change_name, change_grams, kcal, protein, fat, carbs = match.groups()
+    change = (change_name, float(change_grams)) if change_name else None
+    macros = {"kcal": int(kcal), "protein_g": int(protein), "fat_g": int(fat), "carbs_g": int(carbs)}
+    return Entry(name, float(amount), unit, macros, mark is not None, change)
+
+
+def _num(value: float) -> str:
+    return str(int(value)) if float(value) == int(value) else str(value)
+
+
+def entry_totals(node: Mapping[str, object], amount: float, unit: str,
+                 foods: Mapping[str, Mapping[str, object]] | None = None, change: tuple[str, float] | None = None) -> Totals:
+    """routines/log.md steps 4 and 5: the exact seven totals of one entry from its node, and whether the node is an estimate.
+
+    A Food: per 100 g times the grams; `unit` must be `g`. A Meal: its stored
+    totals times portions / `portions`, or times grams / `weight_g`. An
+    ingredient change, Meal by portion only: the eaten portions of the stored
+    totals, minus the eaten portions of the ingredient as the Meal lists it,
+    plus the amount eaten. So "usual breakfast with 300 g skyr" means 300 g
+    of skyr on the plate whatever the Meal's portion count. The node-side
+    estimate is `number_source: estimate` on a Food or `estimated: true` on a
+    Meal; a guessed amount is the caller's flag. ValueError names a shape the
+    routine forbids.
+    """
+    if node.get("type") == "food":
+        if unit != "g":
+            raise ValueError(f"[[{node.get('name')}]] is a Food and is logged in grams, not `{unit}`")
+        if change:
+            raise ValueError(f"an ingredient change needs a Meal, [[{node.get('name')}]] is a Food")
+        return Totals(scale_food(node, amount), node.get("number_source") == "estimate")
+    factor = amount / float(node["portions"]) if unit == "portion" else amount / float(node["weight_g"])
+    exact = {key: float(node.get(key) or 0) * factor for key in TOTALS}
+    if change:
+        if unit != "portion":
+            raise ValueError(f"an ingredient change is logged by portion, not `{unit}`")
+        food_name, grams = change
+        listed = dict(parse_ingredient(item) for item in node.get("ingredients") or [])
+        if food_name not in listed:
+            raise ValueError(f"ingredient change names [[{food_name}]], which is not an ingredient of [[{node.get('name')}]]")
+        food = (foods or {})[food_name]
+        for key in TOTALS:
+            exact[key] += scale_food(food, grams)[key] - scale_food(food, listed[food_name])[key] * factor
+    return Totals(exact, node.get("estimated") == "true")
+
+
+# --------------------------------------------------------------------------
 # Frontmatter
 # --------------------------------------------------------------------------
 
@@ -803,35 +1011,45 @@ def _check_enum(vault: Vault, node: Node, key: str, allowed: tuple) -> None:
 
 
 def _check_body_notes_only(vault: Vault, node: Node) -> None:
-    """The body is empty, or one `## Notes` section and nothing else.
+    """The body is empty, or one `## Notes` section and nothing else."""
+    _check_body_sections(vault, node, ("Notes",))
+
+
+def _check_body_sections(vault: Vault, node: Node, allowed: tuple[str, ...]) -> list[str]:
+    """The body holds only the `##` sections in `allowed`, each at most once, in that order.
 
     `_sections()` drops the lines before the first heading, so it cannot see
-    free prose. This walks every body line instead: no heading other than one
-    `## Notes`, and no text before that heading.
+    free prose. This walks every body line instead: no other heading at any
+    level, no second copy of a heading, no heading out of order, and no text
+    before the first heading. Returns the headings found, in order.
     """
-    in_notes = False
-    seen_notes = False
+    what = " and ".join(f"`## {name}`" for name in allowed)
+    plural = "sections" if len(allowed) > 1 else "section"
+    seen: list[str] = []
     in_fence = False
     for line in node.body.split("\n"):
         if line.lstrip().startswith("```"):
             in_fence = not in_fence
-            if not in_notes:
-                vault.fail(node.rel, "body may hold only an optional `## Notes` section, found text before the heading")
+            if not seen:
+                vault.fail(node.rel, f"body may hold only the optional {what} {plural}, found text before the first heading")
             continue
         if in_fence:
             continue
         match = HEADING_RE.match(line)
         if match:
             heading = f"{match.group(1)} {match.group(2).strip()}"
-            if match.group(1) != "##" or match.group(2).strip() != "Notes":
-                vault.fail(node.rel, f"body may hold only an optional `## Notes` section, found heading `{heading}`")
-            if seen_notes:
-                vault.fail(node.rel, "body has a second `## Notes` heading; one is the maximum")
-            seen_notes = True
-            in_notes = True
+            name = match.group(2).strip()
+            if match.group(1) != "##" or name not in allowed:
+                vault.fail(node.rel, f"body may hold only the optional {what} {plural}, found heading `{heading}`")
+            if name in seen:
+                vault.fail(node.rel, f"body has a second `## {name}` heading; one is the maximum")
+            if seen and allowed.index(name) < allowed.index(seen[-1]):
+                vault.fail(node.rel, f"body sections must follow the order {what}; `## {name}` comes after `## {seen[-1]}`")
+            seen.append(name)
             continue
-        if not in_notes and line.strip():
-            vault.fail(node.rel, f"body may hold only an optional `## Notes` section, found text outside it: {line.strip()!r}")
+        if not seen and line.strip():
+            vault.fail(node.rel, f"body may hold only the optional {what} {plural}, found text outside it: {line.strip()!r}")
+    return seen
 
 
 def _check_wikilink_property(vault: Vault, node: Node, key: str, allowed_types: tuple) -> None:
@@ -956,6 +1174,208 @@ def _seen_once(vault: Vault, node: Node, seen: set[str], name: str) -> None:
     seen.add(name)
 
 
+def _check_number(vault: Vault, node: Node, key: str) -> None:
+    if key in node.data and not is_number(node.data[key]):
+        vault.fail(node.rel, f"`{key}` must be a number, got {node.data[key]!r}")
+
+
+def _check_list(vault: Vault, node: Node, key: str) -> None:
+    if key in node.data and not isinstance(node.data[key], list):
+        vault.fail(node.rel, f"`{key}` must be a list")
+
+
+def _check_slots(vault: Vault, node: Node) -> None:
+    """`slots` is a list of distinct slot words; absent means any slot."""
+    _check_list(vault, node, "slots")
+    seen: set[str] = set()
+    for slot in node.data.get("slots", []):
+        if slot not in SLOTS:
+            vault.fail(node.rel, f"`slots` item {slot!r} is not one of {', '.join(SLOTS)}")
+        if slot in seen:
+            vault.fail(node.rel, f"`slots` lists {slot!r} twice")
+        seen.add(slot)
+
+
+def check_meals(vault: Vault) -> None:
+    foods = {n.base_name: n.data for n in vault.nodes if n.type == "food"}
+    for node in vault.nodes:
+        if node.type != "meal":
+            continue
+        data = node.data
+        if node.rel != f"nodes/meal/{node.base_name}.md":
+            vault.fail(node.rel, f"a Meal must sit directly at nodes/meal/{node.base_name}.md")
+        for key in MEAL_REQUIRED:
+            if key not in data:
+                vault.fail(node.rel, f"missing `{key}`")
+        for key in data:
+            if key not in MEAL_REQUIRED + MEAL_OPTIONAL:
+                vault.fail(node.rel, f"unexpected property `{key}` on a Meal")
+        for key in ("portions", "weight_g", "cooked_weight_g") + TOTALS:
+            _check_number(vault, node, key)
+        if float(data["portions"]) <= 0:
+            vault.fail(node.rel, f"`portions` must be above 0, got {data['portions']!r}")
+        if not is_date(data["totals_date"]):
+            vault.fail(node.rel, f"`totals_date` must be a date YYYY-MM-DD, got {data['totals_date']!r}")
+        _check_enum(vault, node, "estimated", CHECKBOX_VALUES)
+        _check_enum(vault, node, "reviewed", CHECKBOX_VALUES)
+        _check_list(vault, node, "aliases")
+        _check_slots(vault, node)
+        _check_list(vault, node, "ingredients")
+        if not data["ingredients"]:
+            vault.fail(node.rel, "`ingredients` must hold at least one `[[Food]] = <grams> g` item")
+        seen: set[str] = set()
+        for item in data["ingredients"]:
+            match = INGREDIENT_RE.match(item)
+            if not match:
+                vault.fail(node.rel, f"`ingredients` item must be `[[Food]] = <grams> g`, got {item!r}")
+            name = match.group(1)
+            target = vault.node_by_name(name)
+            if target is None:
+                vault.fail(node.rel, f"`ingredients` links to [[{name}]], which does not exist")
+            elif target.type != "food":
+                vault.fail(node.rel, f"`ingredients` links to [[{name}]], a {target.type} node, not a Food; a Meal never contains a Meal")
+            if name in seen:
+                vault.fail(node.rel, f"`ingredients` lists [[{name}]] twice; one item per Food")
+            seen.add(name)
+            for key in NUTRIENTS:
+                if f"{key}_per_100g" not in target.data:
+                    vault.fail(node.rel, f"ingredient [[{name}]] has no `{key}_per_100g`; fill it on the Food before the Meal sums it")
+            source_date = str(target.data.get("source_date") or "")
+            if is_date(source_date) and source_date > str(data["totals_date"]):
+                vault.fail(node.rel, f"the Meal is stale: ingredient [[{name}]] has `source_date` {source_date}, "
+                                     f"newer than `totals_date` {data['totals_date']}; recompute the seven totals, "
+                                     f"`totals_date` and `estimated` before the Meal is used")
+        totals = compute_meal(data["ingredients"], foods)
+        if abs(float(data["weight_g"]) - totals.weight_g) > 1e-6:
+            vault.fail(node.rel, f"`weight_g` is {data['weight_g']!r}, the ingredients sum to {_num(totals.weight_g)}")
+        for key in TOTALS:
+            decimals = 1 if key in NUTRIENTS else 0
+            if not matches_rounding(data[key], totals.exact[key], decimals):
+                want = rounded_total(totals.exact[key], decimals)
+                vault.fail(node.rel, f"`{key}` is {data[key]!r}, the Food nodes give {want} by the rounding rule in routines/log.md")
+        want_estimated = "true" if totals.estimated else "false"
+        if data["estimated"] != want_estimated:
+            reason = "an ingredient Food is an estimate" if totals.estimated else "no ingredient Food is an estimate"
+            vault.fail(node.rel, f"`estimated` is {data['estimated']!r} but {reason}; it must be {want_estimated}")
+        _check_body_sections(vault, node, MEAL_BODY_SECTIONS)
+
+
+def check_days(vault: Vault) -> None:
+    """Every Day: location by date, schema, slot order, entry lines, totals from the lines, the mark.
+
+    The four macros in the frontmatter equal the sum of the lines on every
+    Day. An open Day is the one being written now, so its lines and its three
+    nutrient totals must also match the nodes within the rounding rule. A
+    closed or auto-closed Day keeps its totals when a Food changes later.
+    """
+    foods = {n.base_name: n.data for n in vault.nodes if n.type == "food"}
+    for node in vault.nodes:
+        if node.type != "day":
+            continue
+        data = node.data
+        for key in DAY_REQUIRED:
+            if key not in data:
+                vault.fail(node.rel, f"missing `{key}`")
+        for key in data:
+            if key not in DAY_REQUIRED:
+                vault.fail(node.rel, f"unexpected property `{key}` on a Day")
+        if not is_date(data["date"]):
+            vault.fail(node.rel, f"`date` must be a date YYYY-MM-DD, got {data['date']!r}")
+        if data["date"] != node.base_name:
+            vault.fail(node.rel, f"`date` {data['date']!r} differs from the file name {node.base_name!r}")
+        if node.rel != f"nodes/day/{data['date'][:7]}/{data['date']}.md":
+            vault.fail(node.rel, f"a Day must sit at nodes/day/{data['date'][:7]}/{data['date']}.md, its month folder")
+        _check_enum(vault, node, "status", DAY_STATUSES)
+        _check_wikilink_property(vault, node, "goal", ("goals",))
+        for key in TOTALS:
+            _check_number(vault, node, key)
+        _check_enum(vault, node, "estimated", CHECKBOX_VALUES)
+        headings = _check_body_sections(vault, node, DAY_BODY_SECTIONS)
+        sections = _sections(node.body)
+        _check_summary(vault, node, sections)
+        entries: list[Entry] = []
+        exact_totals: list[dict] = []
+        for heading in headings:
+            if heading not in SLOT_HEADINGS:
+                continue
+            lines = [line for line in sections[heading] if line.strip()]
+            if not lines:
+                vault.fail(node.rel, f"`## {heading}` has no entry; a slot section is present only when it has an entry")
+            for line in lines:
+                entry, exact = _check_entry_line(vault, node, heading, line, foods)
+                entries.append(entry)
+                exact_totals.append(exact)
+        for key in MACROS:
+            want = sum(e.macros[key] for e in entries)
+            if float(data[key]) != want:
+                vault.fail(node.rel, f"`{key}` is {data[key]!r}, the entry lines sum to {want}")
+        want_estimated = "true" if any(e.marked for e in entries) else "false"
+        if data["estimated"] != want_estimated:
+            reason = "an entry line carries the `~` mark" if want_estimated == "true" else "no entry line carries the `~` mark"
+            vault.fail(node.rel, f"`estimated` is {data['estimated']!r} but {reason}; it must be {want_estimated}")
+        if data["status"] == "open":
+            for key in NUTRIENTS:
+                # fsum, so the total does not depend on the order the lines were added.
+                exact = math.fsum(t[key] for t in exact_totals)
+                if not matches_rounding(data[key], exact, 1):
+                    vault.fail(node.rel, f"`{key}` is {data[key]!r}, the nodes give {round_food_value(exact)} for the entry lines")
+
+
+def _check_summary(vault: Vault, node: Node, sections: Mapping[str, list[str]]) -> None:
+    """The Summary lifecycle of spec #22: an open Day has none, a closed or
+    auto-closed Day has one and it carries the verdict in the fixed words.
+
+    The verdict is `on target` when all four macros sit inside min and max,
+    else `off target:` and each macro that is off with `low` or `high`.
+    close-day writes it (ticket #26); the lint only sees the result.
+    """
+    status = node.data["status"]
+    if status == "open":
+        if "Summary" in sections:
+            vault.fail(node.rel, "an open Day has no `## Summary`; the Summary is written when the Day is closed")
+        return
+    if "Summary" not in sections:
+        vault.fail(node.rel, f"a {status} Day needs a `## Summary` section with its table, the goal used and the verdict")
+    text = "\n".join(sections["Summary"])
+    if "on target" not in text and "off target:" not in text:
+        vault.fail(node.rel, "the `## Summary` needs the verdict in the fixed words `on target` or `off target: <macro> low|high`")
+    if "off target:" in text and not re.search(r"\b(low|high)\b", text):
+        vault.fail(node.rel, "an `off target:` verdict names each macro that is off with `low` or `high`")
+
+
+def _check_entry_line(vault: Vault, node: Node, heading: str, line: str, foods: Mapping[str, Mapping[str, object]]) -> tuple[Entry, dict]:
+    """One line under a slot heading: a canonical entry line whose links resolve, computable from its node, marked when the node is an estimate.
+
+    Returns the Entry and its exact seven totals. The shape rules (a Food in
+    grams, the ingredient change by portion on a Meal naming one of its
+    ingredients) live in entry_totals(); its ValueError becomes the failure.
+    On an open Day the line macros must match the node within the rounding.
+    """
+    try:
+        entry = parse_entry_line(line)
+    except ValueError:
+        vault.fail(node.rel, f"`## {heading}` line is not a canonical entry line `- [[Name]] = <n> g — <kcal> kcal · <P> P · <F> F · <C> C` (`- ~ ` marks an estimate): {line!r}")
+    target = vault.node_by_name(entry.name)
+    if target is None:
+        vault.fail(node.rel, f"`## {heading}` links to [[{entry.name}]], which does not exist")
+    elif target.type not in ("food", "meal"):
+        vault.fail(node.rel, f"`## {heading}` links to [[{entry.name}]], a {target.type} node, not a Food or Meal")
+    try:
+        totals = entry_totals(target.data, entry.amount, entry.unit, foods, entry.change)
+    except ValueError as exc:
+        vault.fail(node.rel, f"{exc}: {line!r}")
+    except (KeyError, TypeError, ZeroDivisionError) as exc:
+        vault.fail(node.rel, f"cannot compute [[{entry.name}]] = {_num(entry.amount)} {entry.unit} from its node ({exc!r}): {line!r}")
+    if totals.estimated and not entry.marked:
+        what = "an estimated Food" if target.type == "food" else "an estimated Meal"
+        vault.fail(node.rel, f"[[{entry.name}]] is {what}, so the line needs the `~` mark right after the bullet: {line!r}")
+    if node.data.get("status") == "open":
+        for key in MACROS:
+            if not matches_rounding(entry.macros[key], totals.exact[key]):
+                vault.fail(node.rel, f"[[{entry.name}]] = {_num(entry.amount)} {entry.unit} says {key} {entry.macros[key]}, the node gives {round_total(totals.exact[key])} by the rounding rule in routines/log.md")
+    return entry, totals.exact
+
+
 def check_router(vault: Vault) -> None:
     path = vault.root / "ROUTER.md"
     if not path.is_file():
@@ -985,6 +1405,8 @@ def check_state(vault: Vault) -> None:
         vault.fail("state.md", f"`updated` must be a date YYYY-MM-DD, got {data['updated']!r}")
 
     open_days = [n for n in vault.nodes if n.type == "day" and n.data.get("status") == "open"]
+    if len(open_days) > 1:
+        vault.fail(open_days[1].rel, f"a second Day with status open; only one Day is open at a time (also {open_days[0].rel})")
     open_day = data.get("open_day")
     if isinstance(open_day, list):
         open_day = ""
@@ -1032,6 +1454,7 @@ def check_index(vault: Vault) -> None:
         vault.fail("index.md", f"unexpected section(s) {extra}")
 
     indexed: set[str] = set()
+    months: set[str] = set()
     for section, lines in sections.items():
         if section not in INDEX_SECTIONS:
             continue
@@ -1048,6 +1471,9 @@ def check_index(vault: Vault) -> None:
                     vault.fail("index.md", f"Day line {month} points to {folder}")
                 elif not (vault.root / folder).is_dir():
                     vault.fail("index.md", f"Day line {month} points to a folder that does not exist: {folder}")
+                if month in months:
+                    vault.fail("index.md", f"month {month} must have exactly one Day line, found a second: {line!r}")
+                months.add(month)
                 continue
             match = INDEX_LINK_LINE_RE.match(line)
             if not match:
@@ -1066,27 +1492,56 @@ def check_index(vault: Vault) -> None:
                 vault.fail("index.md", f"[[{name}]] must have exactly one Index line, found a second: {line!r}")
             if section == "Food":
                 _check_food_index_line(vault, node, line)
+            if section == "Meal":
+                _check_meal_index_line(vault, node, line)
             indexed.add(name)
 
     for node in vault.nodes:
         if node.type in ("food", "meal", "goals", "pantry") and node.base_name not in indexed:
             vault.fail("index.md", f"no line for [[{node.base_name}]] ({node.rel})")
+    day_root = vault.root / "nodes" / "day"
+    if day_root.is_dir():
+        for folder in sorted(day_root.iterdir()):
+            if folder.is_dir() and re.fullmatch(r"\d{4}-\d{2}", folder.name) and folder.name not in months:
+                vault.fail("index.md", f"no Day month line for the folder nodes/day/{folder.name}/: `- {folder.name} | nodes/day/{folder.name}/`")
 
 
 def _check_food_index_line(vault: Vault, node: Node, line: str) -> None:
     """`- [[Name]] | <category> | <aliases plus label name, comma separated>`."""
-    fields = [f.strip() for f in line[2:].split(" | ")]
-    if len(fields) < 2 or len(fields) > 3:
-        vault.fail("index.md", f"Food line must be `- [[Name]] | <category> | <aliases>`: {line!r}")
-        return
+    fields = _index_fields(vault, node, line, "Food", "<category>")
     category = node.data.get("category")
     if fields[1] != category:
         vault.fail("index.md", f"[[{node.base_name}]] line says category {fields[1]!r}, the node says {category!r}")
-    listed = {a.strip() for a in fields[2].split(",") if a.strip()} if len(fields) == 3 else set()
-    aliases = node.data.get("aliases", [])
-    expected = set(aliases if isinstance(aliases, list) else [])
+    expected = _alias_set(node)
     if node.data.get("label_name"):
         expected.add(node.data["label_name"])
+    _check_index_aliases(vault, node, fields, expected)
+
+
+def _check_meal_index_line(vault: Vault, node: Node, line: str) -> None:
+    """`- [[Name]] | <slots, comma separated, or any> | <aliases, comma separated>`."""
+    fields = _index_fields(vault, node, line, "Meal", "<slots or any>")
+    slots = node.data.get("slots") or []
+    want = ", ".join(slots) if isinstance(slots, list) and slots else "any"
+    if fields[1] != want:
+        vault.fail("index.md", f"[[{node.base_name}]] line says slots {fields[1]!r}, the node says {want!r}")
+    _check_index_aliases(vault, node, fields, _alias_set(node))
+
+
+def _index_fields(vault: Vault, node: Node, line: str, kind: str, second: str) -> list[str]:
+    fields = [f.strip() for f in line[2:].split(" | ")]
+    if len(fields) < 2 or len(fields) > 3:
+        vault.fail("index.md", f"{kind} line must be `- [[Name]] | {second} | <aliases>`: {line!r}")
+    return fields
+
+
+def _alias_set(node: Node) -> set[str]:
+    aliases = node.data.get("aliases", [])
+    return set(aliases if isinstance(aliases, list) else [])
+
+
+def _check_index_aliases(vault: Vault, node: Node, fields: list[str], expected: set[str]) -> None:
+    listed = {a.strip() for a in fields[2].split(",") if a.strip()} if len(fields) == 3 else set()
     missing = sorted(expected - listed)
     extra = sorted(listed - expected)
     if missing:
@@ -1112,11 +1567,14 @@ def check_routines(vault: Vault) -> None:
 
 
 def _sections(text: str) -> dict[str, list[str]]:
-    """Split markdown into `## Heading` -> lines. Lines before the first heading are dropped."""
+    """Split markdown into `## Heading` -> lines. Lines before the first heading are dropped; fenced code never opens a section."""
     sections: dict[str, list[str]] = {}
     current: str | None = None
+    in_fence = False
     for line in text.split("\n"):
-        if line.startswith("## "):
+        if line.lstrip().startswith("```"):
+            in_fence = not in_fence
+        if line.startswith("## ") and not in_fence:
             current = line[3:].strip()
             sections.setdefault(current, [])
         elif current is not None:
@@ -1134,6 +1592,8 @@ CHECKS = (
     check_node_locations,
     check_goals,
     check_foods,
+    check_meals,
+    check_days,
     check_pantry,
     check_router,
     check_state,

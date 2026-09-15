@@ -73,10 +73,36 @@ kcal_per_100g: 352
 protein_g_per_100g: 7.4
 fat_g_per_100g: 0.9
 carbs_g_per_100g: 78
+fiber_g_per_100g: 1
+sugar_g_per_100g: 0.2
+salt_g_per_100g: 0
 label_basis: 100g
 number_source: database
 source_date: 2026-09-15
 reviewed: false
+---
+"""
+
+# Rice 100 g as a Meal: 352 kcal, 7.4 P, 0.9 F, 78 C, 1 fiber, 0.2 sugar, 0 salt.
+CHILI = """---
+type: meal
+name: Chili
+slots:
+  - dinner
+ingredients:
+  - "[[Rice]] = 100 g"
+portions: 1
+weight_g: 100
+kcal: 352
+protein_g: 7
+fat_g: 1
+carbs_g: 78
+fiber_g: 1
+sugar_g: 0.2
+salt_g: 0
+totals_date: 2026-09-15
+estimated: false
+reviewed: true
 ---
 """
 
@@ -348,22 +374,19 @@ class FoodPantryLintTest(unittest.TestCase):
         self.assertError("twice")
 
     def test_pantry_meal_item_in_portions_passes(self):
-        self.vault.write(
-            "nodes/meal/Chili.md",
-            "---\ntype: meal\nname: Chili\n---\n",
-        )
+        self.vault.write("nodes/meal/Chili.md", CHILI)
         self.vault.write("nodes/pantry/Pantry.md", PANTRY.replace('"[[Skyr]] = 1000 g"', '"[[Skyr]] = 1000 g"\n  - "[[Chili]] = 2 portion, until 2026-09-19"'))
         self.vault.write("index.md", INDEX_WITH_FOODS.replace("## Meal\n", "## Meal\n- [[Chili]] | dinner\n"))
         self.assertEqual(self.errors(), [])
 
     def test_pantry_meal_item_in_cooked_grams_passes(self):
-        self.vault.write("nodes/meal/Chili.md", "---\ntype: meal\nname: Chili\n---\n")
+        self.vault.write("nodes/meal/Chili.md", CHILI)
         self.vault.write("nodes/pantry/Pantry.md", PANTRY.replace('"[[Skyr]] = 1000 g"', '"[[Skyr]] = 1000 g"\n  - "[[Chili]] = 300 g cooked"'))
         self.vault.write("index.md", INDEX_WITH_FOODS.replace("## Meal\n", "## Meal\n- [[Chili]] | dinner\n"))
         self.assertEqual(self.errors(), [])
 
     def test_pantry_meal_item_in_plain_grams_fails(self):
-        self.vault.write("nodes/meal/Chili.md", "---\ntype: meal\nname: Chili\n---\n")
+        self.vault.write("nodes/meal/Chili.md", CHILI)
         self.vault.write("nodes/pantry/Pantry.md", PANTRY.replace('"[[Skyr]] = 1000 g"', '"[[Skyr]] = 1000 g"\n  - "[[Chili]] = 300 g"'))
         self.vault.write("index.md", INDEX_WITH_FOODS.replace("## Meal\n", "## Meal\n- [[Chili]] | dinner\n"))
         self.assertError("Chili")
@@ -452,7 +475,7 @@ class FoodPantryLintTest(unittest.TestCase):
         self.assertError("one Index line")
 
     def test_duplicate_base_name_across_food_and_meal_fails(self):
-        self.vault.write("nodes/meal/Rice.md", "---\ntype: meal\nname: Rice\n---\n")
+        self.vault.write("nodes/meal/Rice.md", CHILI.replace("name: Chili", "name: Rice"))
         self.assertError("unique")
 
 
