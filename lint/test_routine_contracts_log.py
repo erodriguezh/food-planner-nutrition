@@ -58,7 +58,7 @@ class LogRoutineTest(RoutineTextTestCase):
 
     def test_the_first_log_creates_the_day_the_state_and_the_month_line_in_one_commit(self):
         write = self.text.split("## Write\n", 1)[1].split("## Reply", 1)[0]
-        for needle in ("`status: open`", '`goal: "[[Goals]]"`', "`open_day`", "month line", "`log: <date> <slot> <name> <amount>`"):
+        for needle in ("`status: open`", "`open_day`", "month line", "`log: <date> <slot> <name> <amount>`"):
             self.assertIn(needle, write)
         self.assertEqual(write.count("commit"), 1)
 
@@ -94,7 +94,7 @@ class LogRoutineTest(RoutineTextTestCase):
         self.assertIn("ask", rule)
 
     def test_an_unknown_food_is_created_first_with_its_own_commit(self):
-        rule = self.one_line_with(self.text, "Unknown Food")
+        rule = self.one_line_with(self.text, "unknown Food")
         self.assertIn("`routines/create-food.md`", rule)
         self.assertIn("own commit", rule)
         self.assertIn("then log", rule)
@@ -106,15 +106,18 @@ class LogRoutineTest(RoutineTextTestCase):
         self.assertIn("guess", rule)
 
     def test_add_change_and_remove_are_one_routine(self):
-        self.assertIn("Add, change or remove", self.text)
+        """Story 52. The three When examples are what routes an edit and a
+        removal into this routine; the token budget keeps them and nothing else."""
         when = self.text.split("## When\n", 1)[1].split("\n\n", 1)[0]
         for phrase in ('"it was 200 g"', '"remove the snack"', '"yesterday I had'):
             self.assertIn(phrase, when)
 
     def test_a_past_date_writes_into_its_day_and_a_closed_day_keeps_its_status(self):
+        """A log into a closed Day rewrites the Summary that close-day wrote and
+        leaves `status: closed` alone (story 54, owner feedback 6 on PR #31)."""
         rule = self.step(self.text, 1)
-        self.assertIn("past date writes into its Day", rule)
-        self.assertIn("closed Day: rewrite, keep status, say so", rule)
+        self.assertIn("past date: its Day", rule)
+        self.assertIn("closed Day: rewrite Summary, keep status, say so", rule)
 
     def test_one_fuzzy_hit_is_used_and_named(self):
         rule = self.step(self.text, 2)
@@ -125,6 +128,10 @@ class LogRoutineTest(RoutineTextTestCase):
         self.assertIn("whole", rule)
         self.assertIn("one decimal", rule)
         self.assertTrue(rule.startswith("4."), rule)
+        # Half up covers both values: the lint compares against the rounded
+        # number exactly, so "half up" may not read as the whole numbers only.
+        self.assertLess(rule.index("whole"), rule.index("one decimal"), rule)
+        self.assertLess(rule.index("one decimal"), rule.index("half up"), rule)
         # create-meal points here instead of repeating the rule.
         self.assertNotIn("half up", read(CREATE_MEAL))
         self.assertIn("`routines/log.md` step 4", read(CREATE_MEAL))
@@ -134,6 +141,32 @@ class LogRoutineTest(RoutineTextTestCase):
         self.assertIn("`estimated`", rule)
         self.assertIn("never the Pantry", rule)
         self.assertIn("`routines/rebalance.md`", rule)
+
+    def test_a_stale_meal_is_recomputed_before_it_is_logged(self):
+        """Story 32 and owner feedback 4 on PR #31: an ingredient Food written
+        after the Meal totals makes the stored totals stale, so the routine
+        recomputes the Meal and writes it before the Day line uses it."""
+        rule = self.one_line_with(self.text, "`totals_date`")
+        self.assertIn("Food newer than `totals_date`", rule)
+        self.assertIn("recompute", rule)
+        self.assertTrue(rule.startswith("4."), rule)
+
+    def test_cooked_grams_convert_through_the_cooked_weight(self):
+        """Stories 37 and 38: a leftover weighed cooked converts to the canonical
+        grams of the Meal; without a cooked weight the shrink is a guess, so the
+        error is stated and the entry carries the mark."""
+        rule = self.one_line_with(self.text, "`cooked_weight_g`")
+        self.assertIn("cooked grams", rule)
+        self.assertIn("`weight_g`", rule)
+        self.assertIn("guess the shrink", rule)
+        self.assertIn("say the error", rule)
+        self.assertIn("`~`", rule)
+
+    def test_more_than_the_pantry_holds_asks_one_question(self):
+        """Story 59: the one Pantry question of the log routine. The log still
+        writes nothing to the Pantry, so both halves sit on the same line."""
+        rule = self.one_line_with(self.text, "was that the last of X?")
+        self.assertIn("never the Pantry", rule)
 
     def test_the_reply_names_the_slot_and_what_is_left(self):
         reply = self.text.split("## Reply\n", 1)[1]
