@@ -7,11 +7,11 @@ Run from the repository root:
 
 Exit code 0 when the vault is clean, 1 on the first violation. The checks run
 in a fixed order (nodes load, common conventions, node locations, Goals, Foods,
-Pantry, Router, State, Index, routines), files in sorted path order, so the
-first violation is deterministic.
+Meals, Days, Pantry, Router, State, Index, routines), files in sorted path
+order, so the first violation is deterministic.
 No dependencies beyond the Python 3 standard library.
 
-Checks (v2):
+Checks (v3):
 - every node under nodes/ has flat YAML frontmatter with core types only
 - every node has `type` and `name`; `name` equals the file base name;
   base names are unique across the vault
@@ -23,14 +23,28 @@ Checks (v2):
   aliases, `estimated_from` as a quoted link to a Food and present whenever
   `number_source` is `estimate`, no unknown property, and a body that is empty
   or holds one `## Notes` section with no text outside it
+- every Meal sits directly at nodes/meal/<Name>.md and has its required
+  properties, slots as slot words, ingredients as `"[[Food]] = <grams> g"` one
+  per Food, `weight_g` equal to the ingredient sum, the seven totals within
+  the rounding of the sum over the Food nodes, `estimated` true exactly when
+  an ingredient Food is an estimate, and a body of Prepare and Notes only
+- every Day sits at nodes/day/<YYYY-MM>/<date>.md with name and date equal to
+  the file name, its required properties, `goal` as the Goals link, slot
+  sections in the fixed order with canonical entry lines (the `~` right after
+  the bullet, the ingredient change by portion), the mark on every estimated
+  Food or Meal, the four totals equal to the sum of the lines, `estimated`
+  true exactly when a line is marked; an open Day also matches its nodes
 - exactly one Pantry node sits at nodes/pantry/Pantry.md
 - the Pantry node has `updated`, staples as `"[[Food]]"`, items as
   `"[[Food or Meal]]"` with a grams, portion or cooked-grams amount and an
   optional `until` date; every link resolves by canonical name
 - ROUTER.md is under 500 tokens
-- state.md has its fields; Open items holds no unreviewed Food lines
+- state.md has its fields and names the one open Day; Open items holds no
+  unreviewed Food lines
 - index.md has one section per node type and no line without a node; every
-  Food has exactly one line with its category and all aliases plus the label name
+  Food has exactly one line with its category and all aliases plus the label
+  name; every Meal has exactly one line with its slots (or `any`) and all
+  aliases; every Day month folder has exactly one month line
 - every routine file has the five sections and is under 300 tokens
 """
 from __future__ import annotations

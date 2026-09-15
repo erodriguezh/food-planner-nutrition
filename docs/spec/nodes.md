@@ -263,7 +263,167 @@ items:
 ---
 ```
 
-## Meal, Day
+## Meal
 
-Written by the tickets that build those nodes. Until then the spec issue
-[#22](https://github.com/erodriguezh/food-planner-nutrition/issues/22) is the source.
+Folder `nodes/meal/`, flat, one file per Meal. Built by ticket
+[#25](https://github.com/erodriguezh/food-planner-nutrition/issues/25);
+written by `routines/create-meal.md`. A Meal exists only when the user names it; an unnamed combination stays on the Day.
+The file is named after the Meal in sentence case (`Usual breakfast.md`), free of every Food and Meal name. The lint fails a
+`type: meal` file outside `nodes/meal/` or in a subfolder of it.
+
+### Frontmatter
+
+| Property | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `type` | text | yes | always `meal` |
+| `name` | text | yes | equals the file base name |
+| `aliases` | list | no | other names the user says |
+| `slots` | list | no | subset of `breakfast`, `lunch`, `snack`, `dinner`, each at most once; absent means any slot |
+| `ingredients` | list | yes | items `"[[Food]] = <grams> g"`, one item per Food, at least one; Foods only, a Meal never contains a Meal |
+| `portions` | number | yes | how many equal portions the Meal makes, above 0; default 1 |
+| `weight_g` | number | yes | the raw sum of the ingredient grams |
+| `kcal`, `protein_g`, `fat_g`, `carbs_g` | number | yes | totals of the whole Meal, whole numbers |
+| `fiber_g`, `sugar_g`, `salt_g` | number | yes | totals of the whole Meal, one decimal |
+| `totals_date` | date | yes | the day the totals were last computed |
+| `estimated` | checkbox | yes | `true` exactly when an ingredient Food has `number_source: estimate` |
+| `reviewed` | checkbox | yes | `true` after the user's ok to the shown ingredient list |
+| `cooked_weight_g` | number | no | the weight after cooking, written once when the user weighed it |
+
+No other property is allowed. There is no `number_source` on a Meal; the ingredient Foods carry it.
+
+### Rules
+
+- Totals are stored, computed from the Food nodes: for each ingredient the per-100-g values times the grams, all added up. The lint recomputes them and fails a stored total outside the rounding rule, so a Meal whose Food changed after `totals_date` fails until the agent recomputes it (story 32). The rounding rule is stated in `routines/log.md` step 4 and applied by the lint in `round_total()` (kcal, protein, fat, carbs: whole number, a half rounds up) and `round_food_value()` (fiber, sugar, salt: one decimal); "within the rounding" means within half a unit of the exact value.
+- Every ingredient Food carries `fiber_g_per_100g`, `sugar_g_per_100g` and `salt_g_per_100g`; a missing one is filled and written to the Food before the Meal sums it. The lint fails a Meal whose ingredient Food lacks one.
+- `weight_g` equals the ingredient sum exactly; `cooked_weight_g` is stored only when stated and converts cooked grams of a leftover to raw grams.
+- Estimation mark: `estimated` is derived, `true` exactly when an ingredient Food is an estimate. It bubbles to the Day entry line as `- ~ ` when the Meal is logged. The user's ok never changes it.
+- Unknown Foods in a create-meal flow are created unreviewed first, one `create-food: <name>` commit each with no reply of their own, and named in one summary line; the Meal's one "ok?" sets the Meal `reviewed: true` and touches no Food. A corrected amount is written instead of the ok.
+- A Meal built from today's entries leaves the Day lines as they were eaten.
+- Edges: Meal to Food only. Body: optional `## Prepare` and `## Notes` sections, in that order, filled only on request; the lint fails any other heading, a second copy, the wrong order and text before the first heading.
+- The lint module holds the routine as `compute_meal()`, `build_meal()` and `meal_index_line()`.
+
+### Index line
+
+One line per Meal under `## Meal`: `- [[Name]] | <slots, comma separated, or any> | <aliases, comma separated>`.
+A Meal without aliases has the link and the slots only. The lint fails a wrong slot field, a missing or extra alias, or a second line.
+
+### Example
+
+```
+---
+type: meal
+name: Usual breakfast
+aliases:
+  - usual
+  - the usual
+slots:
+  - breakfast
+ingredients:
+  - "[[Skyr]] = 200 g"
+  - "[[Blueberries]] = 100 g"
+  - "[[Oats]] = 50 g"
+  - "[[Soy milk Alpro]] = 150 g"
+portions: 1
+weight_g: 500
+kcal: 428
+protein_g: 34
+fat_g: 7
+carbs_g: 52
+fiber_g: 7.5
+sugar_g: 22.3
+salt_g: 0.4
+totals_date: 2026-09-15
+estimated: false
+reviewed: false
+---
+```
+
+The example is the real node `nodes/meal/Usual breakfast.md`. Index line: `- [[Usual breakfast]] | breakfast | usual, the usual`.
+
+## Day
+
+Path `nodes/day/<YYYY-MM>/<YYYY-MM-DD>.md`: one folder per month, one file per date. Built by ticket
+[#25](https://github.com/erodriguezh/food-planner-nutrition/issues/25);
+written by `routines/log.md`, closed by `routines/close-day.md` (ticket #26). A Day is created at the first log of its date;
+a date with no log has no file. Plans are never stored on a Day. The lint fails a Day outside its month folder.
+
+### Frontmatter
+
+All properties are required; no other property is allowed.
+
+| Property | Type | Meaning |
+| --- | --- | --- |
+| `type` | text | always `day` |
+| `name` | text | the date, equals the file base name |
+| `date` | date | the date, equals `name` |
+| `status` | text | `open`, `closed` or `auto-closed` |
+| `goal` | text | always `"[[Goals]]"`, the only frontmatter edge |
+| `kcal`, `protein_g`, `fat_g`, `carbs_g` | number | running totals, the sum of the entry lines |
+| `fiber_g`, `sugar_g`, `salt_g` | number | running totals from the nodes, one decimal |
+| `estimated` | checkbox | `true` exactly when an entry line carries the `~` mark |
+
+### Body
+
+Slot sections `## Breakfast`, `## Lunch`, `## Snack`, `## Dinner` in this fixed order, each present only when it has at least one entry line and holding entry lines only. Then `## Summary` (written at close, ticket #26), then optional `## Notes`. The lint fails any other heading, a slot twice, a slot out of order, an empty slot section, text before the first heading and a non-entry line under a slot.
+
+### Entry line
+
+Canonical shapes, confirmed by the prototype branch:
+
+```
+- [[<Meal or Food>]] = <amount> — <kcal> kcal · <protein> P · <fat> F · <carbs> C
+- ~ [[<Meal or Food>]] = <amount> — ...                (estimated input)
+- [[<Meal>]] = <n> portion, [[<Food>]] = <n> g — ...    (ingredient change)
+```
+
+- `<amount>` is `<n> g` for a Food, `<n> g` or `<n> portion` for a Meal. Servings and millilitres convert to grams before the write. Several snacks are several lines. No time on the line, no checkbox, no italics.
+- The four macros are computed from the node at write time by the rounding rule in `routines/log.md` step 4: a Food from its per-100-g values times the grams; a Meal from its stored totals times portions / `portions` or times grams / `weight_g`. The Day is readable without opening the Foods.
+- Ingredient change: a Meal by portion whose one ingredient amount differs from the Meal node. The change is written on the line, after the amount, and never on the Meal. The macros are the stored Meal totals minus the ingredient as the Meal lists it plus the amount eaten, then per portion. The lint fails a change on a Food entry, on a Meal by grams, or naming a Food that is not an ingredient of the Meal.
+- Estimation mark: `~` right after the bullet, before the link, and nowhere else. It is written when the Food is an estimate (`number_source: estimate`), when the Meal is estimated (`estimated: true`), or when the agent guessed the amount. The lint requires the mark for an estimated Food or Meal and accepts it on a plain node (a guessed amount). The Day `estimated` is `true` exactly when a line carries the mark, and the chat totals then carry `~`.
+- The lint module holds the line as `parse_entry_line()`, `format_entry_line()`, `entry_totals()` and `log_entry()`.
+
+### Totals
+
+- `kcal`, `protein_g`, `fat_g`, `carbs_g` equal the sum of the entry lines exactly, on every Day. A closed or auto-closed Day keeps its totals when a Food is reformulated later.
+- An open Day is the one being written now, so its entry lines must also match their nodes within the rounding rule, and `fiber_g`, `sugar_g`, `salt_g` must match the sum over the nodes within the rounding of the lines. The lint checks both on `status: open` only. `day_totals()` computes the seven totals and `estimated`.
+
+### Slot rule
+
+The slot is picked by the user's word, else by the clock (before 11:00 breakfast, 11:00 to 15:00 lunch, 15:00 to 18:00 snack, after 18:00 dinner), else, when the clock slot already has an entry from an earlier message, the next slot in order that has none; after dinner there is no next slot. The reply names the slot so a wrong slot is corrected at once. The lint module holds this as `pick_slot()`.
+The fixed order is breakfast, lunch, snack, dinner, so the next slot after a filled breakfast is lunch. The story 50 example in #22 ("a 10:15 croissant after breakfast lands under Snack") does not follow from that order and needs an owner decision; until then the word "snack" in the log picks the slot.
+
+Alias resolution at log time uses the shared table with one exception: a slot word in the log makes the Meal win a Food-versus-Meal collision (`resolve_name(..., slot_word=True)`).
+
+### Lifecycle, State and Index
+
+- The first log of a date creates the Day with `status: open`, sets the State `open_day` to its link and, on the first log of a month, adds the Index month line `- <YYYY-MM> | nodes/day/<YYYY-MM>/`, all in one commit `log: <date> <slot> <name> <amount>`. An unknown Food inside a log is created first in its own `create-food: <name>` commit.
+- A log for a past date writes into that Day. A log into a closed Day rewrites totals and Summary and keeps the status. A log for a later date auto-closes the older open Day first (ticket #26).
+- The State names the one open Day; the lint fails two open Days and an `open_day` that points elsewhere. Every existing `nodes/day/<YYYY-MM>/` folder has exactly one Index month line.
+- Logging never changes the Pantry.
+
+### Example
+
+```
+---
+type: day
+name: 2026-09-15
+date: 2026-09-15
+status: open
+goal: "[[Goals]]"
+kcal: 672
+protein_g: 39
+fat_g: 20
+carbs_g: 80
+fiber_g: 9.4
+sugar_g: 26.3
+salt_g: 0.7
+estimated: true
+---
+
+## Breakfast
+
+- [[Usual breakfast]] = 1 portion — 428 kcal · 34 P · 7 F · 52 C
+- ~ [[Croissant]] = 60 g — 244 kcal · 5 P · 13 F · 28 C
+```
+
+The Croissant line is marked because the 60 g came from a serving the agent guessed; the Day is therefore estimated. There is no Day node on `main` yet: a Day exists only after the first log.

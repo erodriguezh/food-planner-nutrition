@@ -36,14 +36,19 @@ Glossary of the domain language for this vault. Terms are defined once here and 
 - **Cooked weight**: the weight of the whole Meal after cooking, stored only when the user weighed it. Used to convert cooked grams of a leftover to raw grams. Without it the agent estimates the shrink and states the error.
 - **Totals**: the macros of the whole Meal, all ingredients added up: calories, protein, fat, carbs, fiber, sugar, salt.
 - **Totals date**: the day the totals were last computed. Totals are recomputed when an ingredient Food changed after that day.
-- **Slot**: the place of a Meal in a day. One of `breakfast`, `lunch`, `snack`, `dinner`. A Meal may fit several slots or any slot. At log time the user's word picks the slot; else the clock; if that slot already has an entry from an earlier message, the next slot in order.
+- **Slot**: the place of a Meal in a day. One of `breakfast`, `lunch`, `snack`, `dinner`, in that fixed order. A Meal may fit several slots or any slot. At log time the user's word picks the slot; else the clock (before 11:00 breakfast, 11:00 to 15:00 lunch, 15:00 to 18:00 snack, after 18:00 dinner); if that slot already has an entry from an earlier message, the next slot in order.
+- **Slot word**: one of the four slot names said in a log ("breakfast: usual"). It picks the slot before the clock, and it makes the Meal win a Food-versus-Meal collision in alias resolution.
 - **New Food**: a Food the user names in chat that has no node yet. The agent creates it as a generic Food with standard values and marks it unreviewed. It asks nothing.
 - **Unnamed combination**: Foods logged together without a Meal name. Recorded on the Day only; it never becomes a Meal.
 
 ## Day terms
 
 - **Entry**: one thing eaten on a Day: a Meal by portion or by weight, or a Food by weight, with its macros. Written as one line under a slot heading.
-- **Ingredient change**: a Meal entry where one ingredient amount differs from the Meal node. Recorded on the entry, never on the Meal.
+- **Entry line**: the canonical line of an entry: `- [[Name]] = <n> g — <kcal> kcal · <P> P · <F> F · <C> C`, with `- ~ ` for an estimated input and `, [[Food]] = <n> g` after the amount for an ingredient change. The four macros are whole numbers computed from the node at write time.
+- **Ingredient change**: a Meal entry by portion where one ingredient amount differs from the Meal node. Recorded on the entry line, never on the Meal.
+- **Guessed amount**: an amount the agent chose because the user did not state one. It puts the estimation mark on the entry line.
+- **Estimation mark**: the `~` right after the bullet of an entry line, written when the Food is an estimate, the Meal is estimated or the amount is guessed. It bubbles to the Day `estimated` checkbox, the chat totals, the Summary and the weekly average. Nowhere else on a line has meaning.
+- **Month line**: the one Index line per Day month, `- <YYYY-MM> | nodes/day/<YYYY-MM>/`, added at the first log of the month.
 - **Running totals**: the seven totals (calories, protein, fat, carbs, fiber, sugar, salt) of everything eaten so far on a Day. Rewritten on every log.
 - **Remaining**: goal minus running totals. What is left to eat today. The basis for rebalance.
 - **Status**: the state of a Day. `open` (logs still come), `closed` (the user closed the day), `auto-closed` (a log for a later date closed it).
@@ -64,7 +69,7 @@ Glossary of the domain language for this vault. Terms are defined once here and 
 - **Tolerance**: one percent applied to every target to build its range. Default 5.
 - **Goal change**: the user states a new target in chat. Range and tolerance are rewritten with it. The Goals node is edited; git keeps the old values. Each closed Day summary records the targets it used.
 - **Bound**: one end of a range, stored as `<macro>_min` or `<macro>_max`. Eight bounds per Goals node.
-- **Rounding rule**: how a computed number becomes the stored one. Goals bounds: whole number, a half rounds up, stated in `routines/goals.md` step 4. Food numbers: one decimal, a half rounds up, stated in `routines/create-food.md` step 3. The lint applies both rules.
+- **Rounding rule**: how a computed number becomes the stored one. Goals bounds: whole number, a half rounds up, stated in `routines/goals.md` step 4. Food numbers: one decimal, a half rounds up, stated in `routines/create-food.md` step 3. Entry line macros and the kcal, protein, fat and carbs totals of a Meal or Day: whole number, a half rounds up; their fiber, sugar and salt: one decimal; stated in `routines/log.md` step 4. The lint applies all three rules.
 
 ## Pantry terms
 
