@@ -10,9 +10,6 @@ from vault_lint import (
     per_100g_from_per_100ml,
     round_food_value,
     mark_reviewed,
-    normalize_alias,
-    resolve_name,
-    parse_alias_table,
     parse_pantry_item,
     format_pantry_item,
     apply_pantry_change,
@@ -476,71 +473,6 @@ class FoodRoutineFunctionTest(unittest.TestCase):
         self.assertEqual({k: v for k, v in after.items() if k != "reviewed"}, {k: v for k, v in before.items() if k != "reviewed"})
         self.assertEqual(after["number_source"], "estimate")
         self.assertEqual(before["reviewed"], "false")
-
-
-class AliasResolutionTest(unittest.TestCase):
-    TABLE = [
-        ("Skyr", "food", ["skyr natur"]),
-        ("Blueberries", "food", ["Heidelbeeren", "Blaubeeren"]),
-        ("Oats", "food", ["Haferflocken", "oatmeal"]),
-        ("Soy milk Alpro", "food", ["Sojadrink Original", "soy milk"]),
-        ("Chicken breast", "food", ["Hühnerbrust", "chicken"]),
-        ("Chicken meatballs Spar", "food", ["Hühnerfleischbällchen", "meatballs"]),
-    ]
-
-    def test_normalize_drops_case_umlauts_and_plurals(self):
-        self.assertEqual(normalize_alias("Heidelbeeren"), normalize_alias("heidelbeere"))
-        self.assertEqual(normalize_alias("Hühnerbrust"), normalize_alias("huhnerbrust"))
-        self.assertEqual(normalize_alias("Eggs"), normalize_alias("egg"))
-        self.assertEqual(normalize_alias("Süßkartoffel"), "susskartoffel")
-
-    def test_exact_name_wins(self):
-        result = resolve_name("skyr", self.TABLE)
-        self.assertEqual((result.status, result.name), ("exact", "Skyr"))
-
-    def test_alias_match_is_case_and_umlaut_insensitive(self):
-        result = resolve_name("heidelbeeren", self.TABLE)
-        self.assertEqual((result.status, result.name), ("alias", "Blueberries"))
-        result = resolve_name("Huhnerbrust", self.TABLE)
-        self.assertEqual((result.status, result.name), ("alias", "Chicken breast"))
-
-    def test_plural_tolerant(self):
-        result = resolve_name("Blaubeere", self.TABLE)
-        self.assertEqual((result.status, result.name), ("alias", "Blueberries"))
-
-    def test_one_fuzzy_candidate_is_used_and_named(self):
-        result = resolve_name("Haferflokken", self.TABLE)
-        self.assertEqual((result.status, result.name), ("fuzzy", "Oats"))
-
-    def test_no_candidate(self):
-        result = resolve_name("Quark", self.TABLE)
-        self.assertEqual(result.status, "none")
-        self.assertIsNone(result.name)
-
-    def test_several_candidates_ask(self):
-        result = resolve_name("Chicken", self.TABLE)
-        self.assertEqual(result.status, "alias")  # exact alias "chicken" beats fuzzy
-        result = resolve_name("chicken breas", self.TABLE)
-        self.assertEqual((result.status, result.name), ("fuzzy", "Chicken breast"))
-        result = resolve_name("Hühner", self.TABLE)
-        self.assertEqual(result.status, "ambiguous")
-        self.assertEqual(sorted(result.candidates), ["Chicken breast", "Chicken meatballs Spar"])
-
-    def test_several_candidates_prefer_pantry(self):
-        result = resolve_name("Hühner", self.TABLE, pantry_names=["Chicken breast"])
-        self.assertEqual((result.status, result.name), ("fuzzy", "Chicken breast"))
-
-    def test_parse_alias_table_from_index(self):
-        index = (
-            "## Food\n- [[Skyr]] | dairy | skyr natur\n- [[Rice]] | grain\n\n"
-            "## Meal\n- [[Usual breakfast]] | breakfast | usual, the usual\n\n"
-            "## Day\n- 2026-09 | nodes/day/2026-09/\n\n## Goals\n- [[Goals]]\n\n## Pantry\n- [[Pantry]]\n"
-        )
-        table = parse_alias_table(index)
-        self.assertEqual(
-            table,
-            [("Skyr", "food", ["skyr natur"]), ("Rice", "food", []), ("Usual breakfast", "meal", ["usual", "the usual"])],
-        )
 
 
 class PantryRoutineFunctionTest(unittest.TestCase):

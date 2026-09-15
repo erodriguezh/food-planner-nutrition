@@ -39,6 +39,7 @@ import difflib
 import math
 import re
 import sys
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -191,10 +192,14 @@ def normalize_alias(text: str) -> str:
 
 @dataclass
 class Resolution:
-    """Result of resolve_name(). status: exact, alias, fuzzy, ambiguous, none."""
+    """Result of resolve_name(). status: exact, alias, fuzzy, ambiguous, none.
+
+    `candidates` holds every canonical name the winning stage found, sorted.
+    It is empty only for status `none`.
+    """
     status: str
     name: str | None = None
-    candidates: list[str] = field(default_factory=list)
+    candidates: tuple[str, ...] = ()
 
 
 def parse_alias_table(index_text: str) -> list[tuple[str, str, list[str]]]:
@@ -216,39 +221,54 @@ def parse_alias_table(index_text: str) -> list[tuple[str, str, list[str]]]:
 def resolve_name(query: str, table: list[tuple[str, str, list[str]]], pantry_names: list[str] | tuple[str, ...] = ()) -> Resolution:
     """Resolve what the user said to one canonical name, as routines/create-food.md describes.
 
-    Order: exact canonical name, then alias, then fuzzy. One fuzzy candidate is
-    used (the reply names it). Several candidates: prefer the one in the
-    Pantry; else ask (status `ambiguous`). Nothing close: status `none`.
+    Order: exact canonical name, then alias, then fuzzy. Fuzzy candidates are
+    the union of the close matches and the forms that start with or contain
+    what the user said. One candidate is used (the reply names a fuzzy one).
+    Several candidates: prefer the single one in the Pantry; else ask (status
+    `ambiguous`). Nothing close: status `none`.
+
+    Normalization can map two different canonical names to one form (case,
+    umlauts, plurals). Every stage therefore keeps a set of candidates per
+    normalized form, so a second candidate is never discarded in silence.
     """
     wanted = normalize_alias(query)
-    names = {normalize_alias(name): name for name, _kind, _aliases in table}
-    if wanted in names:
-        return Resolution("exact", names[wanted])
-    alias_hits = sorted({name for name, _kind, aliases in table if wanted in {normalize_alias(a) for a in aliases}})
-    if len(alias_hits) == 1:
-        return Resolution("alias", alias_hits[0])
-    if alias_hits:
-        return _prefer_pantry("alias", alias_hits, pantry_names)
-    forms: dict[str, str] = {}
-    for name, _kind, aliases in table:
-        for form in [name] + list(aliases):
-            forms.setdefault(normalize_alias(form), name)
-    close = difflib.get_close_matches(wanted, list(forms), n=5, cutoff=FUZZY_CUTOFF)
-    if not close:
-        close = [form for form in forms if form.startswith(wanted) or wanted in form]
-    fuzzy_hits = sorted({forms[form] for form in close})
+    name_forms = _group_by_normalized_form((name, name) for name, _kind, _aliases in table)
+    if wanted in name_forms:
+        return _one_or_ask("exact", name_forms[wanted], pantry_names)
+    alias_forms = _group_by_normalized_form(
+        (alias, name) for name, _kind, aliases in table for alias in aliases
+    )
+    if wanted in alias_forms:
+        return _one_or_ask("alias", alias_forms[wanted], pantry_names)
+    forms = _group_by_normalized_form(
+        (form, name) for name, _kind, aliases in table for form in [name] + list(aliases)
+    )
+    close = set(difflib.get_close_matches(wanted, list(forms), n=5, cutoff=FUZZY_CUTOFF))
+    close |= {form for form in forms if form.startswith(wanted) or wanted in form}
+    fuzzy_hits = {name for form in close for name in forms[form]}
     if not fuzzy_hits:
         return Resolution("none")
-    if len(fuzzy_hits) == 1:
-        return Resolution("fuzzy", fuzzy_hits[0])
-    return _prefer_pantry("fuzzy", fuzzy_hits, pantry_names)
+    return _one_or_ask("fuzzy", fuzzy_hits, pantry_names)
 
 
-def _prefer_pantry(status: str, hits: list[str], pantry_names) -> Resolution:
-    in_pantry = [h for h in hits if h in set(pantry_names)]
+def _group_by_normalized_form(pairs: Iterable[tuple[str, str]]) -> dict[str, set[str]]:
+    """Map each normalized form to the set of canonical names that produce it."""
+    forms: dict[str, set[str]] = {}
+    for form, name in pairs:
+        forms.setdefault(normalize_alias(form), set()).add(name)
+    return forms
+
+
+def _one_or_ask(status: str, hits: set[str], pantry_names: Iterable[str]) -> Resolution:
+    """Use the one candidate; else the one Pantry candidate; else ask."""
+    candidates = tuple(sorted(hits))
+    if len(candidates) == 1:
+        return Resolution(status, candidates[0], candidates)
+    in_pantry_set = set(pantry_names)
+    in_pantry = [name for name in candidates if name in in_pantry_set]
     if len(in_pantry) == 1:
-        return Resolution(status, in_pantry[0], hits)
-    return Resolution("ambiguous", None, hits)
+        return Resolution(status, in_pantry[0], candidates)
+    return Resolution("ambiguous", None, candidates)
 
 
 # --------------------------------------------------------------------------
