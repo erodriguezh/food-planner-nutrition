@@ -55,6 +55,28 @@ class RoutineShapeTest(unittest.TestCase):
             tokens = estimate_tokens(read(path))
             self.assertLess(tokens, ROUTINE_TOKEN_LIMIT, f"{path.name} is about {tokens} tokens")
 
+    def test_every_routine_when_names_three_examples(self):
+        """Spec #22, Routines: "When (three example phrases)". The token budget
+        is tight, so this count is easy to lose in a wording cut."""
+        for path in sorted((VAULT / "routines").glob("*.md")):
+            when = read(path).split("## When\n", 1)[1].split("\n\n", 1)[0]
+            self.assertGreaterEqual(len(_top_level_items(when)), 3, f"{path.name}: {when}")
+
+
+def _top_level_items(line: str) -> list[str]:
+    """The comma-separated items of a When line, ignoring commas inside quotes."""
+    items, current, quoted = [], "", False
+    for char in line:
+        if char == '"':
+            quoted = not quoted
+        if char == "," and not quoted:
+            items.append(current.strip())
+            current = ""
+            continue
+        current += char
+    items.append(current.strip(" .\n"))
+    return [item for item in items if item]
+
 
 class RoutineTextTestCase(unittest.TestCase):
     def one_line_with(self, text: str, needle: str) -> str:
