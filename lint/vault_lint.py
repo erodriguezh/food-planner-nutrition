@@ -33,10 +33,8 @@ ROUTER_TOKEN_LIMIT = 500
 MACROS = ("kcal", "protein_g", "fat_g", "carbs_g")
 
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
-MONTH_RE = re.compile(r"^\d{4}-\d{2}$")
 NUMBER_RE = re.compile(r"^-?\d+(\.\d+)?$")
 WIKILINK_RE = re.compile(r"\[\[([^\]|#]+)(?:[|#][^\]]*)?\]\]")
-QUOTED_LINK_RE = re.compile(r'^"\[\[[^\]]+\]\]"$')
 KEY_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*):(?:\s+(.*))?$")
 INDEX_LINK_LINE_RE = re.compile(r"^- \[\[([^\]]+)\]\](?: \| .*)?$")
 INDEX_DAY_LINE_RE = re.compile(r"^- (\d{4}-\d{2}) \| (nodes/day/\d{4}-\d{2}/)$")
@@ -126,17 +124,12 @@ def is_date(value) -> bool:
     return isinstance(value, str) and bool(DATE_RE.match(value))
 
 
-def is_checkbox(value) -> bool:
-    return value in ("true", "false")
-
-
 # --------------------------------------------------------------------------
 # Vault model
 # --------------------------------------------------------------------------
 
 @dataclass
 class Node:
-    path: Path
     rel: str
     base_name: str
     data: dict
@@ -179,7 +172,7 @@ def load_nodes(vault: Vault) -> None:
         except FrontmatterError as exc:
             vault.fail(rel, str(exc))
             continue
-        vault.nodes.append(Node(path, rel, path.stem, data, body))
+        vault.nodes.append(Node(rel, path.stem, data, body))
 
 
 def check_common_conventions(vault: Vault) -> None:
@@ -197,11 +190,6 @@ def check_common_conventions(vault: Vault) -> None:
             vault.fail(node.rel, f"base name {node.base_name!r} is not unique (also {seen[node.base_name]})")
         else:
             seen[node.base_name] = node.rel
-        for key, value in node.data.items():
-            if isinstance(value, list):
-                continue
-            if not isinstance(value, str):
-                vault.fail(node.rel, f"`{key}` is not a core type")
 
 
 def check_goals(vault: Vault) -> None:
@@ -210,36 +198,36 @@ def check_goals(vault: Vault) -> None:
         for node in goals[1:]:
             vault.fail(node.rel, "more than one Goals node")
     for node in goals:
-        d = node.data
+        data = node.data
         if node.rel != "nodes/goals/Goals.md":
             vault.fail(node.rel, "Goals node must be nodes/goals/Goals.md")
         for key in MACROS + ("tolerance_pct",):
-            if key not in d:
+            if key not in data:
                 vault.fail(node.rel, f"missing `{key}`")
-            elif not is_number(d[key]):
-                vault.fail(node.rel, f"`{key}` must be a number, got {d[key]!r}")
-        if "since" not in d:
+            elif not is_number(data[key]):
+                vault.fail(node.rel, f"`{key}` must be a number, got {data[key]!r}")
+        if "since" not in data:
             vault.fail(node.rel, "missing `since`")
-        elif not is_date(d["since"]):
-            vault.fail(node.rel, f"`since` must be a date YYYY-MM-DD, got {d['since']!r}")
-        if not is_number(d.get("tolerance_pct", "")):
+        elif not is_date(data["since"]):
+            vault.fail(node.rel, f"`since` must be a date YYYY-MM-DD, got {data['since']!r}")
+        if not is_number(data.get("tolerance_pct", "")):
             continue
-        tolerance = float(d["tolerance_pct"]) / 100
+        tolerance = float(data["tolerance_pct"]) / 100
         for macro in MACROS:
-            if not is_number(d.get(macro, "")):
+            if not is_number(data.get(macro, "")):
                 continue
-            target = float(d[macro])
+            target = float(data[macro])
             expected = {
                 f"{macro}_min": round_bound(target * (1 - tolerance)),
                 f"{macro}_max": round_bound(target * (1 + tolerance)),
             }
             for key, want in expected.items():
-                if key not in d:
+                if key not in data:
                     vault.fail(node.rel, f"missing `{key}`")
-                elif not is_number(d[key]) or float(d[key]) != want:
-                    vault.fail(node.rel, f"`{key}` is {d[key]!r}, expected {want} (rounding rule: nearest whole, half up)")
+                elif not is_number(data[key]) or float(data[key]) != want:
+                    vault.fail(node.rel, f"`{key}` is {data[key]!r}, expected {want} (rounding rule: nearest whole, half up)")
         allowed = set(MACROS) | {"type", "name", "tolerance_pct", "since"} | {f"{m}_{b}" for m in MACROS for b in ("min", "max")}
-        for key in d:
+        for key in data:
             if key not in allowed:
                 vault.fail(node.rel, f"unexpected property `{key}` on Goals")
 

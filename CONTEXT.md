@@ -58,6 +58,7 @@ Glossary of the domain language for this vault. Terms are defined once here and 
 - **Range**: the min and max stored per macro, computed from the target and the tolerance when the goal is set. Under min or over max is not an error; the agent states it and the user decides.
 - **Tolerance**: one percent applied to every target to build its range. Default 5.
 - **Goal change**: the user states a new target in chat. Range and tolerance are rewritten with it. The Goals node is edited; git keeps the old values. Each closed Day summary records the targets it used.
+- **Bound**: one end of a range, stored as `<macro>_min` or `<macro>_max`. Eight bounds per Goals node.
 - **Rounding rule**: how a computed bound becomes the stored whole number. Stated in one place, `routines/goals.md` step 4; the lint applies the same rule.
 
 ## Pantry terms
@@ -91,4 +92,5 @@ Glossary of the domain language for this vault. Terms are defined once here and 
 - **Open item**: a small pending thing the user still has to settle, listed in the state, for example a Meal without cooked weight. Unreviewed Foods are never open items; the agent mentions them at create time and at close of the day.
 - **Routine**: one file that tells the agent how to run one job: log, rebalance, close the day, create food, create meal, pantry, goals, review. A routine holds the method only; it never stores a result.
 - **Spec**: the documents that describe the vault for the build session. Not read in daily use.
+- **Context MCP**: the planned read-only retrieval service with one tool, `build_context(question)`. When connected, the agent calls it first instead of reading the Index. The vault works without it.
 - **Lint**: the script `lint/vault_lint.py` that checks every node, the Index, the State, the Router and the routines against the schemas. Runs locally and on every push to `main`. No model involved.

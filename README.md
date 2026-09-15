@@ -17,4 +17,4 @@ python3 lint/vault_lint.py
 python3 -m unittest discover lint
 ```
 
-The first command checks the vault against the schemas in `docs/spec/`. The second runs the lint's own tests. Both run in CI on every push to `main`.
+The first command checks the vault against the node schemas in `docs/spec/` and the Router, Index, State and routine rules. The second runs the lint's own tests. Both run in CI on every push to `main`.

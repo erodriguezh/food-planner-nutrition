@@ -22,7 +22,7 @@ written and rewritten only by `routines/goals.md`.
 
 ### Frontmatter
 
-All properties are required. No other property is allowed.
+All properties are required. No other property is allowed: the spec forbids a history table, day types and fiber, sugar or salt targets.
 
 | Property | Type | Meaning |
 | --- | --- | --- |
@@ -46,7 +46,7 @@ All properties are required. No other property is allowed.
 - A goal change in chat rewrites all four targets, the tolerance, all eight bounds and `since`. Nothing is recomputed at read time. Git keeps the history.
 - No history table, no day types, no fiber, sugar or salt targets.
 - The Index holds one pointer line under `## Goals`: `- [[Goals]]`.
-- Each closed Day Summary records the goal numbers it used, so a goal change does not touch old Days.
+- Each closed Day Summary records the targets it used, so a goal change does not touch old Days.
 
 ### Body
 
