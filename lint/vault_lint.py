@@ -252,7 +252,8 @@ def parse_alias_table(index_text: str) -> list[tuple[str, str, list[str]]]:
     return table
 
 
-def resolve_name(query: str, table: list[tuple[str, str, list[str]]], pantry_names: list[str] | tuple[str, ...] = ()) -> Resolution:
+def resolve_name(query: str, table: list[tuple[str, str, list[str]]], pantry_names: list[str] | tuple[str, ...] = (),
+                 slot_word: bool = False) -> Resolution:
     """Resolve what the user said to one canonical name, as routines/create-food.md describes.
 
     Order: exact canonical name, then alias, then fuzzy. Fuzzy candidates are
@@ -266,8 +267,10 @@ def resolve_name(query: str, table: list[tuple[str, str, list[str]]], pantry_nam
     Every candidate keeps its kind (`food` or `meal`). A Food and a Meal in the
     same winning stage always ask, as spec #22 requires: a Pantry item can be a
     Food or a Meal, so the Pantry preference must not decide a cross-kind
-    collision. Ticket #25 adds the one exception, an explicit slot word that
-    makes the Meal win.
+    collision. The one exception (story 49, ticket #25): `slot_word` is true
+    when the log carries a slot word ("breakfast: usual"), and then the Meal
+    candidates of the stage win over the Food ones. Two Meals still follow the
+    same-kind rule: one Pantry Meal wins, else the agent asks.
 
     The stage order comes first, so the ask is a same-stage rule: the first
     matching stage stops the search, and a name that is exact for one kind beats
@@ -281,6 +284,10 @@ def resolve_name(query: str, table: list[tuple[str, str, list[str]]], pantry_nam
     stage, hits = _stage_candidates(query, table)
     if stage is None:
         return Resolution("none")
+    if slot_word:
+        meals = {hit for hit in hits if hit[1] == "meal"}
+        if meals:
+            hits = meals
     return _one_or_ask(stage, hits, pantry_names)
 
 
