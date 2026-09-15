@@ -9,7 +9,7 @@ protein_g_per_100g: 11
 fat_g_per_100g: 0.2
 carbs_g_per_100g: 4
 sugar_g_per_100g: 4
-salt_g_per_100g: 0.08
+salt_g_per_100g: 0.1
 servings:
   - "1 portion = 200 g"
 label_basis: 100g
