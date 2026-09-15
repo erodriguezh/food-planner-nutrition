@@ -333,21 +333,22 @@ class MealLintTest(LintCase):
 # Rice bowl by portion: stored totals / 2 -> 240 kcal, 14.5 -> 15 P, 0.5 -> 1 F, 43 C.
 # Rice 150 g: 528 kcal, 11.1 -> 11 P, 1.35 -> 1 F, 117 C.
 # Bulgur 50 g (an estimate): 171 kcal, 6.15 -> 6 P, 0.65 -> 1 F, 37.95 -> 38 C.
-# Rice bowl with 300 g Skyr instead of 200 g, one portion: (480 - 128 + 192) / 2 = 272 kcal,
-# (29 - 22 + 33) / 2 = 20 P, (1 - 0.4 + 0.6) / 2 = 0.6 -> 1 F, (86 - 8 + 12) / 2 = 45 C.
+# Rice bowl, one of two portions, with 300 g Skyr on the plate instead of the listed 100 g per
+# portion: 240 - 64 + 192 = 368 kcal, 14.5 - 11 + 33 = 36.5 -> 37 P, 0.5 - 0.2 + 0.6 = 0.9 -> 1 F,
+# 43 - 4 + 12 = 51 C.
 DAY = """---
 type: day
 name: 2026-09-15
 date: 2026-09-15
 status: open
 goal: "[[Goals]]"
-kcal: 1211
-protein_g: 52
+kcal: 1307
+protein_g: 69
 fat_g: 4
-carbs_g: 243
+carbs_g: 249
 fiber_g: 8.8
-sugar_g: 10.7
-salt_g: 0.3
+sugar_g: 16.7
+salt_g: 0.4
 estimated: true
 ---
 
@@ -365,13 +366,13 @@ estimated: true
 
 ## Dinner
 
-- [[Rice bowl]] = 1 portion, [[Skyr]] = 300 g — 272 kcal · 20 P · 1 F · 45 C
+- [[Rice bowl]] = 1 portion, [[Skyr]] = 300 g — 368 kcal · 37 P · 1 F · 51 C
 """
 
 BREAKFAST = "- [[Rice bowl]] = 1 portion — 240 kcal · 15 P · 1 F · 43 C"
 LUNCH = "- [[Rice]] = 150 g — 528 kcal · 11 P · 1 F · 117 C"
 SNACK = "- ~ [[Bulgur]] = 50 g — 171 kcal · 6 P · 1 F · 38 C"
-DINNER = "- [[Rice bowl]] = 1 portion, [[Skyr]] = 300 g — 272 kcal · 20 P · 1 F · 45 C"
+DINNER = "- [[Rice bowl]] = 1 portion, [[Skyr]] = 300 g — 368 kcal · 37 P · 1 F · 51 C"
 
 DAY_INDEX = INDEX_WITH_MEAL.replace("## Day\n", "## Day\n- 2026-09 | nodes/day/2026-09/\n")
 OPEN_STATE = """---
@@ -453,7 +454,7 @@ class DayLintTest(LintCase):
         self.assertError("goal")
 
     def test_day_totals_must_be_numbers(self):
-        self.day(DAY.replace("kcal: 1211", "kcal: lots"))
+        self.day(DAY.replace("kcal: 1307", "kcal: lots"))
         self.assertError("kcal")
 
     def test_day_estimated_is_a_checkbox(self):
@@ -569,9 +570,9 @@ class DayLintTest(LintCase):
 
     def test_day_estimated_true_without_a_marked_line_fails(self):
         # Replace the estimated Bulgur line with a plain Rice line of the same numbers.
-        plain = DAY.replace(SNACK, "- [[Rice]] = 50 g — 176 kcal · 4 P · 0 F · 39 C").replace("kcal: 1211", "kcal: 1216") \
-            .replace("protein_g: 52", "protein_g: 50").replace("fat_g: 4", "fat_g: 3").replace("carbs_g: 243", "carbs_g: 244") \
-            .replace("fiber_g: 8.8", "fiber_g: 3").replace("sugar_g: 10.7", "sugar_g: 10.6")
+        plain = DAY.replace(SNACK, "- [[Rice]] = 50 g — 176 kcal · 4 P · 0 F · 39 C").replace("kcal: 1307", "kcal: 1312") \
+            .replace("protein_g: 69", "protein_g: 67").replace("fat_g: 4", "fat_g: 3").replace("carbs_g: 249", "carbs_g: 250") \
+            .replace("fiber_g: 8.8", "fiber_g: 3").replace("sugar_g: 16.7", "sugar_g: 16.6")
         self.day(plain)
         self.assertError("estimated")
         self.day(plain.replace("estimated: true", "estimated: false"))
@@ -580,9 +581,9 @@ class DayLintTest(LintCase):
     # --- totals from the lines ------------------------------------------------------
 
     def test_totals_must_equal_the_sum_of_the_lines(self):
-        self.day(DAY.replace("kcal: 1211", "kcal: 1200"))
+        self.day(DAY.replace("kcal: 1307", "kcal: 1300"))
         self.assertError("kcal")
-        self.day(DAY.replace("protein_g: 52", "protein_g: 53"))
+        self.day(DAY.replace("protein_g: 69", "protein_g: 70"))
         self.assertError("protein_g")
 
     def test_a_closed_day_keeps_its_totals_when_a_food_changes(self):
@@ -593,15 +594,15 @@ class DayLintTest(LintCase):
         self.assertClean()
 
     def test_an_open_day_line_must_match_its_node(self):
-        self.day(DAY.replace(LUNCH, "- [[Rice]] = 150 g — 540 kcal · 11 P · 1 F · 117 C").replace("kcal: 1211", "kcal: 1223"))
+        self.day(DAY.replace(LUNCH, "- [[Rice]] = 150 g — 540 kcal · 11 P · 1 F · 117 C").replace("kcal: 1307", "kcal: 1319"))
         self.assertError("540")
 
     def test_an_open_day_nutrient_totals_come_from_the_nodes(self):
-        self.day(DAY.replace("sugar_g: 10.7", "sugar_g: 20"))
+        self.day(DAY.replace("sugar_g: 16.7", "sugar_g: 20"))
         self.assertError("sugar_g")
 
     def test_a_closed_day_total_still_must_equal_its_lines(self):
-        self.closed(DAY.replace("kcal: 1211", "kcal: 1200"))
+        self.closed(DAY.replace("kcal: 1307", "kcal: 1300"))
         self.assertError("kcal")
 
     # --- State and Index -----------------------------------------------------------

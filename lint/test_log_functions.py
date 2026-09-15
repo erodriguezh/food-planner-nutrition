@@ -76,7 +76,7 @@ class EntryLineTest(unittest.TestCase):
         entry = parse_entry_line(DINNER)
         self.assertEqual((entry.name, entry.amount, entry.unit, entry.marked), ("Rice bowl", 1.0, "portion", False))
         self.assertEqual(entry.change, ("Skyr", 300.0))
-        self.assertEqual(entry.macros, {"kcal": 272, "protein_g": 20, "fat_g": 1, "carbs_g": 45})
+        self.assertEqual(entry.macros, {"kcal": 368, "protein_g": 37, "fat_g": 1, "carbs_g": 51})
         self.assertTrue(parse_entry_line(SNACK).marked)
 
     def test_a_wrong_shape_raises(self):
@@ -104,6 +104,18 @@ class EntryLineTest(unittest.TestCase):
     def test_an_ingredient_change_recomputes_from_the_meal_and_the_food(self):
         entry = log_entry(MEAL, 1, "portion", foods=FOODS, change=("Skyr", 300))
         self.assertEqual(format_entry_line(entry), DINNER)
+
+    def test_the_changed_amount_is_what_is_on_the_plate(self):
+        """Story 45: "usual breakfast with 300 g skyr" means 300 g of skyr eaten, whatever the portion count."""
+        one_portion = dict(MEAL, portions="1")
+        two_portions = log_entry(MEAL, 1, "portion", foods=FOODS, change=("Skyr", 300)).macros
+        # Rice bowl lists 200 g Skyr for 2 portions; one portion with the listed 100 g equals the plain line.
+        self.assertEqual(log_entry(MEAL, 1, "portion", foods=FOODS, change=("Skyr", 100)).macros, log_entry(MEAL, 1, "portion").macros)
+        # A one-portion Meal that lists 200 g: 300 g on the plate adds 100 g of Skyr (64 kcal, 11 P).
+        whole = log_entry(one_portion, 1, "portion").macros
+        changed = log_entry(one_portion, 1, "portion", foods=FOODS, change=("Skyr", 300)).macros
+        self.assertEqual((changed["kcal"] - whole["kcal"], changed["protein_g"] - whole["protein_g"]), (64, 11))
+        self.assertEqual(two_portions["kcal"], 368)
 
     def test_an_estimated_meal_carries_the_mark(self):
         meal = dict(MEAL, estimated="true")
@@ -134,8 +146,8 @@ class DayTotalsTest(unittest.TestCase):
         nutrients = [entry_totals(MEAL, 1, "portion").exact, entry_totals(FOODS["Rice"], 150, "g").exact,
                      entry_totals(FOODS["Bulgur"], 50, "g").exact, entry_totals(MEAL, 1, "portion", FOODS, ("Skyr", 300)).exact]
         totals = day_totals(entries, nutrients)
-        self.assertEqual((totals["kcal"], totals["protein_g"], totals["fat_g"], totals["carbs_g"]), (1211, 52, 4, 243))
-        self.assertEqual((totals["fiber_g"], totals["sugar_g"], totals["salt_g"]), (8.8, 10.7, 0.3))
+        self.assertEqual((totals["kcal"], totals["protein_g"], totals["fat_g"], totals["carbs_g"]), (1307, 69, 4, 249))
+        self.assertEqual((totals["fiber_g"], totals["sugar_g"], totals["salt_g"]), (8.8, 16.7, 0.4))
         self.assertEqual(totals["estimated"], "true")
 
     def test_no_marked_line_means_not_estimated(self):
