@@ -85,6 +85,7 @@ written by `routines/create-food.md`, also when the log, meal or pantry routine 
 
 File name = canonical English name with spaces, first word capitalised (`Chicken breast.md`). A packaged product ends with the brand
 (`Chicken meatballs Spar.md`); a generic Food has no brand (`Chicken breast.md`).
+Every Food sits directly at `nodes/food/<Name>.md`. The lint fails a `type: food` file in another node folder, in a subfolder of `nodes/food/`, or outside `nodes/`.
 
 ### Frontmatter
 
@@ -178,7 +179,7 @@ Index line: `- [[Soy milk Alpro]] | drink | Soya Original, Sojadrink, soy milk`.
 
 ## Pantry
 
-One file: `nodes/pantry/Pantry.md`. Built by ticket
+One file, and it is required: `nodes/pantry/Pantry.md`. The lint fails a vault with no Pantry node, with more than one, or with the node at another path. Built by ticket
 [#24](https://github.com/erodriguezh/food-planner-nutrition/issues/24);
 written by `routines/pantry.md`. The default answer to "what do I have"; the conversation overrides it.
 

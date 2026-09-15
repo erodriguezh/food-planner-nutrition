@@ -6,21 +6,24 @@ Run from the repository root:
     python3 lint/vault_lint.py
 
 Exit code 0 when the vault is clean, 1 on the first violation. The checks run
-in a fixed order (nodes load, common conventions, Goals, Foods, Pantry, Router,
-State, Index, routines), files in sorted path order, so the first violation is deterministic.
+in a fixed order (nodes load, common conventions, node locations, Goals, Foods,
+Pantry, Router, State, Index, routines), files in sorted path order, so the
+first violation is deterministic.
 No dependencies beyond the Python 3 standard library.
 
 Checks (v2):
 - every node under nodes/ has flat YAML frontmatter with core types only
 - every node has `type` and `name`; `name` equals the file base name;
   base names are unique across the vault
+- no file outside nodes/ carries node frontmatter
 - the Goals node follows its schema; bounds use the rounding rule
-- every Food has its required properties and enums, numbers with at most one
-  decimal, servings in grams,
-  density fields with a 100ml label basis, `estimated_from` as a link to a Food,
-  no unknown property, `estimated_from` when the number source is an estimate,
-  a `label_name` that is one of the aliases, and a body that is empty or holds
-  one `## Notes` section with no heading and no text outside it
+- every Food sits directly at nodes/food/<Name>.md and has its required
+  properties and enums, numbers with at most one decimal, servings in grams,
+  density fields with a 100ml label basis, a `label_name` that is one of the
+  aliases, `estimated_from` as a quoted link to a Food and present whenever
+  `number_source` is `estimate`, no unknown property, and a body that is empty
+  or holds one `## Notes` section with no text outside it
+- exactly one Pantry node sits at nodes/pantry/Pantry.md
 - the Pantry node has `updated`, staples as `"[[Food]]"`, items as
   `"[[Food or Meal]]"` with a grams, portion or cooked-grams amount and an
   optional `until` date; every link resolves by canonical name
@@ -479,6 +482,26 @@ def check_common_conventions(vault: Vault) -> None:
             seen[node.base_name] = node.rel
 
 
+def check_node_locations(vault: Vault) -> None:
+    """A node file lives under nodes/. Node frontmatter anywhere else is a stray node.
+
+    load_nodes() reads nodes/ only, so a file with `type: food` at the vault
+    root would otherwise pass unseen. Hidden folders (.git, .obsidian and the
+    like) are not part of the vault and are skipped.
+    """
+    for path in sorted(vault.root.rglob("*.md")):
+        rel = path.relative_to(vault.root).as_posix()
+        if rel.startswith("nodes/") or any(part.startswith(".") for part in rel.split("/")):
+            continue
+        try:
+            data, _body = parse_frontmatter(path.read_text(encoding="utf-8"))
+        except FrontmatterError:
+            continue
+        node_type = data.get("type")
+        if node_type in NODE_TYPES:
+            vault.fail(rel, f"a {node_type} node must live under nodes/, not at {rel}")
+
+
 def check_goals(vault: Vault) -> None:
     goals = [n for n in vault.nodes if n.type == "goals"]
     if len(goals) > 1:
@@ -570,6 +593,8 @@ def check_foods(vault: Vault) -> None:
         if node.type != "food":
             continue
         data = node.data
+        if node.rel != f"nodes/food/{node.base_name}.md":
+            vault.fail(node.rel, f"a Food must sit directly at nodes/food/{node.base_name}.md")
         for key in FOOD_REQUIRED:
             if key not in data:
                 vault.fail(node.rel, f"missing `{key}`")
@@ -615,6 +640,8 @@ def check_foods(vault: Vault) -> None:
 
 def check_pantry(vault: Vault) -> None:
     pantries = [n for n in vault.nodes if n.type == "pantry"]
+    if not pantries:
+        vault.fail("nodes/pantry/Pantry.md", "the vault needs exactly one Pantry node and this file is missing")
     if len(pantries) > 1:
         vault.fail(pantries[1].rel, "more than one Pantry node")
     for node in pantries:
@@ -841,6 +868,7 @@ def _sections(text: str) -> dict[str, list[str]]:
 CHECKS = (
     load_nodes,
     check_common_conventions,
+    check_node_locations,
     check_goals,
     check_foods,
     check_pantry,

@@ -37,6 +37,14 @@ INDEX = """## Food
 - [[Goals]]
 
 ## Pantry
+- [[Pantry]]
+"""
+
+PANTRY_NODE = """---
+type: pantry
+name: Pantry
+updated: 2026-09-15
+---
 """
 
 STATE = """---
@@ -81,6 +89,7 @@ class VaultFixture:
         self.write("index.md", INDEX)
         self.write("state.md", STATE)
         self.write("nodes/goals/Goals.md", GOALS)
+        self.write("nodes/pantry/Pantry.md", PANTRY_NODE)
 
     def write(self, rel, text):
         path = self.root / rel

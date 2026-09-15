@@ -100,7 +100,7 @@ FOOD_INDEX = (
     "- [[Soy milk Alpro]] | drink | Sojadrink Original, soy milk\n"
     "- [[Rice]] | grain | Reis\n"
 )
-INDEX_WITH_FOODS = INDEX.replace("## Food\n", FOOD_INDEX).replace("## Pantry\n", "## Pantry\n- [[Pantry]]\n")
+INDEX_WITH_FOODS = INDEX.replace("## Food\n", FOOD_INDEX)
 
 
 class FoodPantryFixture(VaultFixture):
@@ -386,6 +386,34 @@ class FoodPantryLintTest(unittest.TestCase):
     def test_pantry_second_notes_heading_fails(self):
         self.vault.write("nodes/pantry/Pantry.md", PANTRY + "\n## Notes\n\nOne.\n\n## Notes\n\nTwo.\n")
         self.assertError("Notes")
+
+    # --- structural schema ----------------------------------------------
+
+    def test_food_outside_the_food_folder_fails(self):
+        self.vault.write("nodes/meal/Quark.md", RICE.replace("name: Rice", "name: Quark"))
+        self.vault.write("index.md", INDEX_WITH_FOODS.replace("## Food\n", "## Food\n- [[Quark]] | grain | Reis\n"))
+        self.assertError("nodes/food/Quark.md")
+
+    def test_food_in_a_subfolder_fails(self):
+        self.vault.write("nodes/food/dairy/Quark.md", RICE.replace("name: Rice", "name: Quark"))
+        self.vault.write("index.md", INDEX_WITH_FOODS.replace("## Food\n", "## Food\n- [[Quark]] | grain | Reis\n"))
+        self.assertError("nodes/food/Quark.md")
+
+    def test_food_at_the_vault_root_fails(self):
+        self.vault.write("Quark.md", RICE.replace("name: Rice", "name: Quark"))
+        self.assertError("Quark.md")
+
+    def test_pantry_node_is_required(self):
+        import os
+        os.remove(self.vault.root / "nodes/pantry/Pantry.md")
+        self.vault.write("index.md", INDEX_WITH_FOODS.replace("- [[Pantry]]\n", ""))
+        self.assertError("nodes/pantry/Pantry.md")
+
+    def test_pantry_outside_the_pantry_folder_fails(self):
+        import os
+        os.remove(self.vault.root / "nodes/pantry/Pantry.md")
+        self.vault.write("nodes/food/Pantry.md", PANTRY)
+        self.assertError("nodes/pantry/Pantry.md")
 
     # --- Index Food lines -----------------------------------------------
 
