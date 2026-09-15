@@ -1,4 +1,4 @@
-"""Tests for vault lint v1. Run: python3 -m unittest discover lint"""
+"""Tests for the vault lint. Run: python3 -m unittest discover lint"""
 import os
 import shutil
 import tempfile
@@ -49,6 +49,23 @@ updated: 2026-09-15
 """
 
 ROUTER = "# Router\n\nShort router.\n"
+
+CROISSANT = """---
+type: food
+name: Croissant
+aliases:
+  - Kipferl
+category: grain
+kcal_per_100g: 406
+protein_g_per_100g: 8
+fat_g_per_100g: 21
+carbs_g_per_100g: 46
+label_basis: 100g
+number_source: database
+source_date: 2026-09-15
+reviewed: false
+---
+"""
 
 
 class VaultFixture:
@@ -245,7 +262,7 @@ class LintTest(unittest.TestCase):
         self.assertError("unreviewed")
 
     def test_state_food_link_in_open_items_fails(self):
-        self.vault.write("nodes/food/Croissant.md", "---\ntype: food\nname: Croissant\nreviewed: false\n---\n")
+        self.vault.write("nodes/food/Croissant.md", CROISSANT)
         self.vault.write("index.md", INDEX.replace("## Food\n", "## Food\n- [[Croissant]] | grain | Kipferl\n"))
         self.vault.write("state.md", STATE + "- [[Croissant]]\n")
         self.assertError("Food")

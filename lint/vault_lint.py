@@ -1,27 +1,35 @@
 #!/usr/bin/env python3
-"""Vault lint v1 for the food planner vault.
+"""Vault lint for the food planner vault.
 
 Run from the repository root:
 
     python3 lint/vault_lint.py
 
 Exit code 0 when the vault is clean, 1 on the first violation. The checks run
-in a fixed order (nodes load, common conventions, Goals, Router, State, Index,
-routines), files in sorted path order, so the first violation is deterministic.
+in a fixed order (nodes load, common conventions, Goals, Foods, Pantry, Router,
+State, Index, routines), files in sorted path order, so the first violation is deterministic.
 No dependencies beyond the Python 3 standard library.
 
-Checks (v1):
+Checks (v2):
 - every node under nodes/ has flat YAML frontmatter with core types only
 - every node has `type` and `name`; `name` equals the file base name;
   base names are unique across the vault
 - the Goals node follows its schema; bounds use the rounding rule
+- every Food has its required properties and enums, servings in grams,
+  density fields with a 100ml label basis, `estimated_from` as a link to a Food,
+  no unknown property and a body of at most one `## Notes` section
+- the Pantry node has `updated`, staples as `"[[Food]]"`, items as
+  `"[[Food or Meal]]"` with a grams, portion or cooked-grams amount and an
+  optional `until` date; every link resolves by canonical name
 - ROUTER.md is under 500 tokens
 - state.md has its fields; Open items holds no unreviewed Food lines
-- index.md has one section per node type and no line without a node
+- index.md has one section per node type and no line without a node; every
+  Food has exactly one line with its category and all aliases plus the label name
 - every routine file has the five sections
 """
 from __future__ import annotations
 
+import difflib
 import math
 import re
 import sys
@@ -34,12 +42,28 @@ ROUTINE_SECTIONS = ("When", "Read", "Steps", "Write", "Reply")
 ROUTER_TOKEN_LIMIT = 500
 MACROS = ("kcal", "protein_g", "fat_g", "carbs_g")
 
+FOOD_CATEGORIES = ("protein", "dairy", "grain", "vegetable", "fruit", "fat", "snack", "drink")
+LABEL_BASES = ("100g", "100ml")
+NUMBER_SOURCES = ("label", "database", "estimate")
+FOOD_MACROS = ("kcal_per_100g", "protein_g_per_100g", "fat_g_per_100g", "carbs_g_per_100g")
+FOOD_REQUIRED = ("type", "name", "category") + FOOD_MACROS + ("label_basis", "number_source", "source_date", "reviewed")
+FOOD_OPTIONAL_NUMBERS = ("fiber_g_per_100g", "sugar_g_per_100g", "salt_g_per_100g", "density_g_per_ml")
+FOOD_OPTIONAL = ("aliases", "label_name", "brand", "servings", "density_source", "source_ref", "barcode", "estimated_from") + FOOD_OPTIONAL_NUMBERS
+PANTRY_REQUIRED = ("type", "name", "updated")
+PANTRY_OPTIONAL = ("staples", "items")
+CHECKBOX_VALUES = ("true", "false")
+
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 NUMBER_RE = re.compile(r"^-?\d+(\.\d+)?$")
 WIKILINK_RE = re.compile(r"\[\[([^\]|#]+)(?:[|#][^\]]*)?\]\]")
 KEY_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*):(?:\s+(.*))?$")
 INDEX_LINK_LINE_RE = re.compile(r"^- \[\[([^\]]+)\]\](?: \| .*)?$")
 INDEX_DAY_LINE_RE = re.compile(r"^- (\d{4}-\d{2}) \| (nodes/day/\d{4}-\d{2}/)$")
+SERVING_RE = re.compile(r"^\d+(\.\d+)? [A-Za-z][A-Za-z ]* = \d+(\.\d+)? g$")
+PANTRY_LINK_RE = re.compile(r"^\[\[([^\]|#]+)\]\]$")
+PANTRY_ITEM_RE = re.compile(r"^\[\[([^\]|#]+)\]\](?: = ([^,]+?))?(?:, until (\d{4}-\d{2}-\d{2}))?$")
+FOOD_AMOUNT_RE = re.compile(r"^\d+(\.\d+)? g$")
+MEAL_AMOUNT_RE = re.compile(r"^\d+(\.\d+)? (portion|g cooked)$")
 
 
 # --------------------------------------------------------------------------
@@ -96,6 +120,223 @@ def apply_goal_change(existing: dict | None, stated_targets: dict, stated_tolera
 def estimate_tokens(text: str) -> int:
     """Token estimate used for the Router limit: one token per four characters."""
     return math.ceil(len(text) / 4)
+
+
+# --------------------------------------------------------------------------
+# create-food routine as functions
+# --------------------------------------------------------------------------
+
+def round_food_value(value: float) -> float:
+    """Rounding rule for Food numbers: one decimal, a half rounds up (2.25 -> 2.3).
+
+    Stated for the agent in routines/create-food.md step 3. A whole result is
+    returned as an int so `64.0` is written `64`.
+    """
+    rounded = math.floor(value * 10 + 0.5) / 10
+    return int(rounded) if rounded == int(rounded) else rounded
+
+
+def per_100g_from_per_100ml(values: dict, density_g_per_ml: float) -> dict:
+    """Convert per-100-ml label values to per 100 g once, at creation.
+
+    100 ml weigh 100 × density grams, so a per-100-g value is the per-100-ml
+    value divided by the density. Every result uses round_food_value().
+    """
+    return {key: round_food_value(float(value) / density_g_per_ml) for key, value in values.items()}
+
+
+def mark_reviewed(data: dict) -> dict:
+    """The "ok" step: a copy of the Food frontmatter with `reviewed: true` and nothing else changed.
+
+    `number_source` stays as it is; review never removes an estimate mark.
+    """
+    result = dict(data)
+    result["reviewed"] = "true"
+    return result
+
+
+# --------------------------------------------------------------------------
+# Alias resolution as a function (shared Food and Meal table from the Index)
+# --------------------------------------------------------------------------
+
+_UMLAUTS = str.maketrans({"ä": "a", "ö": "o", "ü": "u", "ß": "ss", "é": "e", "è": "e"})
+FUZZY_CUTOFF = 0.8
+
+
+def normalize_alias(text: str) -> str:
+    """Case-insensitive, umlaut-free, plural-tolerant form of a name or alias.
+
+    Plurals: a trailing `n` is dropped (Heidelbeeren -> heidelbeere), else a
+    trailing `es`, else a trailing `s` (eggs -> egg). Both sides of a match
+    are normalized the same way, so the rule needs no dictionary.
+    """
+    text = " ".join(text.casefold().translate(_UMLAUTS).split())
+    if len(text) > 3:
+        if text.endswith("n"):
+            text = text[:-1]
+        elif text.endswith("es"):
+            text = text[:-2]
+        elif text.endswith("s"):
+            text = text[:-1]
+    return text
+
+
+@dataclass
+class Resolution:
+    """Result of resolve_name(). status: exact, alias, fuzzy, ambiguous, none."""
+    status: str
+    name: str | None = None
+    candidates: list[str] = field(default_factory=list)
+
+
+def parse_alias_table(index_text: str) -> list[tuple[str, str, list[str]]]:
+    """The shared alias table from index.md: (canonical name, food|meal, aliases) per line."""
+    table = []
+    for section, lines in _sections(index_text).items():
+        if section not in ("Food", "Meal"):
+            continue
+        for line in lines:
+            match = INDEX_LINK_LINE_RE.match(line)
+            if not match:
+                continue
+            fields = [f.strip() for f in line.split(" | ")]
+            aliases = [a.strip() for a in fields[2].split(",") if a.strip()] if len(fields) > 2 else []
+            table.append((match.group(1), section.lower(), aliases))
+    return table
+
+
+def resolve_name(query: str, table: list[tuple[str, str, list[str]]], pantry_names: list[str] | tuple[str, ...] = ()) -> Resolution:
+    """Resolve what the user said to one canonical name, as routines/create-food.md describes.
+
+    Order: exact canonical name, then alias, then fuzzy. One fuzzy candidate is
+    used (the reply names it). Several candidates: prefer the one in the
+    Pantry; else ask (status `ambiguous`). Nothing close: status `none`.
+    """
+    wanted = normalize_alias(query)
+    names = {normalize_alias(name): name for name, _kind, _aliases in table}
+    if wanted in names:
+        return Resolution("exact", names[wanted])
+    alias_hits = sorted({name for name, _kind, aliases in table if wanted in {normalize_alias(a) for a in aliases}})
+    if len(alias_hits) == 1:
+        return Resolution("alias", alias_hits[0])
+    if alias_hits:
+        return _prefer_pantry("alias", alias_hits, pantry_names)
+    forms: dict[str, str] = {}
+    for name, _kind, aliases in table:
+        for form in [name] + list(aliases):
+            forms.setdefault(normalize_alias(form), name)
+    close = difflib.get_close_matches(wanted, list(forms), n=5, cutoff=FUZZY_CUTOFF)
+    if not close:
+        close = [form for form in forms if form.startswith(wanted) or wanted in form]
+    fuzzy_hits = sorted({forms[form] for form in close})
+    if not fuzzy_hits:
+        return Resolution("none")
+    if len(fuzzy_hits) == 1:
+        return Resolution("fuzzy", fuzzy_hits[0])
+    return _prefer_pantry("fuzzy", fuzzy_hits, pantry_names)
+
+
+def _prefer_pantry(status: str, hits: list[str], pantry_names) -> Resolution:
+    in_pantry = [h for h in hits if h in set(pantry_names)]
+    if len(in_pantry) == 1:
+        return Resolution(status, in_pantry[0], hits)
+    return Resolution("ambiguous", None, hits)
+
+
+# --------------------------------------------------------------------------
+# pantry routine as functions
+# --------------------------------------------------------------------------
+
+def parse_pantry_item(text: str) -> tuple[str, str | None, str | None]:
+    """`[[Name]] = <amount>, until <date>` -> (name, amount or None, until or None)."""
+    match = PANTRY_ITEM_RE.match(text)
+    if not match:
+        raise ValueError(f"not a Pantry item string: {text!r}")
+    return match.group(1), match.group(2), match.group(3)
+
+
+def format_pantry_item(name: str, amount: str | None, until: str | None) -> str:
+    text = f"[[{name}]]"
+    if amount:
+        text += f" = {amount}"
+    if until:
+        text += f", until {until}"
+    return text
+
+
+def _add_amounts(old: str | None, new: str | None) -> str | None:
+    """Sum two amounts with the same unit; else the stated one wins."""
+    if old and new:
+        old_num, _, old_unit = old.partition(" ")
+        new_num, _, new_unit = new.partition(" ")
+        if old_unit == new_unit and is_number(old_num) and is_number(new_num):
+            total = round_food_value(float(old_num) + float(new_num))
+            return f"{total} {old_unit}"
+    return new or old
+
+
+def apply_pantry_change(data: dict, change: tuple, today: str) -> dict:
+    """One chat change to the Pantry frontmatter. Returns a new dict.
+
+    change is one of:
+      ("bought", name, amount, until)  add an item; an existing item gets the amounts added;
+                                       a staple is left alone
+      ("gone", name)                   remove from whichever list holds it
+      ("staple", name)                 make it a staple (moved out of items)
+      ("item", name, amount, until)    make it an item (moved out of staples)
+    Always sets `updated` to today.
+    """
+    result = dict(data)
+    staples = list(data.get("staples") or [])
+    items = list(data.get("items") or [])
+    kind, name = change[0], change[1]
+    link = f"[[{name}]]"
+    index = next((i for i, item in enumerate(items) if parse_pantry_item(item)[0] == name), None)
+    if kind == "bought":
+        _kind, _name, amount, until = change
+        if link not in staples:
+            if index is None:
+                items.append(format_pantry_item(name, amount, until))
+            else:
+                _n, old_amount, old_until = parse_pantry_item(items[index])
+                items[index] = format_pantry_item(name, _add_amounts(old_amount, amount), until or old_until)
+    elif kind == "gone":
+        staples = [s for s in staples if s != link]
+        if index is not None:
+            del items[index]
+    elif kind == "staple":
+        if index is not None:
+            del items[index]
+        if link not in staples:
+            staples.append(link)
+    elif kind == "item":
+        _kind, _name, amount, until = change
+        staples = [s for s in staples if s != link]
+        if index is None:
+            items.append(format_pantry_item(name, amount, until))
+        else:
+            _n, old_amount, old_until = parse_pantry_item(items[index])
+            items[index] = format_pantry_item(name, _add_amounts(old_amount, amount), until or old_until)
+    else:
+        raise ValueError(f"unknown Pantry change {kind!r}")
+    result["staples"] = staples
+    result["items"] = items
+    result["updated"] = today
+    return result
+
+
+def apply_restock(data: dict, additions: list[tuple[str, str | None, str | None]], today: str) -> tuple[dict, list[str]]:
+    """Restock after the user's ok: every addition is a "bought" change; staples are skipped with a note."""
+    notes = []
+    result = dict(data)
+    staples = set(data.get("staples") or [])
+    for name, amount, until in additions:
+        if f"[[{name}]]" in staples:
+            notes.append(f"{name} is a staple, not added")
+            continue
+        result = apply_pantry_change(result, ("bought", name, amount, until), today)
+    result["updated"] = today
+    return result, notes
 
 
 # --------------------------------------------------------------------------
@@ -268,6 +509,130 @@ def check_goals(vault: Vault) -> None:
                 vault.fail(node.rel, f"unexpected property `{key}` on Goals")
 
 
+def _check_enum(vault: Vault, node: Node, key: str, allowed: tuple) -> None:
+    value = node.data.get(key)
+    if value not in allowed:
+        vault.fail(node.rel, f"`{key}` {value!r} is not one of {', '.join(allowed)}")
+
+
+def _check_body_notes_only(vault: Vault, node: Node) -> None:
+    extra = [s for s in _sections(node.body) if s != "Notes"]
+    if extra:
+        vault.fail(node.rel, f"body may hold only an optional `## Notes` section, found {extra}")
+
+
+def _check_wikilink_property(vault: Vault, node: Node, key: str, allowed_types: tuple) -> Node | None:
+    value = node.data.get(key)
+    match = PANTRY_LINK_RE.match(value) if isinstance(value, str) else None
+    if not match:
+        vault.fail(node.rel, f"`{key}` must be a quoted wikilink like \"[[Name]]\", got {value!r}")
+        return None
+    target = vault.node_by_name(match.group(1))
+    if target is None:
+        vault.fail(node.rel, f"`{key}` points to [[{match.group(1)}]], which does not exist")
+    elif target.type not in allowed_types:
+        vault.fail(node.rel, f"`{key}` points to [[{match.group(1)}]], a {target.type} node, not {' or '.join(allowed_types)}")
+    return target
+
+
+def check_foods(vault: Vault) -> None:
+    for node in vault.nodes:
+        if node.type != "food":
+            continue
+        data = node.data
+        for key in FOOD_REQUIRED:
+            if key not in data:
+                vault.fail(node.rel, f"missing `{key}`")
+        for key in FOOD_MACROS + FOOD_OPTIONAL_NUMBERS:
+            if key in data and not is_number(data[key]):
+                vault.fail(node.rel, f"`{key}` must be a number, got {data[key]!r}")
+        _check_enum(vault, node, "category", FOOD_CATEGORIES)
+        _check_enum(vault, node, "label_basis", LABEL_BASES)
+        _check_enum(vault, node, "number_source", NUMBER_SOURCES)
+        _check_enum(vault, node, "reviewed", CHECKBOX_VALUES)
+        if not is_date(data["source_date"]):
+            vault.fail(node.rel, f"`source_date` must be a date YYYY-MM-DD, got {data['source_date']!r}")
+        for key in data:
+            if key not in FOOD_REQUIRED + FOOD_OPTIONAL:
+                vault.fail(node.rel, f"unexpected property `{key}` on a Food")
+        for key in ("aliases", "servings"):
+            if key in data and not isinstance(data[key], list):
+                vault.fail(node.rel, f"`{key}` must be a list")
+        for serving in data.get("servings", []):
+            if not SERVING_RE.match(serving):
+                vault.fail(node.rel, f"`servings` item must be `<count> <unit> = <grams> g`, got {serving!r}")
+        if data["label_basis"] == "100ml" and "density_g_per_ml" not in data:
+            vault.fail(node.rel, "`label_basis: 100ml` needs `density_g_per_ml` (and `density_source`)")
+        if "density_g_per_ml" in data and "density_source" not in data:
+            vault.fail(node.rel, "`density_g_per_ml` needs `density_source`")
+        if "density_source" in data:
+            if "density_g_per_ml" not in data:
+                vault.fail(node.rel, "`density_source` is present without `density_g_per_ml`")
+            _check_enum(vault, node, "density_source", NUMBER_SOURCES)
+        if "estimated_from" in data:
+            if data["number_source"] != "estimate":
+                vault.fail(node.rel, "`estimated_from` is allowed only with `number_source: estimate`")
+            _check_wikilink_property(vault, node, "estimated_from", ("food",))
+        _check_body_notes_only(vault, node)
+
+
+def check_pantry(vault: Vault) -> None:
+    pantries = [n for n in vault.nodes if n.type == "pantry"]
+    if len(pantries) > 1:
+        vault.fail(pantries[1].rel, "more than one Pantry node")
+    for node in pantries:
+        data = node.data
+        if node.rel != "nodes/pantry/Pantry.md":
+            vault.fail(node.rel, "Pantry node must be nodes/pantry/Pantry.md")
+        for key in PANTRY_REQUIRED:
+            if key not in data:
+                vault.fail(node.rel, f"missing `{key}`")
+        if not is_date(data["updated"]):
+            vault.fail(node.rel, f"`updated` must be a date YYYY-MM-DD, got {data['updated']!r}")
+        for key in data:
+            if key not in PANTRY_REQUIRED + PANTRY_OPTIONAL:
+                vault.fail(node.rel, f"unexpected property `{key}` on the Pantry")
+        for key in PANTRY_OPTIONAL:
+            if key in data and not isinstance(data[key], list):
+                vault.fail(node.rel, f"`{key}` must be a list")
+        seen: set[str] = set()
+        for staple in data.get("staples", []):
+            match = PANTRY_LINK_RE.match(staple)
+            if not match:
+                vault.fail(node.rel, f"`staples` item must be `[[Food]]` only, got {staple!r}")
+                continue
+            target = vault.node_by_name(match.group(1))
+            if target is None:
+                vault.fail(node.rel, f"`staples` links to [[{match.group(1)}]], which does not exist")
+            elif target.type != "food":
+                vault.fail(node.rel, f"`staples` links to [[{match.group(1)}]], a {target.type} node, not a Food")
+            _seen_once(vault, node, seen, match.group(1))
+        for item in data.get("items", []):
+            match = PANTRY_ITEM_RE.match(item)
+            if not match:
+                vault.fail(node.rel, f"`items` item must be `[[Name]]`, `= <amount>` and `, until <date>` optional, got {item!r}")
+                continue
+            name, amount, _until = match.groups()
+            target = vault.node_by_name(name)
+            if target is None:
+                vault.fail(node.rel, f"`items` links to [[{name}]], which does not exist")
+            elif target.type not in ("food", "meal"):
+                vault.fail(node.rel, f"`items` links to [[{name}]], a {target.type} node, not a Food or Meal")
+            elif amount is not None:
+                shape = FOOD_AMOUNT_RE if target.type == "food" else MEAL_AMOUNT_RE
+                if not shape.match(amount):
+                    want = "`<n> g`" if target.type == "food" else "`<n> portion` or `<n> g cooked`"
+                    vault.fail(node.rel, f"`items` amount for [[{name}]] must be {want}, got {amount!r}")
+            _seen_once(vault, node, seen, name)
+        _check_body_notes_only(vault, node)
+
+
+def _seen_once(vault: Vault, node: Node, seen: set[str], name: str) -> None:
+    if name in seen:
+        vault.fail(node.rel, f"[[{name}]] is listed twice in the Pantry")
+    seen.add(name)
+
+
 def check_router(vault: Vault) -> None:
     path = vault.root / "ROUTER.md"
     if not path.is_file():
@@ -374,11 +739,37 @@ def check_index(vault: Vault) -> None:
                 vault.fail("index.md", f"[[{name}]] is a {node.type} node but sits under `## {section}`")
             if section in ("Goals", "Pantry") and " | " in line:
                 vault.fail("index.md", f"{section} line must be the link only: {line!r}")
+            if name in indexed:
+                vault.fail("index.md", f"[[{name}]] must have exactly one Index line, found a second: {line!r}")
+            if section == "Food":
+                _check_food_index_line(vault, node, line)
             indexed.add(name)
 
     for node in vault.nodes:
         if node.type in ("food", "meal", "goals", "pantry") and node.base_name not in indexed:
             vault.fail("index.md", f"no line for [[{node.base_name}]] ({node.rel})")
+
+
+def _check_food_index_line(vault: Vault, node: Node, line: str) -> None:
+    """`- [[Name]] | <category> | <aliases plus label name, comma separated>`."""
+    fields = [f.strip() for f in line[2:].split(" | ")]
+    if len(fields) < 2 or len(fields) > 3:
+        vault.fail("index.md", f"Food line must be `- [[Name]] | <category> | <aliases>`: {line!r}")
+        return
+    category = node.data.get("category")
+    if fields[1] != category:
+        vault.fail("index.md", f"[[{node.base_name}]] line says category {fields[1]!r}, the node says {category!r}")
+    listed = {a.strip() for a in fields[2].split(",") if a.strip()} if len(fields) == 3 else set()
+    aliases = node.data.get("aliases", [])
+    expected = set(aliases if isinstance(aliases, list) else [])
+    if node.data.get("label_name"):
+        expected.add(node.data["label_name"])
+    missing = sorted(expected - listed)
+    extra = sorted(listed - expected)
+    if missing:
+        vault.fail("index.md", f"[[{node.base_name}]] line lacks alias(es) {missing}")
+    if extra:
+        vault.fail("index.md", f"[[{node.base_name}]] line has alias(es) {extra} that the node does not")
 
 
 def check_routines(vault: Vault) -> None:
@@ -414,6 +805,8 @@ CHECKS = (
     load_nodes,
     check_common_conventions,
     check_goals,
+    check_foods,
+    check_pantry,
     check_router,
     check_state,
     check_index,
