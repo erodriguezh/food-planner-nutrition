@@ -128,6 +128,39 @@ class PantryPhotoOneOkTest(RoutineTextTestCase):
         self.assertIn("Staples are skipped with a note", after)
 
 
+class CreateFoodLookupOrderTest(RoutineTextTestCase):
+    """Spec #22 and issue #24: a missing number comes from the databases "in
+    order". The token trim dropped the words "in order" and left three names in
+    a comma list, which reads as three sources of equal rank. The step must mark
+    the sequence, and it must be the order the CONTEXT.md glossary fixes."""
+
+    SOURCES = ("Open Food Facts", "Swiss Food Composition Database", "USDA FoodData Central")
+
+    def setUp(self):
+        self.text = read(CREATE_FOOD)
+
+    def test_the_step_names_the_three_databases_in_the_glossary_order(self):
+        step = self.one_line_with(self.text, "Open Food Facts")
+        positions = [step.index(source) for source in self.SOURCES]
+        self.assertEqual(positions, sorted(positions), step)
+
+    def test_the_step_marks_the_sequence_as_an_order(self):
+        """A comma between the names says nothing about rank; an arrow does."""
+        step = self.one_line_with(self.text, "Open Food Facts")
+        run = step[step.index(self.SOURCES[0]):step.index(self.SOURCES[-1])]
+        self.assertEqual(run.count("\u2192"), 2, step)
+
+    def test_the_glossary_fixes_the_same_order(self):
+        glossary = self.one_line_with(read(VAULT / "CONTEXT.md"), "**Lookup order**")
+        positions = [glossary.index(source) for source in self.SOURCES]
+        self.assertEqual(positions, sorted(positions), glossary)
+
+    def test_the_estimate_stays_the_last_resort(self):
+        step = self.one_line_with(self.text, "Open Food Facts")
+        self.assertLess(step.index(self.SOURCES[-1]), step.index("estimate"))
+        self.assertIn("`estimated_from`", step)
+
+
 class CreateFoodDensityRuleTest(RoutineTextTestCase):
     """Spec #22 Food schema: `density_g_per_ml` with `density_source` is also
     required when a serving was given in ml, so the routine text must say so.
