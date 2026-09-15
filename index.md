@@ -5,5 +5,6 @@
 ## Day
 
 ## Goals
+- [[Goals]]
 
 ## Pantry
