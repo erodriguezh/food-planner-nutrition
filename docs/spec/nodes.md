@@ -112,7 +112,7 @@ File name = canonical English name with spaces, first word capitalised (`Chicken
 | `barcode` | text | no | EAN/GTIN as a quoted string |
 | `source_date` | date | yes | day of the scan, lookup or estimate |
 | `reviewed` | checkbox | yes | `true` after the user said ok; `false` when the agent wrote the node without an ok |
-| `estimated_from` | text | no | `"[[Food]]"` the estimate was scaled from; the only outgoing edge. Stays when label numbers later replace the estimate |
+| `estimated_from` | text | no | `"[[Food]]"` the estimate was scaled from; the only outgoing edge. Required when `number_source` is `estimate`. Stays when label numbers later replace the estimate |
 
 No other property is allowed.
 
@@ -124,6 +124,7 @@ No other property is allowed.
 - Provenance (`number_source`) and review (`reviewed`) are separate. A label read by the agent is unreviewed until the user says ok. "ok" sets `reviewed: true` and changes nothing else; a corrected number is written instead and the Food stays unreviewed. Review never removes an estimate mark; only label or database numbers do.
 - Lookup order for missing or generic numbers: Open Food Facts (packaged, barcode), Swiss Food Composition Database (generic, German names), USDA FoodData Central (English), then an estimate from a similar Food with `estimated_from`. The reply names the source.
 - A reformulated product overwrites the node and bumps `source_date`. Closed Days keep their totals.
+- `number_source: estimate` needs `estimated_from`: an estimate always names the Food it came from. The reverse is not true; `estimated_from` may stay after label or database numbers replace the estimate, so the provenance survives.
 - A Food links only through `estimated_from`. Pantry and Meal link to the Food; backlinks give the reverse view.
 - Body: optional `## Notes` section only (taste, shop, price). No label transcription.
 

@@ -239,9 +239,17 @@ class FoodPantryLintTest(unittest.TestCase):
         self.food(SKYR.replace("number_source: database", 'number_source: estimate\nestimated_from: "[[Rice]]"'))
         self.assertEqual(self.errors(), [])
 
+    def test_estimate_without_estimated_from_fails(self):
+        self.food(SKYR.replace("number_source: database", "number_source: estimate"))
+        self.assertError("estimated_from")
+
     def test_estimated_from_with_label_numbers_keeps_provenance(self):
-        # The spec asks only for a quoted wikilink to a Food; the number source is free.
+        # Provenance stays after a label fix: `estimated_from` may outlive the estimate.
         self.food(SKYR.replace("number_source: database", 'number_source: label\nestimated_from: "[[Rice]]"'))
+        self.assertEqual(self.errors(), [])
+
+    def test_estimated_from_with_database_numbers_keeps_provenance(self):
+        self.food(SKYR.replace("number_source: database", 'number_source: database\nestimated_from: "[[Rice]]"'))
         self.assertEqual(self.errors(), [])
 
     def test_food_number_with_two_decimals_fails(self):

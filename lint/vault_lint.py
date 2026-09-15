@@ -577,6 +577,8 @@ def check_foods(vault: Vault) -> None:
             if "density_g_per_ml" not in data:
                 vault.fail(node.rel, "`density_source` is present without `density_g_per_ml`")
             _check_enum(vault, node, "density_source", NUMBER_SOURCES)
+        if data.get("number_source") == "estimate" and "estimated_from" not in data:
+            vault.fail(node.rel, "`number_source: estimate` needs `estimated_from` as a quoted wikilink to the Food the estimate came from")
         if "estimated_from" in data:
             _check_wikilink_property(vault, node, "estimated_from", ("food",))
         _check_body_notes_only(vault, node)
