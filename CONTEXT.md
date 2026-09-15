@@ -68,6 +68,14 @@ Glossary of the domain language for this vault. Terms are defined once here and 
 - **Leftover**: a cooked Meal kept as a Pantry item, in portions or cooked grams, with an optional expiry.
 - **Restock**: the user says they went shopping and adds photos of the receipt, the shopping list, or the bought items. The agent proposes the items to add and appends them after the user's ok.
 
+## Review terms
+
+- **Review**: the agent's look-back over one calendar week, computed in chat from closed Days only. Nothing is stored. Started by meaning ("how was my week", "last week", "review"), never by a fixed phrase.
+- **Week**: Monday to Sunday. "This week" is the current week so far; "last week" is the previous full week. There is no rolling window.
+- **Days covered**: how many of the seven days have a closed Day, and how many of those were auto-closed. Missing days are skipped and stated, never guessed and never counted as off target. An open Day is not counted; the review says so in one line.
+- **Weekly average**: the per-day mean of each of the seven totals over the closed Days, shown against the target.
+- **Most common miss**: the macro and direction that appear most often in the week's verdicts, with the day count.
+
 ## Units
 
 - **Gram** is the only stored unit for amounts. The user may log grams, servings, or millilitres; the agent converts to grams before anything is written.
@@ -80,5 +88,5 @@ Glossary of the domain language for this vault. Terms are defined once here and 
 - **State**: the one file that survives between sessions. Holds the open Day and the open items. Never holds a plan.
 - **Write path**: how an app puts a change on `main`. Git for Claude Code; `push_files` on GitHub's remote MCP server for chat apps. The routine text is the same for every app.
 - **Open item**: a small pending thing the user still has to settle, listed in the state: an unreviewed Food, a Meal without cooked weight.
-- **Routine**: one file that tells the agent how to run one job: log, rebalance, close the day, create food, create meal, pantry, goals. A routine holds the method only; it never stores a result.
+- **Routine**: one file that tells the agent how to run one job: log, rebalance, close the day, create food, create meal, pantry, goals, review. A routine holds the method only; it never stores a result.
 - **Spec**: the documents that describe the vault for the build session. Not read in daily use.
