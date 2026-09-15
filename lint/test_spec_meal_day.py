@@ -63,7 +63,8 @@ class SpecMealDayTest(unittest.TestCase):
         """The Day example logs one portion of that same Meal, so its line and
         the running totals follow the node, not the prototype."""
         self.assertIn("- [[Usual breakfast]] = 1 portion \u2014 540 kcal \u00b7 46 P \u00b7 7 F \u00b7 67 C", self.day)
-        self.assertNotIn("428", self.text)
+        for prototype in ("428 kcal", "kcal: 428", "weight_g: 500", "Soy milk Alpro]] = 150 g"):
+            self.assertNotIn(prototype, self.text, prototype)
 
     def test_the_stale_meal_rule_is_stated(self):
         rule = self.one_line_with(self.meal, "stale")

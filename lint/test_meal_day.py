@@ -581,13 +581,17 @@ class DayLintTest(LintCase):
 
     def test_a_meal_with_a_cooked_weight_is_logged_in_canonical_grams(self):
         """Feedback item 5: the Meal stores the cooked weight once; 130 cooked g
-        of a 260 g cooked, 300 g raw Meal are 150 canonical g, and the canonical
-        grams are what the line carries, so the lint recomputes the macros."""
+        of a Meal that weighs 300 g raw and 260 g cooked are 150 canonical g. The
+        conversion happens before the write, so the line carries 150 g. The same
+        macros against the unconverted 130 g are what the lint catches: 130 g of
+        the Meal is 208 kcal, not the 240 kcal of half of it."""
         self.vault.write("nodes/meal/Rice bowl.md", BOWL.replace("weight_g: 300", "weight_g: 300\ncooked_weight_g: 260"))
-        text = DAY.replace("[[Rice bowl]] = 1 portion —", "[[Rice bowl]] = 150 g —")
-        self.assertIn("- [[Rice bowl]] = 150 g —", text)
-        self.day(text)
+        converted = DAY.replace("[[Rice bowl]] = 1 portion —", "[[Rice bowl]] = 150 g —")
+        self.assertIn("- [[Rice bowl]] = 150 g —", converted)
+        self.day(converted)
         self.assertClean()
+        self.day(converted.replace("[[Rice bowl]] = 150 g —", "[[Rice bowl]] = 130 g —"))
+        self.assertError("208")
 
     # --- the ingredient change ---------------------------------------------------
 

@@ -58,7 +58,7 @@ class LogRoutineTest(RoutineTextTestCase):
 
     def test_the_first_log_creates_the_day_the_state_and_the_month_line_in_one_commit(self):
         write = self.text.split("## Write\n", 1)[1].split("## Reply", 1)[0]
-        for needle in ("`status: open`", "`open_day`", "month line", "`log: <date> <slot> <name> <amount>`"):
+        for needle in ("`status: open`", '`goal: "[[Goals]]"`', "`open_day`", "month line", "`log: <date> <slot> <name> <amount>`"):
             self.assertIn(needle, write)
         self.assertEqual(write.count("commit"), 1)
 
@@ -73,7 +73,7 @@ class LogRoutineTest(RoutineTextTestCase):
     def test_the_ingredient_change_form_stays_on_the_line(self):
         rule = self.one_line_with(self.text, "changed ingredient")
         self.assertIn("`, [[Food]] = <n> g`", rule)
-        self.assertIn("never on the Meal", rule)
+        self.assertIn("not on the Meal", rule)
 
     def test_the_slot_rule_is_word_then_clock_then_next_in_order(self):
         """The slot rule lives in this line only. The owner settled the fixed
@@ -94,7 +94,7 @@ class LogRoutineTest(RoutineTextTestCase):
         self.assertIn("ask", rule)
 
     def test_an_unknown_food_is_created_first_with_its_own_commit(self):
-        rule = self.one_line_with(self.text, "unknown Food")
+        rule = self.one_line_with(self.text, "new Food")
         self.assertIn("`routines/create-food.md`", rule)
         self.assertIn("own commit", rule)
         self.assertIn("then log", rule)
@@ -140,7 +140,7 @@ class LogRoutineTest(RoutineTextTestCase):
         rule = self.one_line_with(self.text, "seven totals")
         self.assertIn("`estimated`", rule)
         self.assertIn("never the Pantry", rule)
-        self.assertIn("`routines/rebalance.md`", rule)
+        self.assertIn("`routines/rebalance.md`", self.text.split("## Reply\n", 1)[1])
 
     def test_a_stale_meal_is_recomputed_before_it_is_logged(self):
         """Story 32 and owner feedback 4 on PR #31: an ingredient Food written
@@ -148,7 +148,7 @@ class LogRoutineTest(RoutineTextTestCase):
         recomputes the Meal and writes it before the Day line uses it."""
         rule = self.one_line_with(self.text, "`totals_date`")
         self.assertIn("Food newer than `totals_date`", rule)
-        self.assertIn("recompute", rule)
+        self.assertIn("rewrite the Meal", rule)
         self.assertTrue(rule.startswith("4."), rule)
 
     def test_cooked_grams_convert_through_the_cooked_weight(self):
@@ -156,9 +156,9 @@ class LogRoutineTest(RoutineTextTestCase):
         grams of the Meal; without a cooked weight the shrink is a guess, so the
         error is stated and the entry carries the mark."""
         rule = self.one_line_with(self.text, "`cooked_weight_g`")
-        self.assertIn("cooked grams", rule)
+        self.assertIn("cooked g", rule)
         self.assertIn("`weight_g`", rule)
-        self.assertIn("guess the shrink", rule)
+        self.assertIn("guess shrink", rule)
         self.assertIn("say the error", rule)
         self.assertIn("`~`", rule)
 
