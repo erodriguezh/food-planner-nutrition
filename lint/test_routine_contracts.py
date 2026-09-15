@@ -13,6 +13,7 @@ from pathlib import Path
 
 from vault_lint import (
     ROUTINE_SECTIONS,
+    round_food_value,
     apply_pantry_change,
     apply_restock,
     estimate_tokens,
@@ -22,6 +23,10 @@ from vault_lint import (
 
 # Spec #22, Routines: "Under 300 tokens each."
 ROUTINE_TOKEN_LIMIT = 300
+
+# A metric measuring tablespoon is 15 ml. The old node called a 10 ml spoon a
+# `tbsp`, which made every logged spoon of oil too light.
+METRIC_TABLESPOON_ML = 15
 
 VAULT = Path(__file__).resolve().parent.parent
 CREATE_FOOD = VAULT / "routines" / "create-food.md"
@@ -118,7 +123,16 @@ class CreateFoodDensityRuleTest(RoutineTextTestCase):
         self.assertEqual(data["label_basis"], "100g")
         self.assertEqual(data["density_g_per_ml"], "0.91")
         self.assertEqual(data["density_source"], "database")
-        self.assertEqual(data["servings"], ["1 tbsp = 9 g"])
+        expected = round_food_value(float(data["density_g_per_ml"]) * METRIC_TABLESPOON_ML)
+        self.assertEqual(data["servings"], [f"1 tbsp = {expected} g"])
+
+    def test_the_olive_oil_tablespoon_is_a_metric_15_ml_spoon(self):
+        """A `tbsp` is 15 ml, never 10 ml: 15 x 0.91 = 13.65, one decimal 13.7 g."""
+        data, body = parse_frontmatter(read(VAULT / "nodes" / "food" / "Olive oil.md"))
+        expected = round_food_value(float(data["density_g_per_ml"]) * METRIC_TABLESPOON_ML)
+        self.assertEqual(data["servings"][0], f"1 tbsp = {expected} g")
+        self.assertNotIn("1 tbsp = 10 ml", body)
+        self.assertIn(f"{METRIC_TABLESPOON_ML} ml", body)
 
 
 class CreateFoodNeverOverwritesAMealTest(RoutineTextTestCase):

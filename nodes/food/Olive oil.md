@@ -12,7 +12,7 @@ fiber_g_per_100g: 0
 sugar_g_per_100g: 0
 salt_g_per_100g: 0
 servings:
-  - "1 tbsp = 9 g"
+  - "1 tbsp = 13.7 g"
 label_basis: 100g
 density_g_per_ml: 0.91
 density_source: database
@@ -24,4 +24,4 @@ reviewed: false
 
 ## Notes
 
-Density 0.91 g/ml; 1 tbsp = 10 ml ≈ 9 g, rounded (10 × 0.91 = 9.1).
+Density 0.91 g/ml; 1 tbsp = 15 ml (metric measuring spoon) ≈ 13.7 g, rounded (15 × 0.91 = 13.65).
