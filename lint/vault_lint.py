@@ -15,7 +15,8 @@ Checks (v2):
 - every node has `type` and `name`; `name` equals the file base name;
   base names are unique across the vault
 - the Goals node follows its schema; bounds use the rounding rule
-- every Food has its required properties and enums, servings in grams,
+- every Food has its required properties and enums, numbers with at most one
+  decimal, servings in grams,
   density fields with a 100ml label basis, `estimated_from` as a link to a Food,
   no unknown property and a body of at most one `## Notes` section
 - the Pantry node has `updated`, staples as `"[[Food]]"`, items as
@@ -47,7 +48,8 @@ LABEL_BASES = ("100g", "100ml")
 NUMBER_SOURCES = ("label", "database", "estimate")
 FOOD_MACROS = ("kcal_per_100g", "protein_g_per_100g", "fat_g_per_100g", "carbs_g_per_100g")
 FOOD_REQUIRED = ("type", "name", "category") + FOOD_MACROS + ("label_basis", "number_source", "source_date", "reviewed")
-FOOD_OPTIONAL_NUMBERS = ("fiber_g_per_100g", "sugar_g_per_100g", "salt_g_per_100g", "density_g_per_ml")
+FOOD_NUTRIENTS = ("fiber_g_per_100g", "sugar_g_per_100g", "salt_g_per_100g")
+FOOD_OPTIONAL_NUMBERS = FOOD_NUTRIENTS + ("density_g_per_ml",)
 FOOD_OPTIONAL = ("aliases", "label_name", "brand", "servings", "density_source", "source_ref", "barcode", "estimated_from") + FOOD_OPTIONAL_NUMBERS
 PANTRY_REQUIRED = ("type", "name", "updated")
 PANTRY_OPTIONAL = ("staples", "items")
@@ -60,7 +62,7 @@ KEY_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*):(?:\s+(.*))?$")
 INDEX_LINK_LINE_RE = re.compile(r"^- \[\[([^\]]+)\]\](?: \| .*)?$")
 INDEX_DAY_LINE_RE = re.compile(r"^- (\d{4}-\d{2}) \| (nodes/day/\d{4}-\d{2}/)$")
 SERVING_RE = re.compile(r"^\d+(\.\d+)? [A-Za-z][A-Za-z ]* = \d+(\.\d+)? g$")
-PANTRY_LINK_RE = re.compile(r"^\[\[([^\]|#]+)\]\]$")
+QUOTED_LINK_RE = re.compile(r"^\[\[([^\]|#]+)\]\]$")
 PANTRY_ITEM_RE = re.compile(r"^\[\[([^\]|#]+)\]\](?: = ([^,]+?))?(?:, until (\d{4}-\d{2}-\d{2}))?$")
 FOOD_AMOUNT_RE = re.compile(r"^\d+(\.\d+)? g$")
 MEAL_AMOUNT_RE = re.compile(r"^\d+(\.\d+)? (portion|g cooked)$")
@@ -293,13 +295,8 @@ def apply_pantry_change(data: dict, change: tuple, today: str) -> dict:
     link = f"[[{name}]]"
     index = next((i for i, item in enumerate(items) if parse_pantry_item(item)[0] == name), None)
     if kind == "bought":
-        _kind, _name, amount, until = change
         if link not in staples:
-            if index is None:
-                items.append(format_pantry_item(name, amount, until))
-            else:
-                _n, old_amount, old_until = parse_pantry_item(items[index])
-                items[index] = format_pantry_item(name, _add_amounts(old_amount, amount), until or old_until)
+            _append_or_add(items, index, name, change[2], change[3])
     elif kind == "gone":
         staples = [s for s in staples if s != link]
         if index is not None:
@@ -310,19 +307,23 @@ def apply_pantry_change(data: dict, change: tuple, today: str) -> dict:
         if link not in staples:
             staples.append(link)
     elif kind == "item":
-        _kind, _name, amount, until = change
         staples = [s for s in staples if s != link]
-        if index is None:
-            items.append(format_pantry_item(name, amount, until))
-        else:
-            _n, old_amount, old_until = parse_pantry_item(items[index])
-            items[index] = format_pantry_item(name, _add_amounts(old_amount, amount), until or old_until)
+        _append_or_add(items, index, name, change[2], change[3])
     else:
         raise ValueError(f"unknown Pantry change {kind!r}")
     result["staples"] = staples
     result["items"] = items
     result["updated"] = today
     return result
+
+
+def _append_or_add(items: list[str], index: int | None, name: str, amount: str | None, until: str | None) -> None:
+    """Append a new item, or add the amount to the existing item at `index`; a stated `until` replaces the old one."""
+    if index is None:
+        items.append(format_pantry_item(name, amount, until))
+    else:
+        _n, old_amount, old_until = parse_pantry_item(items[index])
+        items[index] = format_pantry_item(name, _add_amounts(old_amount, amount), until or old_until)
 
 
 def apply_restock(data: dict, additions: list[tuple[str, str | None, str | None]], today: str) -> tuple[dict, list[str]]:
@@ -523,7 +524,7 @@ def _check_body_notes_only(vault: Vault, node: Node) -> None:
 
 def _check_wikilink_property(vault: Vault, node: Node, key: str, allowed_types: tuple) -> Node | None:
     value = node.data.get(key)
-    match = PANTRY_LINK_RE.match(value) if isinstance(value, str) else None
+    match = QUOTED_LINK_RE.match(value) if isinstance(value, str) else None
     if not match:
         vault.fail(node.rel, f"`{key}` must be a quoted wikilink like \"[[Name]]\", got {value!r}")
         return None
@@ -546,6 +547,9 @@ def check_foods(vault: Vault) -> None:
         for key in FOOD_MACROS + FOOD_OPTIONAL_NUMBERS:
             if key in data and not is_number(data[key]):
                 vault.fail(node.rel, f"`{key}` must be a number, got {data[key]!r}")
+        for key in FOOD_MACROS + FOOD_NUTRIENTS:
+            if key in data and float(data[key]) != round_food_value(float(data[key])):
+                vault.fail(node.rel, f"`{key}` is {data[key]!r}, expected {round_food_value(float(data[key]))} by the rounding rule in routines/create-food.md")
         _check_enum(vault, node, "category", FOOD_CATEGORIES)
         _check_enum(vault, node, "label_basis", LABEL_BASES)
         _check_enum(vault, node, "number_source", NUMBER_SOURCES)
@@ -570,8 +574,6 @@ def check_foods(vault: Vault) -> None:
                 vault.fail(node.rel, "`density_source` is present without `density_g_per_ml`")
             _check_enum(vault, node, "density_source", NUMBER_SOURCES)
         if "estimated_from" in data:
-            if data["number_source"] != "estimate":
-                vault.fail(node.rel, "`estimated_from` is allowed only with `number_source: estimate`")
             _check_wikilink_property(vault, node, "estimated_from", ("food",))
         _check_body_notes_only(vault, node)
 
@@ -597,7 +599,7 @@ def check_pantry(vault: Vault) -> None:
                 vault.fail(node.rel, f"`{key}` must be a list")
         seen: set[str] = set()
         for staple in data.get("staples", []):
-            match = PANTRY_LINK_RE.match(staple)
+            match = QUOTED_LINK_RE.match(staple)
             if not match:
                 vault.fail(node.rel, f"`staples` item must be `[[Food]]` only, got {staple!r}")
                 continue

@@ -30,7 +30,7 @@ protein_g_per_100g: 11
 fat_g_per_100g: 0.2
 carbs_g_per_100g: 4
 sugar_g_per_100g: 4
-salt_g_per_100g: 0.08
+salt_g_per_100g: 0.1
 servings:
   - "1 portion = 200 g"
 label_basis: 100g
@@ -43,7 +43,7 @@ reviewed: false
 
 SOJA = """---
 type: food
-name: Soja milk Alpro
+name: Soy milk Alpro
 aliases:
   - Sojadrink Original
   - soy milk
@@ -90,14 +90,14 @@ staples:
   - "[[Rice]]"
 items:
   - "[[Skyr]] = 1000 g"
-  - "[[Soja milk Alpro]] = 1000 g, until 2026-09-20"
+  - "[[Soy milk Alpro]] = 1000 g, until 2026-09-20"
 ---
 """
 
 FOOD_INDEX = (
     "## Food\n"
     "- [[Skyr]] | dairy | skyr natur\n"
-    "- [[Soja milk Alpro]] | drink | Sojadrink Original, soy milk\n"
+    "- [[Soy milk Alpro]] | drink | Sojadrink Original, soy milk\n"
     "- [[Rice]] | grain | Reis\n"
 )
 INDEX_WITH_FOODS = INDEX.replace("## Food\n", FOOD_INDEX).replace("## Pantry\n", "## Pantry\n- [[Pantry]]\n")
@@ -107,7 +107,7 @@ class FoodPantryFixture(VaultFixture):
     def __init__(self):
         super().__init__()
         self.write("nodes/food/Skyr.md", SKYR)
-        self.write("nodes/food/Soja milk Alpro.md", SOJA)
+        self.write("nodes/food/Soy milk Alpro.md", SOJA)
         self.write("nodes/food/Rice.md", RICE)
         self.write("nodes/pantry/Pantry.md", PANTRY)
         self.write("index.md", INDEX_WITH_FOODS)
@@ -182,11 +182,11 @@ class FoodPantryLintTest(unittest.TestCase):
     # --- density rules --------------------------------------------------
 
     def test_100ml_needs_density(self):
-        self.vault.write("nodes/food/Soja milk Alpro.md", SOJA.replace("density_g_per_ml: 1.0\n", "").replace("density_source: estimate\n", ""))
+        self.vault.write("nodes/food/Soy milk Alpro.md", SOJA.replace("density_g_per_ml: 1.0\n", "").replace("density_source: estimate\n", ""))
         self.assertError("density_g_per_ml")
 
     def test_density_needs_density_source(self):
-        self.vault.write("nodes/food/Soja milk Alpro.md", SOJA.replace("density_source: estimate\n", ""))
+        self.vault.write("nodes/food/Soy milk Alpro.md", SOJA.replace("density_source: estimate\n", ""))
         self.assertError("density_source")
 
     def test_density_source_without_density_fails(self):
@@ -194,7 +194,7 @@ class FoodPantryLintTest(unittest.TestCase):
         self.assertError("density_source")
 
     def test_density_source_enum(self):
-        self.vault.write("nodes/food/Soja milk Alpro.md", SOJA.replace("density_source: estimate", "density_source: guess"))
+        self.vault.write("nodes/food/Soy milk Alpro.md", SOJA.replace("density_source: estimate", "density_source: guess"))
         self.assertError("density_source")
 
     # --- servings -------------------------------------------------------
@@ -222,9 +222,18 @@ class FoodPantryLintTest(unittest.TestCase):
         self.food(SKYR.replace("number_source: database", 'number_source: estimate\nestimated_from: "[[Rice]]"'))
         self.assertEqual(self.errors(), [])
 
-    def test_estimated_from_needs_estimate_source(self):
-        self.food(SKYR.replace("number_source: database", 'number_source: database\nestimated_from: "[[Rice]]"'))
-        self.assertError("estimated_from")
+    def test_estimated_from_with_label_numbers_keeps_provenance(self):
+        # The spec asks only for a quoted wikilink to a Food; the number source is free.
+        self.food(SKYR.replace("number_source: database", 'number_source: label\nestimated_from: "[[Rice]]"'))
+        self.assertEqual(self.errors(), [])
+
+    def test_food_number_with_two_decimals_fails(self):
+        self.food(SKYR.replace("salt_g_per_100g: 0.1", "salt_g_per_100g: 0.075"))
+        self.assertError("rounding rule")
+
+    def test_density_may_have_two_decimals(self):
+        self.food(SKYR.replace("label_basis: 100g", "label_basis: 100g\ndensity_g_per_ml: 0.91\ndensity_source: database"))
+        self.assertEqual(self.errors(), [])
 
     def test_estimated_from_must_be_wikilink(self):
         self.food(SKYR.replace("number_source: database", "number_source: estimate\nestimated_from: Rice"))
@@ -333,7 +342,7 @@ class FoodPantryLintTest(unittest.TestCase):
 
     def test_food_index_line_includes_label_name(self):
         # label_name must appear in the Index even when it is missing from `aliases`.
-        self.vault.write("nodes/food/Soja milk Alpro.md", SOJA.replace("  - Sojadrink Original\n", ""))
+        self.vault.write("nodes/food/Soy milk Alpro.md", SOJA.replace("  - Sojadrink Original\n", ""))
         self.assertEqual(self.errors(), [])
         self.vault.write("index.md", INDEX_WITH_FOODS.replace("| Sojadrink Original, soy milk\n", "| soy milk\n"))
         self.assertError("Sojadrink Original")
@@ -383,7 +392,7 @@ class AliasResolutionTest(unittest.TestCase):
         ("Skyr", "food", ["skyr natur"]),
         ("Blueberries", "food", ["Heidelbeeren", "Blaubeeren"]),
         ("Oats", "food", ["Haferflocken", "oatmeal"]),
-        ("Soja milk Alpro", "food", ["Sojadrink Original", "soy milk"]),
+        ("Soy milk Alpro", "food", ["Sojadrink Original", "soy milk"]),
         ("Chicken breast", "food", ["Hühnerbrust", "chicken"]),
         ("Chicken meatballs Spar", "food", ["Hühnerfleischbällchen", "meatballs"]),
     ]

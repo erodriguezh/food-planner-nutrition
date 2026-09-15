@@ -83,7 +83,7 @@ Folder `nodes/food/`, flat, one file per Food. Built by ticket
 [#24](https://github.com/erodriguezh/food-planner-nutrition/issues/24);
 written by `routines/create-food.md`, also when the log, meal or pantry routine meets an unknown Food.
 
-File name = canonical English name in title case with spaces. A packaged product ends with the brand
+File name = canonical English name with spaces, first word capitalised (`Chicken breast.md`). A packaged product ends with the brand
 (`Chicken meatballs Spar.md`); a generic Food has no brand (`Chicken breast.md`).
 
 ### Frontmatter
@@ -112,14 +112,14 @@ File name = canonical English name in title case with spaces. A packaged product
 | `barcode` | text | no | EAN/GTIN as a quoted string |
 | `source_date` | date | yes | day of the scan, lookup or estimate |
 | `reviewed` | checkbox | yes | `true` after the user said ok; `false` when the agent wrote the node without an ok |
-| `estimated_from` | text | with `number_source: estimate` only | `"[[Food]]"` the estimate was scaled from; the only outgoing edge |
+| `estimated_from` | text | no | `"[[Food]]"` the estimate was scaled from; the only outgoing edge. Stays when label numbers later replace the estimate |
 
 No other property is allowed.
 
 ### Rules
 
 - Stored macro values are always per 100 g. A per-100-ml label converts once at creation: per 100 g = per 100 ml ÷ `density_g_per_ml`. The original per-100-ml values are not stored. Water-like liquids (milk, plant drinks, juice) may use `1.0` with `density_source: estimate`; oils and syrups need a real density.
-- Rounding rule for Food numbers: one decimal, a half rounds up (2.25 → 2.3). Stated in `routines/create-food.md` step 3; the lint applies it in `round_food_value()`.
+- Rounding rule for Food numbers (macros, fiber, sugar, salt): one decimal, a half rounds up (2.25 → 2.3). Stated in `routines/create-food.md` step 3; the lint applies it in `round_food_value()` and fails a value with more decimals. Density is a conversion factor and may keep two decimals.
 - Serving aliases end in grams; ml servings convert with the density at creation (`"1 tbsp = 9 g"` for olive oil). The unit is singular.
 - Provenance (`number_source`) and review (`reviewed`) are separate. A label read by the agent is unreviewed until the user says ok. "ok" sets `reviewed: true` and changes nothing else; a corrected number is written instead and the Food stays unreviewed. Review never removes an estimate mark; only label or database numbers do.
 - Lookup order for missing or generic numbers: Open Food Facts (packaged, barcode), Swiss Food Composition Database (generic, German names), USDA FoodData Central (English), then an estimate from a similar Food with `estimated_from`. The reply names the source.
@@ -137,15 +137,17 @@ The lint fails on a missing or extra alias, a wrong category, or a second line f
 
 The Food and Meal lines of the Index form one alias table. Matching is case-insensitive and ignores umlauts
 (ä → a, ö → o, ü → u, ß → ss) and plurals (a trailing n, else es, else s is dropped on both sides). Order:
-exact canonical name, then alias, then fuzzy. One fuzzy candidate is used and named in the reply. Several
-candidates: the one in the Pantry wins; else the agent asks. The lint module holds this as `resolve_name()`.
+exact canonical name, then alias, then fuzzy (a close match, or a name that starts with or contains what the
+user said). One fuzzy candidate is used and named in the reply. Several candidates: the one in the Pantry wins;
+else the agent asks. The lint module holds this as `resolve_name()`. The Food-versus-Meal collision rule (ask,
+except a slot word makes the Meal win) belongs to the log routine and is not part of `resolve_name()` yet.
 
 ### Example
 
 ```
 ---
 type: food
-name: Soja milk Alpro
+name: Soy milk Alpro
 aliases:
   - Soya Original
   - Sojadrink
@@ -169,7 +171,7 @@ reviewed: false
 ---
 ```
 
-Index line: `- [[Soja milk Alpro]] | drink | Soya Original, Sojadrink, soy milk`.
+Index line: `- [[Soy milk Alpro]] | drink | Soya Original, Sojadrink, soy milk`.
 
 ## Pantry
 
