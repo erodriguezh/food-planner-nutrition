@@ -16,3 +16,4 @@
 - [[Goals]]
 
 ## Pantry
+- [[Pantry]]
