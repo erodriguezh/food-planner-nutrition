@@ -9,6 +9,7 @@
 - [[Eggs]] | protein | Eier, Ei, egg
 
 ## Meal
+- [[Usual breakfast]] | breakfast | usual, the usual
 
 ## Day
 
