@@ -77,7 +77,193 @@ since: 2026-09-15
 ---
 ```
 
-## Food, Meal, Day, Pantry
+## Food
+
+Folder `nodes/food/`, flat, one file per Food. Built by ticket
+[#24](https://github.com/erodriguezh/food-planner-nutrition/issues/24);
+written by `routines/create-food.md`, also when the log, meal or pantry routine meets an unknown Food.
+
+File name = canonical English name with spaces, in sentence case: the first word is capitalised, proper nouns and brands keep their capitalisation (`Chicken breast.md`, `Soy milk Alpro.md`). A packaged product ends with the brand
+(`Chicken meatballs Spar.md`); a generic Food has no brand (`Chicken breast.md`).
+Naming term: the spec issue [#22](https://github.com/erodriguezh/food-planner-nutrition/issues/22) writes "title case" for this rule, but every node in the vault is sentence case, so the #22 text needs an owner correction; "sentence case" is the one term used here.
+Every Food sits directly at `nodes/food/<Name>.md`. The lint fails a `type: food` file in another node folder, in a subfolder of `nodes/food/`, or outside `nodes/`.
+
+### Frontmatter
+
+| Property | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `type` | text | yes | always `food` |
+| `name` | text | yes | canonical English name, equals the file base name |
+| `aliases` | list | no | other names the user says; includes the label name |
+| `label_name` | text | no | name as printed on the package, often German; must also be an item of `aliases` |
+| `brand` | text | no | brand of a packaged product |
+| `category` | text | yes | one of `protein`, `dairy`, `grain`, `vegetable`, `fruit`, `fat`, `snack`, `drink` |
+| `kcal_per_100g` | number | yes | per 100 g |
+| `protein_g_per_100g` | number | yes | per 100 g |
+| `fat_g_per_100g` | number | yes | per 100 g |
+| `carbs_g_per_100g` | number | yes | per 100 g |
+| `fiber_g_per_100g` | number | no | per 100 g, when the source has it |
+| `sugar_g_per_100g` | number | no | per 100 g |
+| `salt_g_per_100g` | number | no | per 100 g |
+| `servings` | list | no | items `"<count> <unit> = <grams> g"`; the first item is the default portion |
+| `label_basis` | text | yes | `100g` or `100ml`: what the package states |
+| `density_g_per_ml` | number | when `label_basis` is `100ml` or a serving was given in ml | grams per millilitre |
+| `density_source` | text | with `density_g_per_ml` only | `label`, `database` or `estimate` |
+| `number_source` | text | yes | `label`, `database` or `estimate` |
+| `source_ref` | text | no | database name and id, or URL |
+| `barcode` | text | no | EAN/GTIN as a quoted string |
+| `source_date` | date | yes | day of the scan, lookup or estimate |
+| `reviewed` | checkbox | yes | `true` after the user said ok; `false` when the agent wrote the node without an ok |
+| `estimated_from` | text | no | `"[[Food]]"` the estimate was scaled from; the only outgoing edge. Required when `number_source` is `estimate`. Stays when label numbers later replace the estimate |
+
+No other property is allowed.
+
+### Rules
+
+- Stored macro values are always per 100 g. A per-100-ml label converts once at creation: per 100 g = per 100 ml ÷ `density_g_per_ml`. The original per-100-ml values are not stored. Water-like liquids (milk, plant drinks, juice) may use `1.0` with `density_source: estimate`; oils and syrups need a real density.
+- Rounding rule for Food numbers (macros, fiber, sugar, salt): one decimal, a half rounds up (2.25 → 2.3). Stated in `routines/create-food.md` step 3; the lint applies it in `round_food_value()` and fails a value with more decimals. Density is a conversion factor and may keep two decimals.
+- Serving aliases end in grams; ml servings convert with the density at creation (`"1 tbsp = 13.7 g"` for olive oil: a metric tablespoon is 15 ml, 15 × 0.91 = 13.65). The unit is singular. Any ml to g step, a per-100-ml label or a serving given in ml, stores `density_g_per_ml` and `density_source`, also when `label_basis` is `100g`. The lint cannot see the input unit, so `routines/create-food.md` step 3 is the contract for it.
+- Provenance (`number_source`) and review (`reviewed`) are separate. A label read by the agent is unreviewed until the user says ok. "ok" sets `reviewed: true` and changes nothing else; a corrected number is written instead and the Food stays unreviewed. Review never removes an estimate mark; only label or database numbers do.
+- Lookup order for missing or generic numbers: Open Food Facts (packaged, barcode), Swiss Food Composition Database (generic, German names), USDA FoodData Central (English), then an estimate from a similar Food with `estimated_from`. The reply names the source.
+- A reformulated product overwrites the node and bumps `source_date`. Closed Days keep their totals.
+- `number_source: estimate` needs `estimated_from`: an estimate always names the Food it came from. The reverse is not true; `estimated_from` may stay after label or database numbers replace the estimate, so the provenance survives.
+- A Food links only through `estimated_from`. Pantry and Meal link to the Food; backlinks give the reverse view.
+- Body: optional `## Notes` section only (taste, shop, price). No label transcription.
+  The body is either empty or one `## Notes` heading with its content. The lint fails text outside that section (free prose before the first heading included), any other heading at any level, and a second `## Notes` heading.
+
+### Index line
+
+One line per Food under `## Food`: `- [[Name]] | <category> | <aliases plus label name, comma separated>`.
+The alias field is the set `aliases` ∪ {`label_name`}; a Food without aliases has the link and category only.
+A `label_name` is always one of the `aliases`, so the union adds nothing; the lint fails a Food whose `aliases` omit its `label_name`.
+The lint fails on a missing or extra alias, a wrong category, or a second line for the same Food.
+
+### Alias resolution
+
+The Food and Meal lines of the Index form one alias table. Matching is case-insensitive and ignores umlauts
+(ä → a, ö → o, ü → u, ß → ss) and plurals (a trailing n, else es, else s is dropped on both sides). Order:
+exact canonical name, then alias, then fuzzy. The fuzzy candidates are the union of two sets: every close match
+(difflib, cutoff 0.8, with no maximum count) and the forms that start with or contain what the user said. Normalization can map two
+different canonical names to one form, so every stage keeps every candidate of that form; a second candidate is
+never dropped in silence. One candidate is used, and a fuzzy one is named in the reply. Every candidate keeps its
+kind (`food` or `meal`). Several candidates of one kind: one Pantry candidate wins; two or more Pantry candidates,
+or none, and the agent asks. A Food and a Meal in the same stage always ask, because a Pantry item can be a Food or
+a Meal, so the Pantry preference must not decide a Food-versus-Meal collision. The lint module holds this as
+`resolve_name()`, which returns `status`, `name`, the sorted `candidates` of the stage that matched, and the `kind`
+of the one winner (None when the agent asks). The one exception to the Food-versus-Meal ask, an explicit slot word
+that makes the Meal win, belongs to the log routine and comes with ticket #25.
+
+A label photo is the one exception to the ask. Issue #24 requires that a label produces the Food node with no question, so the
+package identity decides alone: one Food with the same `barcode`, else the printed `label_name` against the Foods only.
+That second stage runs the same exact, alias and fuzzy semantics on the Foods alone, where the forms of a Food are its
+canonical name, its aliases and its `label_name`; Meals never take part, so a Meal never blocks the Food the package names.
+The first matching stage keeps every Food it found, and the brand then filters them. The printed brand and the brand the
+Food carries must agree both ways: a printed brand accepts only a Food of that same brand, because a Food of another brand
+and a generic Food with no brand are a different product; and a label that prints no brand keeps only a Food that carries
+no brand, because the package never names the brand the Food claims. The fuzzy stage matches a substring, so without that
+second half a generic `Milk` label would overwrite `Soy milk Alpro` with no question. A Food that the caller did not hand
+over has no brand to compare: a printed brand rejects it, and a label with no brand keeps it, because nothing disagrees.
+Exactly one Food left is the package and is reused. Pantry membership never takes part in package identity: the Pantry preference of `resolve_name()` is right for
+chat, but it is not package identity, so it must never break a label tie. Zero or several Foods left, an ambiguous name
+included, therefore mean a new Food whose name ends with the printed brand (a packaged product ends with the brand), and a
+count is added in the last resort, so the new name is free of every existing Food and Meal name. The lint module holds this
+as `resolve_label()`, which takes no Pantry argument at all and has its own three statuses: `barcode` and `label` name the
+one existing Food, `new` names the Food to create. It never returns `ambiguous` and never returns `none`, and never names a
+Meal, so a label never overwrites a Meal and never asks. Both functions collect their stage candidates with one shared
+helper, `_stage_candidates()`, which applies no preference of its own.
+
+The ask is a same-stage rule, because the stage order comes first: the first matching stage stops the search, so a name that is exact for one kind beats an alias of the other kind and the agent asks nothing. A Food named exactly what the user said wins over a Meal that carries the same word only as an alias, and an exact Meal name wins over a Food alias the same way. Only the candidates of that one matching stage can collide.
+
+### Example
+
+```
+---
+type: food
+name: Soy milk Alpro
+aliases:
+  - Soya Original
+  - Sojadrink
+  - soja milk
+  - soy milk
+label_name: Soya Original
+brand: Alpro
+category: drink
+kcal_per_100g: 39
+protein_g_per_100g: 3
+fat_g_per_100g: 1.8
+carbs_g_per_100g: 2.5
+fiber_g_per_100g: 0.5
+sugar_g_per_100g: 2.5
+salt_g_per_100g: 0.1
+servings:
+  - "1 glass = 250 g"
+label_basis: 100ml
+density_g_per_ml: 1.0
+density_source: estimate
+number_source: database
+source_ref: https://world.openfoodfacts.org/product/5411188121923
+source_date: 2026-09-15
+reviewed: false
+---
+```
+
+The example is the real node `nodes/food/Soy milk Alpro.md`.
+
+Index line: `- [[Soy milk Alpro]] | drink | Soya Original, Sojadrink, soja milk, soy milk`.
+
+## Pantry
+
+One file, and it is required: `nodes/pantry/Pantry.md`. The lint fails a vault with no Pantry node, with more than one, or with the node at another path. Built by ticket
+[#24](https://github.com/erodriguezh/food-planner-nutrition/issues/24);
+written by `routines/pantry.md`. The default answer to "what do I have"; the conversation overrides it.
+
+### Frontmatter
+
+| Property | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `type` | text | yes | always `pantry` |
+| `name` | text | yes | always `Pantry` |
+| `updated` | date | yes | day of the last change |
+| `staples` | list | no | items `"[[Food]]"`: always available, no amount, no date |
+| `items` | list | no | items `"[[Food or Meal]]"`, optionally ` = <amount>`, optionally `, until <YYYY-MM-DD>` |
+
+No other property is allowed.
+
+### Rules
+
+- Amount shapes: a Food in grams (`= 1000 g`); a Meal (leftover) in `= <n> portion` or `= <n> g cooked`. The amount is optional and rough.
+- `until` only when the user states a date. The agent never guesses one. Items at or past `until` are flagged in the reply and get priority at plan time.
+- Every link resolves to an existing Food (staples) or Food or Meal (items) by canonical name. A name appears at most once across both lists.
+- Staple or item is the agent's call from its own knowledge; the user's word overrides it. "Gone" removes the name from whichever list holds it. "Make X a staple" moves it.
+- "I bought ..." appends an item; an existing item gets the amounts added when the units match, else the stated amount wins.
+- Restock from a receipt, shopping-list or product photo takes exactly one ok: the agent resolves every line, stages the unknown Foods without writing them, and shows one list "Add to Pantry: ... Ok?". Nothing is written before that ok.
+- After the ok the agent creates each staged Food as `routines/create-food.md` describes, `reviewed: false`, one commit `create-food: <name>` each and no reply of its own, then applies the additions in one commit `pantry: <one line>`. The restock ok is not a Food review; the new Foods stay unreviewed and the pantry reply names them. Staples in the photo are skipped with a note.
+- A chat form ("I bought 1 kg chicken breast") with an unknown Food keeps the create-food path: the Food is written at once with its own reply and its own ok.
+- Logging never changes the Pantry.
+- One change is one commit `pantry: <one line>`; a restock commits each staged Food first. `updated` is set on every change.
+- The Index holds one pointer line under `## Pantry`: `- [[Pantry]]`.
+- Body: optional `## Notes` section only, under the same rule as the Food body: empty, or one `## Notes` heading with its content and nothing outside it.
+
+### Example
+
+```
+---
+type: pantry
+name: Pantry
+updated: 2026-09-15
+staples:
+  - "[[Oats]]"
+  - "[[Rice]]"
+  - "[[Olive oil]]"
+items:
+  - "[[Skyr]] = 1000 g"
+  - "[[Chicken breast]] = 600 g, until 2026-09-18"
+  - "[[Blueberries]]"
+  - "[[Chili]] = 2 portion, until 2026-09-19"
+---
+```
+
+## Meal, Day
 
 Written by the tickets that build those nodes. Until then the spec issue
 [#22](https://github.com/erodriguezh/food-planner-nutrition/issues/22) is the source.

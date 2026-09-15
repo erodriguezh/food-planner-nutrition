@@ -1,4 +1,4 @@
-"""Tests for vault lint v1. Run: python3 -m unittest discover lint"""
+"""Tests for the vault lint. Run: python3 -m unittest discover lint"""
 import os
 import shutil
 import tempfile
@@ -37,6 +37,14 @@ INDEX = """## Food
 - [[Goals]]
 
 ## Pantry
+- [[Pantry]]
+"""
+
+PANTRY_NODE = """---
+type: pantry
+name: Pantry
+updated: 2026-09-15
+---
 """
 
 STATE = """---
@@ -49,6 +57,23 @@ updated: 2026-09-15
 """
 
 ROUTER = "# Router\n\nShort router.\n"
+
+CROISSANT = """---
+type: food
+name: Croissant
+aliases:
+  - Kipferl
+category: grain
+kcal_per_100g: 406
+protein_g_per_100g: 8
+fat_g_per_100g: 21
+carbs_g_per_100g: 46
+label_basis: 100g
+number_source: database
+source_date: 2026-09-15
+reviewed: false
+---
+"""
 
 
 class VaultFixture:
@@ -64,6 +89,7 @@ class VaultFixture:
         self.write("index.md", INDEX)
         self.write("state.md", STATE)
         self.write("nodes/goals/Goals.md", GOALS)
+        self.write("nodes/pantry/Pantry.md", PANTRY_NODE)
 
     def write(self, rel, text):
         path = self.root / rel
@@ -245,7 +271,7 @@ class LintTest(unittest.TestCase):
         self.assertError("unreviewed")
 
     def test_state_food_link_in_open_items_fails(self):
-        self.vault.write("nodes/food/Croissant.md", "---\ntype: food\nname: Croissant\nreviewed: false\n---\n")
+        self.vault.write("nodes/food/Croissant.md", CROISSANT)
         self.vault.write("index.md", INDEX.replace("## Food\n", "## Food\n- [[Croissant]] | grain | Kipferl\n"))
         self.vault.write("state.md", STATE + "- [[Croissant]]\n")
         self.assertError("Food")
@@ -295,6 +321,23 @@ class LintTest(unittest.TestCase):
         self.vault.write(
             "routines/goals.md",
             "# goals\n\n## When\nx\n\n## Read\nx\n\n## Steps\nx\n\n## Write\nx\n\n## Reply\nx\n",
+        )
+        self.assertEqual(self.errors(), [])
+
+    def test_routine_over_the_token_limit_fails(self):
+        # Spec #22, Routines: "Under 300 tokens each." One token is four characters.
+        filler = "word " * 250  # 1250 characters, about 313 tokens
+        self.vault.write(
+            "routines/goals.md",
+            f"# goals\n\n## When\nx\n\n## Read\nx\n\n## Steps\n{filler}\n\n## Write\nx\n\n## Reply\nx\n",
+        )
+        self.assertError("tokens")
+
+    def test_routine_just_under_the_token_limit_passes(self):
+        filler = "word " * 200  # 1000 characters, about 264 tokens
+        self.vault.write(
+            "routines/goals.md",
+            f"# goals\n\n## When\nx\n\n## Read\nx\n\n## Steps\n{filler}\n\n## Write\nx\n\n## Reply\nx\n",
         )
         self.assertEqual(self.errors(), [])
 

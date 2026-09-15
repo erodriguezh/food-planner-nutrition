@@ -1,30 +1,45 @@
 #!/usr/bin/env python3
-"""Vault lint v1 for the food planner vault.
+"""Vault lint for the food planner vault.
 
 Run from the repository root:
 
     python3 lint/vault_lint.py
 
 Exit code 0 when the vault is clean, 1 on the first violation. The checks run
-in a fixed order (nodes load, common conventions, Goals, Router, State, Index,
-routines), files in sorted path order, so the first violation is deterministic.
+in a fixed order (nodes load, common conventions, node locations, Goals, Foods,
+Pantry, Router, State, Index, routines), files in sorted path order, so the
+first violation is deterministic.
 No dependencies beyond the Python 3 standard library.
 
-Checks (v1):
+Checks (v2):
 - every node under nodes/ has flat YAML frontmatter with core types only
 - every node has `type` and `name`; `name` equals the file base name;
   base names are unique across the vault
+- no file outside nodes/ carries node frontmatter
 - the Goals node follows its schema; bounds use the rounding rule
+- every Food sits directly at nodes/food/<Name>.md and has its required
+  properties and enums, numbers with at most one decimal, servings in grams,
+  density fields with a 100ml label basis, a `label_name` that is one of the
+  aliases, `estimated_from` as a quoted link to a Food and present whenever
+  `number_source` is `estimate`, no unknown property, and a body that is empty
+  or holds one `## Notes` section with no text outside it
+- exactly one Pantry node sits at nodes/pantry/Pantry.md
+- the Pantry node has `updated`, staples as `"[[Food]]"`, items as
+  `"[[Food or Meal]]"` with a grams, portion or cooked-grams amount and an
+  optional `until` date; every link resolves by canonical name
 - ROUTER.md is under 500 tokens
 - state.md has its fields; Open items holds no unreviewed Food lines
-- index.md has one section per node type and no line without a node
-- every routine file has the five sections
+- index.md has one section per node type and no line without a node; every
+  Food has exactly one line with its category and all aliases plus the label name
+- every routine file has the five sections and is under 300 tokens
 """
 from __future__ import annotations
 
+import difflib
 import math
 import re
 import sys
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -32,7 +47,20 @@ NODE_TYPES = ("food", "meal", "day", "goals", "pantry")
 INDEX_SECTIONS = ("Food", "Meal", "Day", "Goals", "Pantry")
 ROUTINE_SECTIONS = ("When", "Read", "Steps", "Write", "Reply")
 ROUTER_TOKEN_LIMIT = 500
+ROUTINE_TOKEN_LIMIT = 300
 MACROS = ("kcal", "protein_g", "fat_g", "carbs_g")
+
+FOOD_CATEGORIES = ("protein", "dairy", "grain", "vegetable", "fruit", "fat", "snack", "drink")
+LABEL_BASES = ("100g", "100ml")
+NUMBER_SOURCES = ("label", "database", "estimate")
+FOOD_MACROS = ("kcal_per_100g", "protein_g_per_100g", "fat_g_per_100g", "carbs_g_per_100g")
+FOOD_REQUIRED = ("type", "name", "category") + FOOD_MACROS + ("label_basis", "number_source", "source_date", "reviewed")
+FOOD_NUTRIENTS = ("fiber_g_per_100g", "sugar_g_per_100g", "salt_g_per_100g")
+FOOD_OPTIONAL_NUMBERS = FOOD_NUTRIENTS + ("density_g_per_ml",)
+FOOD_OPTIONAL = ("aliases", "label_name", "brand", "servings", "density_source", "source_ref", "barcode", "estimated_from") + FOOD_OPTIONAL_NUMBERS
+PANTRY_REQUIRED = ("type", "name", "updated")
+PANTRY_OPTIONAL = ("staples", "items")
+CHECKBOX_VALUES = ("true", "false")
 
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 NUMBER_RE = re.compile(r"^-?\d+(\.\d+)?$")
@@ -40,6 +68,12 @@ WIKILINK_RE = re.compile(r"\[\[([^\]|#]+)(?:[|#][^\]]*)?\]\]")
 KEY_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*):(?:\s+(.*))?$")
 INDEX_LINK_LINE_RE = re.compile(r"^- \[\[([^\]]+)\]\](?: \| .*)?$")
 INDEX_DAY_LINE_RE = re.compile(r"^- (\d{4}-\d{2}) \| (nodes/day/\d{4}-\d{2}/)$")
+SERVING_RE = re.compile(r"^\d+(\.\d+)? [A-Za-z][A-Za-z ]* = \d+(\.\d+)? g$")
+QUOTED_LINK_RE = re.compile(r"^\[\[([^\]|#]+)\]\]$")
+PANTRY_ITEM_RE = re.compile(r"^\[\[([^\]|#]+)\]\](?: = ([^,]+?))?(?:, until (\d{4}-\d{2}-\d{2}))?$")
+FOOD_AMOUNT_RE = re.compile(r"^\d+(\.\d+)? g$")
+MEAL_AMOUNT_RE = re.compile(r"^\d+(\.\d+)? (portion|g cooked)$")
+HEADING_RE = re.compile(r"^(#{1,6})\s+(.*)$")
 
 
 # --------------------------------------------------------------------------
@@ -96,6 +130,480 @@ def apply_goal_change(existing: dict | None, stated_targets: dict, stated_tolera
 def estimate_tokens(text: str) -> int:
     """Token estimate used for the Router limit: one token per four characters."""
     return math.ceil(len(text) / 4)
+
+
+# --------------------------------------------------------------------------
+# create-food routine as functions
+# --------------------------------------------------------------------------
+
+def round_food_value(value: float) -> float:
+    """Rounding rule for Food numbers: one decimal, a half rounds up (2.25 -> 2.3).
+
+    Stated for the agent in routines/create-food.md step 3. A whole result is
+    returned as an int so `64.0` is written `64`.
+    """
+    rounded = math.floor(value * 10 + 0.5) / 10
+    return int(rounded) if rounded == int(rounded) else rounded
+
+
+def per_100g_from_per_100ml(values: dict, density_g_per_ml: float) -> dict:
+    """Convert per-100-ml label values to per 100 g once, at creation.
+
+    100 ml weigh 100 × density grams, so a per-100-g value is the per-100-ml
+    value divided by the density. Every result uses round_food_value().
+    """
+    return {key: round_food_value(float(value) / density_g_per_ml) for key, value in values.items()}
+
+
+def mark_reviewed(data: dict) -> dict:
+    """The "ok" step: a copy of the Food frontmatter with `reviewed: true` and nothing else changed.
+
+    `number_source` stays as it is; review never removes an estimate mark.
+    """
+    result = dict(data)
+    result["reviewed"] = "true"
+    return result
+
+
+# --------------------------------------------------------------------------
+# Alias resolution as a function (shared Food and Meal table from the Index)
+# --------------------------------------------------------------------------
+
+_UMLAUTS = str.maketrans({"ä": "a", "ö": "o", "ü": "u", "ß": "ss", "é": "e", "è": "e"})
+FUZZY_CUTOFF = 0.8
+
+
+def normalize_alias(text: str) -> str:
+    """Case-insensitive, umlaut-free, plural-tolerant form of a name or alias.
+
+    Plurals: a trailing `n` is dropped (Heidelbeeren -> heidelbeere), else a
+    trailing `es`, else a trailing `s` (eggs -> egg). Both sides of a match
+    are normalized the same way, so the rule needs no dictionary.
+    """
+    text = " ".join(text.casefold().translate(_UMLAUTS).split())
+    if len(text) > 3:
+        if text.endswith("n"):
+            text = text[:-1]
+        elif text.endswith("es"):
+            text = text[:-2]
+        elif text.endswith("s"):
+            text = text[:-1]
+    return text
+
+
+@dataclass
+class Resolution:
+    """Result of resolve_name() or resolve_label().
+
+    resolve_name() statuses: exact, alias, fuzzy, ambiguous, none.
+    resolve_label() has three statuses of its own and never returns any
+    resolve_name() status: `barcode` and `label` name the one existing Food the
+    package identifies, and `new` names the Food to create. One `label` status
+    covers all three label-name stages, because the label path reuses a Food
+    only when the identity leaves exactly one, so which stage matched changes
+    nothing the caller does. resolve_label() never returns ambiguous or none.
+
+    `candidates` holds the sorted canonical names the winning stage found: every
+    candidate for a resolve_name() status, the one winner for `barcode` and
+    `label`, and for `new` the existing names that hold the base name the label
+    printed. It is empty only for status `none` and for a `new` name that took
+    no existing base name. `kind` is `food` or `meal`, the kind of the one winner;
+    it is None when there is no winner (`ambiguous`, `none`).
+    """
+    status: str
+    name: str | None = None
+    candidates: tuple[str, ...] = ()
+    kind: str | None = None
+
+
+def parse_alias_table(index_text: str) -> list[tuple[str, str, list[str]]]:
+    """The shared alias table from index.md: (canonical name, food|meal, aliases) per line."""
+    table = []
+    for section, lines in _sections(index_text).items():
+        if section not in ("Food", "Meal"):
+            continue
+        for line in lines:
+            match = INDEX_LINK_LINE_RE.match(line)
+            if not match:
+                continue
+            fields = [f.strip() for f in line.split(" | ")]
+            aliases = [a.strip() for a in fields[2].split(",") if a.strip()] if len(fields) > 2 else []
+            table.append((match.group(1), section.lower(), aliases))
+    return table
+
+
+def resolve_name(query: str, table: list[tuple[str, str, list[str]]], pantry_names: list[str] | tuple[str, ...] = ()) -> Resolution:
+    """Resolve what the user said to one canonical name, as routines/create-food.md describes.
+
+    Order: exact canonical name, then alias, then fuzzy. Fuzzy candidates are
+    the union of every close match above FUZZY_CUTOFF and the forms that start
+    with or contain what the user said; the close-match half has no maximum
+    count, so a late close candidate is never dropped in silence.
+    One candidate is used (the reply names a fuzzy one).
+    Several candidates of one kind: prefer the single one in the Pantry; else
+    ask (status `ambiguous`). Nothing close: status `none`.
+
+    Every candidate keeps its kind (`food` or `meal`). A Food and a Meal in the
+    same winning stage always ask, as spec #22 requires: a Pantry item can be a
+    Food or a Meal, so the Pantry preference must not decide a cross-kind
+    collision. Ticket #25 adds the one exception, an explicit slot word that
+    makes the Meal win.
+
+    The stage order comes first, so the ask is a same-stage rule: the first
+    matching stage stops the search, and a name that is exact for one kind beats
+    an alias of the other kind without a question. Only the candidates of the
+    one matching stage can collide.
+
+    Normalization can map two different canonical names to one form (case,
+    umlauts, plurals). Every stage therefore keeps a set of candidates per
+    normalized form, so a second candidate is never discarded in silence.
+    """
+    stage, hits = _stage_candidates(query, table)
+    if stage is None:
+        return Resolution("none")
+    return _one_or_ask(stage, hits, pantry_names)
+
+
+def _stage_candidates(query: str, table: list[tuple[str, str, list[str]]]) -> tuple[str | None, set[tuple[str, str]]]:
+    """The first matching stage and every (canonical name, kind) it found.
+
+    Stages in order: exact canonical name, then alias, then fuzzy. The first
+    stage with a candidate wins and stops the search. Nothing close: (None, an
+    empty set).
+
+    No preference is applied here: the caller decides what several candidates
+    of one stage mean. resolve_name() hands them to _one_or_ask(), which may
+    prefer the one Pantry candidate. resolve_label() must not, so it filters
+    them by the printed package identity instead.
+    """
+    wanted = normalize_alias(query)
+    name_forms = _group_by_normalized_form((name, name, kind) for name, kind, _aliases in table)
+    if wanted in name_forms:
+        return "exact", name_forms[wanted]
+    alias_forms = _group_by_normalized_form(
+        (alias, name, kind) for name, kind, aliases in table for alias in aliases
+    )
+    if wanted in alias_forms:
+        return "alias", alias_forms[wanted]
+    forms = _group_by_normalized_form(
+        (form, name, kind) for name, kind, aliases in table for form in [name] + list(aliases)
+    )
+    # n=len(forms) keeps every form above the cutoff: a fixed maximum would
+    # drop a late close candidate in silence and could name a wrong winner.
+    # get_close_matches() needs n > 0, so an empty table finds nothing.
+    close = set(difflib.get_close_matches(wanted, list(forms), n=len(forms), cutoff=FUZZY_CUTOFF)) if forms else set()
+    close |= {form for form in forms if form.startswith(wanted) or wanted in form}
+    fuzzy_hits = {hit for form in close for hit in forms[form]}
+    if not fuzzy_hits:
+        return None, set()
+    return "fuzzy", fuzzy_hits
+
+
+def _group_by_normalized_form(triples: Iterable[tuple[str, str, str]]) -> dict[str, set[tuple[str, str]]]:
+    """Map each normalized form to the set of (canonical name, kind) it produces."""
+    forms: dict[str, set[tuple[str, str]]] = {}
+    for form, name, kind in triples:
+        forms.setdefault(normalize_alias(form), set()).add((name, kind))
+    return forms
+
+
+def _one_or_ask(status: str, hits: set[tuple[str, str]], pantry_names: Iterable[str]) -> Resolution:
+    """Use the one candidate; else the one Pantry candidate of one kind; else ask.
+
+    Mixed kinds always ask: the Pantry preference never decides a Food-versus-Meal
+    collision (spec #22).
+    """
+    by_name = {name: kind for name, kind in hits}
+    candidates = tuple(sorted(by_name))
+    kinds = {kind for _name, kind in hits}
+    if len(kinds) > 1:
+        return Resolution("ambiguous", None, candidates)
+    if len(candidates) == 1:
+        return Resolution(status, candidates[0], candidates, by_name[candidates[0]])
+    in_pantry_set = set(pantry_names)
+    in_pantry = [name for name in candidates if name in in_pantry_set]
+    if len(in_pantry) == 1:
+        return Resolution(status, in_pantry[0], candidates, by_name[in_pantry[0]])
+    return Resolution("ambiguous", None, candidates)
+
+
+@dataclass
+class LabelIdentity:
+    """What a label photo gives about the product: printed name, brand, barcode.
+
+    `label_name` is the name as printed, often in German. `brand` and `barcode`
+    are absent on a label that does not print them.
+    """
+    label_name: str
+    brand: str | None = None
+    barcode: str | None = None
+
+
+def resolve_label(
+    label: LabelIdentity | Mapping[str, str | None],
+    table: list[tuple[str, str, list[str]]],
+    foods: Iterable[Mapping[str, object]] = (),
+) -> Resolution:
+    """Resolve a label photo to one Food, with no question, as routines/create-food.md describes.
+
+    Issue #24: "A label photo produces a Food node ... with no question asked."
+    The shared resolve_name() asks on a Food-versus-Meal collision and on two
+    candidates of one kind. A label carries its own identity, so this function
+    decides alone: it never returns `ambiguous` and never returns `none`, and
+    its winner is always a Food.
+
+    The package identity alone decides. There is no Pantry parameter, because
+    Pantry membership is not package identity: the ordinary chat resolution may
+    break a same-kind tie by choosing the single Pantry candidate, but a label
+    photo overwrites an existing Food only when the printed identity names
+    exactly one Food. Two Foods that share the printed name stay ambiguous
+    whichever one is in the Pantry, and an ambiguous label creates a new Food.
+
+    `label` is a LabelIdentity or the same fields as a mapping. `table` is the
+    shared alias table from parse_alias_table(). `foods` are the existing Food
+    nodes as frontmatter mappings, each with `name` and optionally `label_name`,
+    `brand` and `barcode`; an entry whose `type` is not `food` is ignored.
+
+    Stages, first hit wins:
+    1. `barcode`: exactly one Food carries the same barcode. The package is
+       that Food.
+    2. `label`: the label name against the Foods alone, with the same exact ->
+       alias -> fuzzy semantics as resolve_name(); the forms of a Food are its
+       canonical name, its aliases and its `label_name`. Meals never take part,
+       so a Meal never blocks the Food the package names. The first matching
+       stage keeps every Food it found, and the printed brand then filters
+       them: the printed brand and the brand the Food carries must agree both
+       ways, so a Food of another brand, a generic Food that carries no brand
+       and a Food that was not handed over in `foods` are all a different
+       product, and a label that prints no brand keeps only a Food that carries
+       no brand (a Food that was not handed over is the one exception: nothing
+       disagrees, so it stays). Exactly one Food left is the package, and it is
+       reused; zero or several left fall through to `new`.
+    3. `new`: the canonical name to create. It is the label name, and it ends
+       with the printed brand (spec #22: a packaged product ends with the
+       brand), so a packaged name never takes the generic base name. The name
+       is free of every existing Food and Meal name; a last resort adds a
+       count. `candidates` holds the existing names that hold the base name.
+
+    Only an existing Food is ever named, so a new label never overwrites a Meal.
+    """
+    label_name, brand, barcode = _label_fields(label)
+    food_records = [
+        dict(food) for food in foods
+        if str(food.get("type", "food")) == "food" and str(food.get("name") or "")
+    ]
+
+    if barcode:
+        same_barcode = sorted({str(f["name"]) for f in food_records if _clean(f.get("barcode")) == barcode})
+        if len(same_barcode) == 1:
+            return Resolution("barcode", same_barcode[0], tuple(same_barcode), "food")
+
+    brands = {str(f["name"]): normalize_alias(str(f.get("brand") or "")) for f in food_records}
+    printed = normalize_alias(brand or "")
+
+    def same_brand(name: str) -> bool:
+        """The brand the label prints and the brand the Food carries agree.
+
+        The agreement holds both ways, because the brand is part of the product:
+        a printed brand accepts only the same brand, so a Food of another brand
+        and a generic Food with no brand are a different product; and a label
+        that prints no brand accepts only a Food that carries no brand, because
+        the package never names the brand the Food claims. The fuzzy stage
+        matches a substring, so without this second half a generic `Milk` label
+        would overwrite `Soy milk Alpro` with no question asked.
+
+        A Food that was not handed over in `foods` has no brand to compare. It
+        cannot confirm a printed brand, so a printed brand rejects it; a label
+        with no brand still accepts it, because nothing disagrees.
+        """
+        carried = brands.get(name)
+        if carried is None:
+            return not printed
+        return carried == printed
+
+    if normalize_alias(label_name):
+        _stage, hits = _stage_candidates(label_name, _food_table(table, food_records))
+        kept = sorted({name for name, _kind in hits if same_brand(name)})
+        if len(kept) == 1:
+            return Resolution("label", kept[0], (kept[0],), "food")
+
+    base = label_name.strip() or (brand or "").strip() or "New food"
+    taken = _taken_forms(table, food_records)
+    blocked = tuple(sorted(taken.get(normalize_alias(base), set())))
+    return Resolution("new", _free_name(base, brand, taken), blocked, "food")
+
+
+def _food_table(
+    table: list[tuple[str, str, list[str]]],
+    food_records: list[dict],
+) -> list[tuple[str, str, list[str]]]:
+    """The alias table of the Foods alone, for the label-name stages.
+
+    Only the Index rows of kind `food` take part, so a Meal can never be a
+    label candidate. Each Food's `label_name` joins its aliases when no form of
+    that Food already normalizes to it, and a Food that is handed over in
+    `foods` but is missing from the Index still takes part.
+    """
+    rows: dict[str, list[str]] = {}
+    for name, kind, aliases in table:
+        if kind == "food":
+            rows.setdefault(name, []).extend(aliases)
+    for food in food_records:
+        name = str(food["name"])
+        aliases = rows.setdefault(name, [])
+        label_name = food.get("label_name")
+        if label_name:
+            forms = {normalize_alias(form) for form in [name] + aliases}
+            if normalize_alias(str(label_name)) not in forms:
+                aliases.append(str(label_name))
+    return [(name, "food", aliases) for name, aliases in rows.items()]
+
+
+def _taken_forms(
+    table: list[tuple[str, str, list[str]]],
+    food_records: list[dict],
+) -> dict[str, set[str]]:
+    """Map each normalized form of every Food and Meal to the names that hold it.
+
+    The forms of one node are its canonical name, its aliases and, for a Food
+    node, its `label_name`. A new label name must be free of all of them, so
+    both kinds take part here; the label-name stages use _food_table() instead.
+    """
+    forms: dict[str, set[str]] = {}
+    for name, _kind, aliases in table:
+        for form in [name] + list(aliases):
+            forms.setdefault(normalize_alias(form), set()).add(name)
+    for food in food_records:
+        for form in (food["name"], food.get("label_name")):
+            if form:
+                forms.setdefault(normalize_alias(str(form)), set()).add(str(food["name"]))
+    return forms
+
+
+def _label_fields(label: LabelIdentity | Mapping[str, str | None]) -> tuple[str, str | None, str | None]:
+    """A LabelIdentity or the same fields as a mapping -> (label name, brand, barcode)."""
+    if isinstance(label, LabelIdentity):
+        return label.label_name or "", _clean(label.brand), _clean(label.barcode)
+    return str(label.get("label_name") or ""), _clean(label.get("brand")), _clean(label.get("barcode"))
+
+
+def _clean(value: object) -> str | None:
+    text = str(value).strip() if value is not None else ""
+    return text or None
+
+
+def _free_name(base: str, brand: str | None, taken: Mapping[str, set[str]]) -> str:
+    """The canonical name to create, always free.
+
+    Spec #22: "a packaged product ends with the brand", so a printed brand goes
+    last whether or not the base name is taken; it is not added twice when the
+    label name already ends with it. A last resort adds a count, because the
+    returned name must be free of every existing Food and Meal name.
+    """
+    stem = base
+    if brand and not normalize_alias(stem).endswith(normalize_alias(brand)):
+        stem = f"{base} {brand}"
+    if normalize_alias(stem) not in taken:
+        return stem
+    count = 2
+    while normalize_alias(f"{stem} {count}") in taken:
+        count += 1
+    return f"{stem} {count}"
+
+
+# --------------------------------------------------------------------------
+# pantry routine as functions
+# --------------------------------------------------------------------------
+
+def parse_pantry_item(text: str) -> tuple[str, str | None, str | None]:
+    """`[[Name]] = <amount>, until <date>` -> (name, amount or None, until or None)."""
+    match = PANTRY_ITEM_RE.match(text)
+    if not match:
+        raise ValueError(f"not a Pantry item string: {text!r}")
+    return match.group(1), match.group(2), match.group(3)
+
+
+def format_pantry_item(name: str, amount: str | None, until: str | None) -> str:
+    text = f"[[{name}]]"
+    if amount:
+        text += f" = {amount}"
+    if until:
+        text += f", until {until}"
+    return text
+
+
+def _add_amounts(old: str | None, new: str | None) -> str | None:
+    """Sum two amounts with the same unit; else the stated one wins."""
+    if old and new:
+        old_num, _, old_unit = old.partition(" ")
+        new_num, _, new_unit = new.partition(" ")
+        if old_unit == new_unit and is_number(old_num) and is_number(new_num):
+            total = round_food_value(float(old_num) + float(new_num))
+            return f"{total} {old_unit}"
+    return new or old
+
+
+def apply_pantry_change(data: dict, change: tuple, today: str) -> dict:
+    """One chat change to the Pantry frontmatter. Returns a new dict.
+
+    change is one of:
+      ("bought", name, amount, until)  add an item; an existing item gets the amounts added;
+                                       a staple is left alone
+      ("gone", name)                   remove from whichever list holds it
+      ("staple", name)                 make it a staple (moved out of items)
+      ("item", name, amount, until)    make it an item (moved out of staples)
+    Always sets `updated` to today.
+    """
+    result = dict(data)
+    staples = list(data.get("staples") or [])
+    items = list(data.get("items") or [])
+    kind, name = change[0], change[1]
+    link = f"[[{name}]]"
+    index = next((i for i, item in enumerate(items) if parse_pantry_item(item)[0] == name), None)
+    if kind == "bought":
+        if link not in staples:
+            _append_or_add(items, index, name, change[2], change[3])
+    elif kind == "gone":
+        staples = [s for s in staples if s != link]
+        if index is not None:
+            del items[index]
+    elif kind == "staple":
+        if index is not None:
+            del items[index]
+        if link not in staples:
+            staples.append(link)
+    elif kind == "item":
+        staples = [s for s in staples if s != link]
+        _append_or_add(items, index, name, change[2], change[3])
+    else:
+        raise ValueError(f"unknown Pantry change {kind!r}")
+    result["staples"] = staples
+    result["items"] = items
+    result["updated"] = today
+    return result
+
+
+def _append_or_add(items: list[str], index: int | None, name: str, amount: str | None, until: str | None) -> None:
+    """Append a new item, or add the amount to the existing item at `index`; a stated `until` replaces the old one."""
+    if index is None:
+        items.append(format_pantry_item(name, amount, until))
+    else:
+        _n, old_amount, old_until = parse_pantry_item(items[index])
+        items[index] = format_pantry_item(name, _add_amounts(old_amount, amount), until or old_until)
+
+
+def apply_restock(data: dict, additions: list[tuple[str, str | None, str | None]], today: str) -> tuple[dict, list[str]]:
+    """Restock after the user's ok: every addition is a "bought" change; staples are skipped with a note."""
+    notes = []
+    result = dict(data)
+    staples = set(data.get("staples") or [])
+    for name, amount, until in additions:
+        if f"[[{name}]]" in staples:
+            notes.append(f"{name} is a staple, not added")
+            continue
+        result = apply_pantry_change(result, ("bought", name, amount, until), today)
+    result["updated"] = today
+    return result, notes
 
 
 # --------------------------------------------------------------------------
@@ -234,6 +742,26 @@ def check_common_conventions(vault: Vault) -> None:
             seen[node.base_name] = node.rel
 
 
+def check_node_locations(vault: Vault) -> None:
+    """A node file lives under nodes/. Node frontmatter anywhere else is a stray node.
+
+    load_nodes() reads nodes/ only, so a file with `type: food` at the vault
+    root would otherwise pass unseen. Hidden folders (.git, .obsidian and the
+    like) are not part of the vault and are skipped.
+    """
+    for path in sorted(vault.root.rglob("*.md")):
+        rel = path.relative_to(vault.root).as_posix()
+        if rel.startswith("nodes/") or any(part.startswith(".") for part in rel.split("/")):
+            continue
+        try:
+            data, _body = parse_frontmatter(path.read_text(encoding="utf-8"))
+        except FrontmatterError:
+            continue
+        node_type = data.get("type")
+        if node_type in NODE_TYPES:
+            vault.fail(rel, f"a {node_type} node must live under nodes/, not at {rel}")
+
+
 def check_goals(vault: Vault) -> None:
     goals = [n for n in vault.nodes if n.type == "goals"]
     if len(goals) > 1:
@@ -266,6 +794,166 @@ def check_goals(vault: Vault) -> None:
         for key in data:
             if key not in allowed:
                 vault.fail(node.rel, f"unexpected property `{key}` on Goals")
+
+
+def _check_enum(vault: Vault, node: Node, key: str, allowed: tuple) -> None:
+    value = node.data.get(key)
+    if value not in allowed:
+        vault.fail(node.rel, f"`{key}` {value!r} is not one of {', '.join(allowed)}")
+
+
+def _check_body_notes_only(vault: Vault, node: Node) -> None:
+    """The body is empty, or one `## Notes` section and nothing else.
+
+    `_sections()` drops the lines before the first heading, so it cannot see
+    free prose. This walks every body line instead: no heading other than one
+    `## Notes`, and no text before that heading.
+    """
+    in_notes = False
+    seen_notes = False
+    in_fence = False
+    for line in node.body.split("\n"):
+        if line.lstrip().startswith("```"):
+            in_fence = not in_fence
+            if not in_notes:
+                vault.fail(node.rel, "body may hold only an optional `## Notes` section, found text before the heading")
+            continue
+        if in_fence:
+            continue
+        match = HEADING_RE.match(line)
+        if match:
+            heading = f"{match.group(1)} {match.group(2).strip()}"
+            if match.group(1) != "##" or match.group(2).strip() != "Notes":
+                vault.fail(node.rel, f"body may hold only an optional `## Notes` section, found heading `{heading}`")
+            if seen_notes:
+                vault.fail(node.rel, "body has a second `## Notes` heading; one is the maximum")
+            seen_notes = True
+            in_notes = True
+            continue
+        if not in_notes and line.strip():
+            vault.fail(node.rel, f"body may hold only an optional `## Notes` section, found text outside it: {line.strip()!r}")
+
+
+def _check_wikilink_property(vault: Vault, node: Node, key: str, allowed_types: tuple) -> None:
+    value = node.data.get(key)
+    match = QUOTED_LINK_RE.match(value) if isinstance(value, str) else None
+    if not match:
+        vault.fail(node.rel, f"`{key}` must be a quoted wikilink like \"[[Name]]\", got {value!r}")
+        return
+    target = vault.node_by_name(match.group(1))
+    if target is None:
+        vault.fail(node.rel, f"`{key}` points to [[{match.group(1)}]], which does not exist")
+    elif target.type not in allowed_types:
+        vault.fail(node.rel, f"`{key}` points to [[{match.group(1)}]], a {target.type} node, not {' or '.join(allowed_types)}")
+
+
+def check_foods(vault: Vault) -> None:
+    for node in vault.nodes:
+        if node.type != "food":
+            continue
+        data = node.data
+        if node.rel != f"nodes/food/{node.base_name}.md":
+            vault.fail(node.rel, f"a Food must sit directly at nodes/food/{node.base_name}.md")
+        for key in FOOD_REQUIRED:
+            if key not in data:
+                vault.fail(node.rel, f"missing `{key}`")
+        for key in FOOD_MACROS + FOOD_OPTIONAL_NUMBERS:
+            if key in data and not is_number(data[key]):
+                vault.fail(node.rel, f"`{key}` must be a number, got {data[key]!r}")
+        for key in FOOD_MACROS + FOOD_NUTRIENTS:
+            if key in data and float(data[key]) != round_food_value(float(data[key])):
+                vault.fail(node.rel, f"`{key}` is {data[key]!r}, expected {round_food_value(float(data[key]))} by the rounding rule in routines/create-food.md")
+        _check_enum(vault, node, "category", FOOD_CATEGORIES)
+        _check_enum(vault, node, "label_basis", LABEL_BASES)
+        _check_enum(vault, node, "number_source", NUMBER_SOURCES)
+        _check_enum(vault, node, "reviewed", CHECKBOX_VALUES)
+        if not is_date(data["source_date"]):
+            vault.fail(node.rel, f"`source_date` must be a date YYYY-MM-DD, got {data['source_date']!r}")
+        for key in data:
+            if key not in FOOD_REQUIRED + FOOD_OPTIONAL:
+                vault.fail(node.rel, f"unexpected property `{key}` on a Food")
+        for key in ("aliases", "servings"):
+            if key in data and not isinstance(data[key], list):
+                vault.fail(node.rel, f"`{key}` must be a list")
+        if "label_name" in data:
+            aliases = data.get("aliases")
+            if not isinstance(aliases, list) or data["label_name"] not in aliases:
+                vault.fail(node.rel, f"`label_name` {data['label_name']!r} must also be an item of `aliases`")
+        for serving in data.get("servings", []):
+            if not SERVING_RE.match(serving):
+                vault.fail(node.rel, f"`servings` item must be `<count> <unit> = <grams> g`, got {serving!r}")
+        if data["label_basis"] == "100ml" and "density_g_per_ml" not in data:
+            vault.fail(node.rel, "`label_basis: 100ml` needs `density_g_per_ml` (and `density_source`)")
+        if "density_g_per_ml" in data and "density_source" not in data:
+            vault.fail(node.rel, "`density_g_per_ml` needs `density_source`")
+        if "density_source" in data:
+            if "density_g_per_ml" not in data:
+                vault.fail(node.rel, "`density_source` is present without `density_g_per_ml`")
+            _check_enum(vault, node, "density_source", NUMBER_SOURCES)
+        if data.get("number_source") == "estimate" and "estimated_from" not in data:
+            vault.fail(node.rel, "`number_source: estimate` needs `estimated_from` as a quoted wikilink to the Food the estimate came from")
+        if "estimated_from" in data:
+            _check_wikilink_property(vault, node, "estimated_from", ("food",))
+        _check_body_notes_only(vault, node)
+
+
+def check_pantry(vault: Vault) -> None:
+    pantries = [n for n in vault.nodes if n.type == "pantry"]
+    if not pantries:
+        vault.fail("nodes/pantry/Pantry.md", "the vault needs exactly one Pantry node and this file is missing")
+    if len(pantries) > 1:
+        vault.fail(pantries[1].rel, "more than one Pantry node")
+    for node in pantries:
+        data = node.data
+        if node.rel != "nodes/pantry/Pantry.md":
+            vault.fail(node.rel, "Pantry node must be nodes/pantry/Pantry.md")
+        for key in PANTRY_REQUIRED:
+            if key not in data:
+                vault.fail(node.rel, f"missing `{key}`")
+        if not is_date(data["updated"]):
+            vault.fail(node.rel, f"`updated` must be a date YYYY-MM-DD, got {data['updated']!r}")
+        for key in data:
+            if key not in PANTRY_REQUIRED + PANTRY_OPTIONAL:
+                vault.fail(node.rel, f"unexpected property `{key}` on the Pantry")
+        for key in PANTRY_OPTIONAL:
+            if key in data and not isinstance(data[key], list):
+                vault.fail(node.rel, f"`{key}` must be a list")
+        seen: set[str] = set()
+        for staple in data.get("staples", []):
+            match = QUOTED_LINK_RE.match(staple)
+            if not match:
+                vault.fail(node.rel, f"`staples` item must be `[[Food]]` only, got {staple!r}")
+                continue
+            target = vault.node_by_name(match.group(1))
+            if target is None:
+                vault.fail(node.rel, f"`staples` links to [[{match.group(1)}]], which does not exist")
+            elif target.type != "food":
+                vault.fail(node.rel, f"`staples` links to [[{match.group(1)}]], a {target.type} node, not a Food")
+            _seen_once(vault, node, seen, match.group(1))
+        for item in data.get("items", []):
+            match = PANTRY_ITEM_RE.match(item)
+            if not match:
+                vault.fail(node.rel, f"`items` item must be `[[Name]]`, `= <amount>` and `, until <date>` optional, got {item!r}")
+                continue
+            name, amount, _until = match.groups()
+            target = vault.node_by_name(name)
+            if target is None:
+                vault.fail(node.rel, f"`items` links to [[{name}]], which does not exist")
+            elif target.type not in ("food", "meal"):
+                vault.fail(node.rel, f"`items` links to [[{name}]], a {target.type} node, not a Food or Meal")
+            elif amount is not None:
+                shape = FOOD_AMOUNT_RE if target.type == "food" else MEAL_AMOUNT_RE
+                if not shape.match(amount):
+                    want = "`<n> g`" if target.type == "food" else "`<n> portion` or `<n> g cooked`"
+                    vault.fail(node.rel, f"`items` amount for [[{name}]] must be {want}, got {amount!r}")
+            _seen_once(vault, node, seen, name)
+        _check_body_notes_only(vault, node)
+
+
+def _seen_once(vault: Vault, node: Node, seen: set[str], name: str) -> None:
+    if name in seen:
+        vault.fail(node.rel, f"[[{name}]] is listed twice in the Pantry")
+    seen.add(name)
 
 
 def check_router(vault: Vault) -> None:
@@ -374,11 +1062,37 @@ def check_index(vault: Vault) -> None:
                 vault.fail("index.md", f"[[{name}]] is a {node.type} node but sits under `## {section}`")
             if section in ("Goals", "Pantry") and " | " in line:
                 vault.fail("index.md", f"{section} line must be the link only: {line!r}")
+            if name in indexed:
+                vault.fail("index.md", f"[[{name}]] must have exactly one Index line, found a second: {line!r}")
+            if section == "Food":
+                _check_food_index_line(vault, node, line)
             indexed.add(name)
 
     for node in vault.nodes:
         if node.type in ("food", "meal", "goals", "pantry") and node.base_name not in indexed:
             vault.fail("index.md", f"no line for [[{node.base_name}]] ({node.rel})")
+
+
+def _check_food_index_line(vault: Vault, node: Node, line: str) -> None:
+    """`- [[Name]] | <category> | <aliases plus label name, comma separated>`."""
+    fields = [f.strip() for f in line[2:].split(" | ")]
+    if len(fields) < 2 or len(fields) > 3:
+        vault.fail("index.md", f"Food line must be `- [[Name]] | <category> | <aliases>`: {line!r}")
+        return
+    category = node.data.get("category")
+    if fields[1] != category:
+        vault.fail("index.md", f"[[{node.base_name}]] line says category {fields[1]!r}, the node says {category!r}")
+    listed = {a.strip() for a in fields[2].split(",") if a.strip()} if len(fields) == 3 else set()
+    aliases = node.data.get("aliases", [])
+    expected = set(aliases if isinstance(aliases, list) else [])
+    if node.data.get("label_name"):
+        expected.add(node.data["label_name"])
+    missing = sorted(expected - listed)
+    extra = sorted(listed - expected)
+    if missing:
+        vault.fail("index.md", f"[[{node.base_name}]] line lacks alias(es) {missing}")
+    if extra:
+        vault.fail("index.md", f"[[{node.base_name}]] line has alias(es) {extra} that the node does not")
 
 
 def check_routines(vault: Vault) -> None:
@@ -387,10 +1101,14 @@ def check_routines(vault: Vault) -> None:
         return
     for path in sorted(routines.glob("*.md")):
         rel = path.relative_to(vault.root).as_posix()
-        sections = _sections(path.read_text(encoding="utf-8"))
+        text = path.read_text(encoding="utf-8")
+        sections = _sections(text)
         for name in ROUTINE_SECTIONS:
             if name not in sections:
                 vault.fail(rel, f"missing `## {name}` section")
+        tokens = estimate_tokens(text)
+        if tokens >= ROUTINE_TOKEN_LIMIT:
+            vault.fail(rel, f"about {tokens} tokens, limit is under {ROUTINE_TOKEN_LIMIT} (estimate: characters / 4)")
 
 
 def _sections(text: str) -> dict[str, list[str]]:
@@ -413,7 +1131,10 @@ def _sections(text: str) -> dict[str, list[str]]:
 CHECKS = (
     load_nodes,
     check_common_conventions,
+    check_node_locations,
     check_goals,
+    check_foods,
+    check_pantry,
     check_router,
     check_state,
     check_index,
