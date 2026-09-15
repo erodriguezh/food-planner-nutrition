@@ -349,7 +349,10 @@ def resolve_label(
     Only an existing Food is ever named, so a new label never overwrites a Meal.
     """
     label_name, brand, barcode = _label_fields(label)
-    food_records = [dict(food) for food in foods if str(food.get("type", "food")) == "food"]
+    food_records = [
+        dict(food) for food in foods
+        if str(food.get("type", "food")) == "food" and str(food.get("name") or "")
+    ]
 
     if barcode:
         same_barcode = sorted({str(f["name"]) for f in food_records if _clean(f.get("barcode")) == barcode})
@@ -358,16 +361,7 @@ def resolve_label(
 
     wanted = normalize_alias(label_name)
     if wanted:
-        forms: dict[str, set[str]] = {}
-        for name, kind, aliases in table:
-            if kind != "food":
-                continue
-            for form in [name] + list(aliases):
-                forms.setdefault(normalize_alias(form), set()).add(name)
-        for food in food_records:
-            for form in (food["name"], food.get("label_name")):
-                if form:
-                    forms.setdefault(normalize_alias(str(form)), set()).add(str(food["name"]))
+        forms = _name_forms(table, food_records, kinds=("food",))
         hits = sorted(forms.get(wanted, set()))
         if hits and brand:
             brands = {str(f["name"]): normalize_alias(str(f.get("brand") or "")) for f in food_records}
@@ -381,16 +375,33 @@ def resolve_label(
             return by_name
 
     base = label_name.strip() or (brand or "").strip() or "New food"
-    taken: dict[str, set[str]] = {}
-    for name, _kind, aliases in table:
+    taken = _name_forms(table, food_records, kinds=("food", "meal"))
+    blocked = tuple(sorted(taken.get(normalize_alias(base), set())))
+    return Resolution("new", _free_name(base, brand, taken), blocked, "food")
+
+
+def _name_forms(
+    table: list[tuple[str, str, list[str]]],
+    food_records: list[dict],
+    kinds: tuple[str, ...],
+) -> dict[str, set[str]]:
+    """Map each normalized form to the canonical names that hold it.
+
+    The forms of one node are its canonical name, its aliases and, for a Food
+    node, its `label_name`. `kinds` selects which Index sections take part, so
+    the label stages can look at Foods alone.
+    """
+    forms: dict[str, set[str]] = {}
+    for name, kind, aliases in table:
+        if kind not in kinds:
+            continue
         for form in [name] + list(aliases):
-            taken.setdefault(normalize_alias(form), set()).add(name)
+            forms.setdefault(normalize_alias(form), set()).add(name)
     for food in food_records:
         for form in (food["name"], food.get("label_name")):
             if form:
-                taken.setdefault(normalize_alias(str(form)), set()).add(str(food["name"]))
-    blocked = tuple(sorted(taken.get(normalize_alias(base), set())))
-    return Resolution("new", _free_name(base, brand, taken), blocked, "food")
+                forms.setdefault(normalize_alias(str(form)), set()).add(str(food["name"]))
+    return forms
 
 
 def _label_fields(label: LabelIdentity | Mapping[str, str | None]) -> tuple[str, str | None, str | None]:
