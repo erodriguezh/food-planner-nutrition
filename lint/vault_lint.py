@@ -56,9 +56,9 @@ import difflib
 import math
 import re
 import sys
-from decimal import Decimal, ROUND_HALF_UP
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
+from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 
 NODE_TYPES = ("food", "meal", "day", "goals", "pantry")
