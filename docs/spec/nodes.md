@@ -154,10 +154,13 @@ of the one winner (None when the agent asks). The one exception to the Food-vers
 that makes the Meal win, belongs to the log routine and comes with ticket #25.
 
 A label photo is the one exception to the ask. Issue #24 requires that a label produces the Food node with no question, so the
-label identity decides: one Food with the same `barcode`, else the printed `label_name` with the `brand` against the Foods only,
-else `resolve_name()` when it names one Food. No unique Food, an ambiguous name included, means a new Food, and the brand
-qualifies the name until the base name is free. The lint module holds this as `resolve_label()`, which never returns `ambiguous`
-and never names a Meal, so a label never overwrites a Meal and never asks.
+label identity decides: one Food with the same `barcode`, else the printed `label_name` against the Foods only,
+else `resolve_name()` when it names one Food. A printed brand is part of the identity, so both name stages keep only a Food
+that carries that same brand; a Food of another brand and a generic Food with no brand are a different product. A label that
+prints no brand accepts any Food. No unique Food, an ambiguous name included, means a new Food whose name ends with the
+printed brand (a packaged product ends with the brand), and a count is added in the last resort, so the new name is free of
+every existing Food and Meal name. The lint module holds this as `resolve_label()`, which never returns `ambiguous` and never
+returns `none`, and never names a Meal, so a label never overwrites a Meal and never asks.
 
 The ask is a same-stage rule, because the stage order comes first: the first matching stage stops the search, so a name that is exact for one kind beats an alias of the other kind and the agent asks nothing. A Food named exactly what the user said wins over a Meal that carries the same word only as an alias, and an exact Meal name wins over a Food alias the same way. Only the candidates of that one matching stage can collide.
 
