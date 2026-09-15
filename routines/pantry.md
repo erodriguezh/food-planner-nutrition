@@ -7,17 +7,18 @@
 `nodes/pantry/Pantry.md`, `index.md`.
 
 ## Steps
-1. Resolve each name in the alias table. Unknown Food: then follow `routines/create-food.md`.
-2. Staple or item by your knowledge (rice, oil, salt: staples; chicken, skyr, leftovers: items). The user's word wins.
-3. Bought: append the item, Foods in grams. An existing item gets the amounts added. A staple stays as it is, say so.
-4. "Gone" removes it from whichever list holds it. "Make X a staple" or "an item" moves it.
-5. Leftovers are Meal items in `portion` or `g cooked`. `until` only when the user states a date. Flag expired items in the reply.
-6. Photos: resolve every line, then show one list "Add to Pantry: <name amount>, ... Ok?". Write after ok. Staples in the photo are skipped with a note.
-7. Set `updated` to today. Logging never changes the Pantry.
+1. Resolve each name. Chat form, unknown Food: then follow `routines/create-food.md`.
+2. Staple or item by your knowledge (oil: staple, chicken: item); the user's word wins.
+3. Bought: append it, Foods in grams; an existing item's amount adds up; a staple stays, say so.
+4. "Gone" removes it from its list; "make X a staple/an item" moves it.
+5. Leftovers are Meal items in `portion` or `g cooked`; `until` if stated.
+6. A photo: resolve each line, stage unknown Foods, show one list "Add to Pantry: <name amount>, ... Ok?". Write nothing before the ok.
+7. After the ok: create each staged Food by `create-food`, one commit, no reply; then step 3. Staples are skipped with a note. This ok is not a Food review: they keep `reviewed: false`.
+8. `updated` is today. Logging never changes the Pantry.
 
 ## Write
-Pantry node; new Food nodes with their Index lines; `state.md` (`updated`).
-Commit: `pantry: <one line>`, for example `pantry: bought Chicken breast 1000 g`.
+Staged Foods with Index lines, then Pantry; `state.md`.
+Commit: `create-food: <name>` each, then `pantry: <one line>`, e.g. `pantry: bought Skyr`.
 
 ## Reply
-One line: what changed, plus expired items.
+One line: changes, expired items, unreviewed Foods.
