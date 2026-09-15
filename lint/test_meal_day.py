@@ -264,6 +264,24 @@ class MealLintTest(LintCase):
         self.meal(BOWL.replace("fat_g: 1", "fat_g: 1.3"))
         self.assertError("fat_g")
 
+    def test_a_newer_ingredient_food_makes_the_meal_stale(self):
+        """Story 32 and feedback item 4: an ingredient Food changed after the
+        Meal's totals_date, and the numbers moved with it."""
+        self.vault.write("nodes/food/Rice.md", RICE.replace("kcal_per_100g: 352", "kcal_per_100g: 360")
+                         .replace("source_date: 2026-09-15", "source_date: 2026-09-16"))
+        self.assertError("stale")
+
+    def test_a_source_date_bump_alone_makes_the_meal_stale(self):
+        """Feedback item 4: the Food was re-sourced and its numbers happen to be
+        the same, so the totals still match. The Meal is stale all the same."""
+        self.vault.write("nodes/food/Rice.md", RICE.replace("source_date: 2026-09-15", "source_date: 2026-09-16"))
+        self.assertError("stale")
+
+    def test_a_meal_recomputed_after_the_food_is_not_stale(self):
+        self.vault.write("nodes/food/Rice.md", RICE.replace("source_date: 2026-09-15", "source_date: 2026-09-16"))
+        self.meal(BOWL.replace("totals_date: 2026-09-15", "totals_date: 2026-09-16"))
+        self.assertClean()
+
     def test_a_changed_food_makes_the_stored_totals_stale(self):
         """Story 32: totals are recomputed when an ingredient Food changed. The
         lint catches the stale Meal so the agent recomputes."""

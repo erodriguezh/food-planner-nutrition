@@ -25,9 +25,10 @@ Checks (v3):
   or holds one `## Notes` section with no text outside it
 - every Meal sits directly at nodes/meal/<Name>.md and has its required
   properties, slots as slot words, ingredients as `"[[Food]] = <grams> g"` one
-  per Food, `weight_g` equal to the ingredient sum, the seven totals within
-  the rounding of the sum over the Food nodes, `estimated` true exactly when
-  an ingredient Food is an estimate, and a body of Prepare and Notes only
+  per Food, `weight_g` equal to the exact ingredient sum, the seven totals
+  equal to the sum over the Food nodes by the rounding rule, no ingredient
+  Food with a `source_date` newer than `totals_date`, `estimated` true exactly
+  when an ingredient Food is an estimate, and a body of Prepare and Notes only
 - every Day sits at nodes/day/<YYYY-MM>/<date>.md with name and date equal to
   the file name, its required properties, `goal` as the Goals link, slot
   sections in the fixed order with canonical entry lines (the `~` right after
@@ -1354,6 +1355,11 @@ def check_meals(vault: Vault) -> None:
             for key in NUTRIENTS:
                 if f"{key}_per_100g" not in target.data:
                     vault.fail(node.rel, f"ingredient [[{name}]] has no `{key}_per_100g`; fill it on the Food before the Meal sums it")
+            source_date = str(target.data.get("source_date") or "")
+            if is_date(source_date) and source_date > str(data["totals_date"]):
+                vault.fail(node.rel, f"the Meal is stale: ingredient [[{name}]] has `source_date` {source_date}, "
+                                     f"newer than `totals_date` {data['totals_date']}; recompute the seven totals, "
+                                     f"`totals_date` and `estimated` before the Meal is used")
         totals = compute_meal(data["ingredients"], foods)
         if abs(float(data["weight_g"]) - totals.weight_g) > 1e-6:
             vault.fail(node.rel, f"`weight_g` is {data['weight_g']!r}, the ingredients sum to {_num(totals.weight_g)}")
