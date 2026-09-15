@@ -573,6 +573,9 @@ class DayLintTest(LintCase):
         Meal's `cooked_weight_g` before the line is written. Without a cooked
         weight the shrink is a guess, so the grams are an estimated input and the
         line carries the mark, on a Meal that is not itself an estimate."""
+        # The Meal stores no cooked weight, so the shrink is a guess: 130 cooked
+        # g are about 150 canonical g, a number the agent cannot make exact. The
+        # mark is what says so, and the lint sees only the written line.
         marked = "- ~ [[Rice bowl]] = 150 g — 240 kcal · 15 P · 1 F · 43 C"
         text = DAY.replace(BREAKFAST, marked)
         self.assertIn(marked, text)
@@ -585,6 +588,8 @@ class DayLintTest(LintCase):
         conversion happens before the write, so the line carries 150 g. The same
         macros against the unconverted 130 g are what the lint catches: 130 g of
         the Meal is 208 kcal, not the 240 kcal of half of it."""
+        cooked_g, cooked_weight_g, weight_g = 130.0, 260.0, 300.0
+        self.assertEqual(cooked_g * weight_g / cooked_weight_g, 150.0)
         self.vault.write("nodes/meal/Rice bowl.md", BOWL.replace("weight_g: 300", "weight_g: 300\ncooked_weight_g: 260"))
         converted = DAY.replace("[[Rice bowl]] = 1 portion —", "[[Rice bowl]] = 150 g —")
         self.assertIn("- [[Rice bowl]] = 150 g —", converted)
