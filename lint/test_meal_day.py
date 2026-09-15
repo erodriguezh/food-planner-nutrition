@@ -498,6 +498,22 @@ LUNCH = "- [[Rice]] = 150 g — 528 kcal · 11 P · 1 F · 117 C"
 SNACK = "- ~ [[Bulgur]] = 50 g — 171 kcal · 6 P · 1 F · 38 C"
 DINNER = "- [[Rice bowl]] = 1 portion, [[Skyr]] = 300 g — 368 kcal · 37 P · 1 F · 51 C"
 
+# The Summary a closed Day carries: the table, the goal line, one bullet per
+# macro that is off, and the verdict in the fixed words of spec #22.
+SUMMARY = """
+## Summary
+
+| slot | kcal | P | F | C |
+| --- | --- | --- | --- | --- |
+| TOTAL | 1307 | 69 | 4 | 249 |
+
+Goal 2500 kcal, 135 P, 60 F, 355 C.
+
+- kcal 1193 under
+
+off target: kcal low, protein_g low
+"""
+
 DAY_INDEX = INDEX_WITH_MEAL.replace("## Day\n", "## Day\n- 2026-09 | nodes/day/2026-09/\n")
 OPEN_STATE = """---
 type: state
@@ -524,7 +540,9 @@ class DayLintTest(LintCase):
         self.vault.write("nodes/day/2026-09/2026-09-15.md", text)
 
     def closed(self, text=DAY):
-        """The same Day, closed, with the State cleared."""
+        """The same Day, closed, with its Summary and the State cleared."""
+        if "## Summary" not in text:
+            text += SUMMARY
         self.day(text.replace("status: open", "status: closed"))
         self.vault.write("state.md", OPEN_STATE.replace('open_day: "[[2026-09-15]]"', 'open_day: ""'))
 
@@ -608,11 +626,11 @@ class DayLintTest(LintCase):
         self.assertError("A good day.")
 
     def test_summary_and_notes_are_allowed_after_the_slots(self):
-        self.closed(DAY + "\n## Summary\n\nTable here.\n\n## Notes\n\nFelt fine.\n")
+        self.closed(DAY + SUMMARY + "\n## Notes\n\nFelt fine.\n")
         self.assertClean()
 
     def test_notes_before_summary_fails(self):
-        self.closed(DAY + "\n## Notes\n\nFelt fine.\n\n## Summary\n\nTable here.\n")
+        self.closed(DAY + "\n## Notes\n\nFelt fine.\n" + SUMMARY)
         self.assertError("order")
 
     def test_a_slot_section_holds_entry_lines_only(self):
@@ -729,6 +747,34 @@ class DayLintTest(LintCase):
         self.closed(DAY.replace("kcal: 1307", "kcal: 1300"))
         self.assertError("kcal")
 
+    # --- the Summary lifecycle (spec #22, feedback item 6) --------------------------
+
+    def test_an_open_day_must_not_have_a_summary(self):
+        self.day(DAY + SUMMARY)
+        self.assertError("Summary")
+
+    def test_a_closed_day_needs_a_summary(self):
+        self.closed(DAY)
+        self.assertClean()
+        self.day(DAY.replace("status: open", "status: closed"))
+        self.vault.write("state.md", OPEN_STATE.replace('open_day: "[[2026-09-15]]"', 'open_day: ""'))
+        self.assertError("Summary")
+
+    def test_an_auto_closed_day_needs_a_summary(self):
+        self.day(DAY.replace("status: open", "status: auto-closed"))
+        self.vault.write("state.md", OPEN_STATE.replace('open_day: "[[2026-09-15]]"', 'open_day: ""'))
+        self.assertError("Summary")
+
+    def test_a_summary_without_the_verdict_words_fails(self):
+        self.closed(DAY + "\n## Summary\n\nA good day, 1307 kcal.\n")
+        self.assertError("verdict")
+
+    def test_both_verdicts_are_accepted(self):
+        for verdict in ("on target", "off target: protein_g low, fat_g high"):
+            with self.subTest(verdict=verdict):
+                self.closed(DAY + f"\n## Summary\n\nGoal 2500 kcal.\n\n{verdict}\n")
+                self.assertClean()
+
     # --- State and Index -----------------------------------------------------------
 
     def test_state_must_point_to_the_open_day(self):
@@ -741,7 +787,7 @@ class DayLintTest(LintCase):
         self.assertError("open")
 
     def test_an_auto_closed_day_and_one_open_day_pass(self):
-        older = DAY.replace("2026-09-15", "2026-09-14").replace("status: open", "status: auto-closed")
+        older = (DAY + SUMMARY).replace("2026-09-15", "2026-09-14").replace("status: open", "status: auto-closed")
         self.vault.write("nodes/day/2026-09/2026-09-14.md", older)
         self.assertClean()
 

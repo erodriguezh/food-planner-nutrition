@@ -34,7 +34,9 @@ Checks (v3):
   sections in the fixed order with canonical entry lines (the `~` right after
   the bullet, the ingredient change by portion), the mark on every estimated
   Food or Meal, the four totals equal to the sum of the lines, `estimated`
-  true exactly when a line is marked; an open Day also matches its nodes
+  true exactly when a line is marked; an open Day also matches its nodes and
+  carries no `## Summary`, a closed or auto-closed Day carries one with the
+  verdict words
 - exactly one Pantry node sits at nodes/pantry/Pantry.md
 - the Pantry node has `updated`, staples as `"[[Food]]"`, items as
   `"[[Food or Meal]]"` with a grams, portion or cooked-grams amount and an
@@ -1407,6 +1409,7 @@ def check_days(vault: Vault) -> None:
         _check_enum(vault, node, "estimated", CHECKBOX_VALUES)
         headings = _check_body_sections(vault, node, DAY_BODY_SECTIONS)
         sections = _sections(node.body)
+        _check_summary(vault, node, headings, sections)
         entries: list[Entry] = []
         exact_totals: list[dict] = []
         for heading in headings:
@@ -1432,6 +1435,26 @@ def check_days(vault: Vault) -> None:
                 exact = sum(t[key] for t in exact_totals)
                 if not matches_rounding(data[key], exact, 1):
                     vault.fail(node.rel, f"`{key}` is {data[key]!r}, the nodes give {round_food_value(exact)} for the entry lines")
+
+
+def _check_summary(vault: Vault, node: Node, headings: list[str], sections: Mapping[str, list[str]]) -> None:
+    """The Summary lifecycle of spec #22: an open Day has none, a closed or
+    auto-closed Day has one and it carries the verdict in the fixed words.
+
+    The verdict is `on target` when all four macros sit inside min and max,
+    else `off target:` and each macro that is off with `low` or `high`.
+    close-day writes it (ticket #26); the lint only sees the result.
+    """
+    status = node.data["status"]
+    if status == "open":
+        if "Summary" in headings:
+            vault.fail(node.rel, "an open Day has no `## Summary`; the Summary is written when the Day is closed")
+        return
+    if "Summary" not in headings:
+        vault.fail(node.rel, f"a {status} Day needs a `## Summary` section with its table, the goal used and the verdict")
+    text = "\n".join(sections["Summary"])
+    if "on target" not in text and "off target:" not in text:
+        vault.fail(node.rel, "the `## Summary` needs the verdict in the fixed words `on target` or `off target: <macro> low|high`")
 
 
 def _check_entry_line(vault: Vault, node: Node, heading: str, line: str, foods: Mapping[str, Mapping[str, object]]) -> tuple[Entry, dict]:
