@@ -31,7 +31,7 @@ Glossary of the domain language for this vault. Terms are defined once here and 
 - **Cooked weight**: the weight of the whole Meal after cooking, stored only when the user weighed it. Used to convert cooked grams of a leftover to raw grams. Without it the agent estimates the shrink and states the error.
 - **Totals**: the macros of the whole Meal, all ingredients added up: calories, protein, fat, carbs, fiber, sugar, salt.
 - **Totals date**: the day the totals were last computed. Totals are recomputed when an ingredient Food changed after that day.
-- **Slot**: the place of a Meal in a day. One of `breakfast`, `lunch`, `snack`, `dinner`. A Meal may fit several slots or any slot.
+- **Slot**: the place of a Meal in a day. One of `breakfast`, `lunch`, `snack`, `dinner`. A Meal may fit several slots or any slot. At log time the user's word picks the slot; else the clock; if that slot already has an entry from an earlier message, the next slot in order.
 - **New Food**: a Food the user names in chat that has no node yet. The agent creates it as a generic Food with standard values and marks it unreviewed. It asks nothing.
 - **Unnamed combination**: Foods logged together without a Meal name. Recorded on the Day only; it never becomes a Meal.
 
@@ -49,8 +49,8 @@ Glossary of the domain language for this vault. Terms are defined once here and 
 - **Open slot**: a slot with no entry on the Day. Open slots are counted in the fixed slot order. The user can remove one in chat ("no snack today").
 - **Next slot**: the first open slot in order. The one slot a suggestion covers in full.
 - **Rebalance**: the act of computing what is left today and, on request, suggesting the next slot. Works from numbers only; there is no stored plan.
-- **Suggestion**: the agent's proposal for the next slot: Foods or Meals, amounts, macros, plus one rough line for the later open slots. Made only when the user asks.
-- **Plan**: a suggestion of what to eat, made in the chat. It is never written to the vault.
+- **Suggestion**: the agent's proposal for the next slot: Foods or Meals, amounts, macros, plus one rough line for the later open slots. Made only when the user asks. How much of the remaining protein a slot takes is agent judgment unless the user says otherwise.
+- **Plan**: the suggestion for all open slots in full, made in the chat before the first log of the day. It is never written to the vault. "No snack today" is part of the plan: it removes a slot in the chat and writes nothing.
 
 ## Goals terms
 
@@ -87,6 +87,6 @@ Glossary of the domain language for this vault. Terms are defined once here and 
 - **Index line**: one line in the index: the link to a node, its category (Food) or slots (Meal), and its aliases. Goals, Pantry and Day-month lines are pointers only.
 - **State**: the one file that survives between sessions. Holds the open Day and the open items. Never holds a plan.
 - **Write path**: how an app puts a change on `main`. Git for Claude Code; `push_files` on GitHub's remote MCP server for chat apps. The routine text is the same for every app.
-- **Open item**: a small pending thing the user still has to settle, listed in the state: an unreviewed Food, a Meal without cooked weight.
+- **Open item**: a small pending thing the user still has to settle, listed in the state, for example a Meal without cooked weight. Unreviewed Foods are never open items; the agent mentions them at create time and at close of the day.
 - **Routine**: one file that tells the agent how to run one job: log, rebalance, close the day, create food, create meal, pantry, goals, review. A routine holds the method only; it never stores a result.
 - **Spec**: the documents that describe the vault for the build session. Not read in daily use.
