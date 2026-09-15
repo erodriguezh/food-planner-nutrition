@@ -53,6 +53,7 @@ import difflib
 import math
 import re
 import sys
+from decimal import Decimal, ROUND_HALF_UP
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -114,9 +115,18 @@ ENTRY_LINE_RE = re.compile(
 # Rules stated once and applied everywhere
 # --------------------------------------------------------------------------
 
+def _decimal(value) -> Decimal:
+    """The number as written, not as the binary float approximates it.
+
+    `str()` gives the shortest decimal that round-trips, so a computed 0.35
+    stays 0.35 and rounds half up to 0.4 instead of down to 0.3.
+    """
+    return Decimal(str(value))
+
+
 def _half_up(value: float) -> int:
     """Nearest whole number, a half rounds up. Shared by the two whole-number rules."""
-    return int(math.floor(value + 0.5))
+    return int(_decimal(value).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
 
 
 def round_bound(value: float) -> int:
@@ -181,7 +191,7 @@ def round_food_value(value: float) -> float:
     Stated for the agent in routines/create-food.md step 3. A whole result is
     returned as an int so `64.0` is written `64`.
     """
-    rounded = math.floor(value * 10 + 0.5) / 10
+    rounded = float(_decimal(value).quantize(Decimal("0.1"), rounding=ROUND_HALF_UP))
     return int(rounded) if rounded == int(rounded) else rounded
 
 
@@ -661,17 +671,23 @@ def round_total(value: float) -> int:
     the totals of a Meal or Day: nearest whole number, a half rounds up.
 
     Fiber, sugar and salt keep one decimal with round_food_value(). Stated for
-    the agent in routines/log.md step 4; the lint accepts a stored value that
-    lies within half a unit of the exact one, so either neighbour of a half
-    passes. The same arithmetic as round_bound(); the two rules are stated in
-    two routines because they round two different things.
+    the agent in routines/log.md step 4; the lint compares a stored value
+    against the rounded one exactly, so an unrounded neighbour fails. The same
+    arithmetic as round_bound(); the two rules are stated in two routines
+    because they round two different things.
     """
     return _half_up(value)
 
 
-def within_rounding(stored: float, exact: float, decimals: int = 0) -> bool:
-    """`stored` is `exact` rounded to `decimals` places, by either rule."""
-    return abs(float(stored) - exact) <= 0.5 * 10 ** -decimals + 1e-9
+def rounded_total(exact: float, decimals: int = 0) -> float:
+    """`exact` as it must be stored: a whole number, or one decimal when `decimals` is 1."""
+    return round_food_value(exact) if decimals else round_total(exact)
+
+
+def matches_rounding(stored: float, exact: float, decimals: int = 0) -> bool:
+    """`stored` is exactly `exact` rounded by the rule; a value the agent left
+    unrounded, or rounded the other way at a half, fails."""
+    return float(stored) == float(rounded_total(exact, decimals))
 
 
 def round_totals(exact: Mapping[str, float]) -> dict:
@@ -1343,8 +1359,8 @@ def check_meals(vault: Vault) -> None:
             vault.fail(node.rel, f"`weight_g` is {data['weight_g']!r}, the ingredients sum to {_num(totals.weight_g)}")
         for key in TOTALS:
             decimals = 1 if key in NUTRIENTS else 0
-            if not within_rounding(data[key], totals.exact[key], decimals):
-                want = round_food_value(totals.exact[key]) if decimals else round_total(totals.exact[key])
+            if not matches_rounding(data[key], totals.exact[key], decimals):
+                want = rounded_total(totals.exact[key], decimals)
                 vault.fail(node.rel, f"`{key}` is {data[key]!r}, the Food nodes give {want} by the rounding rule in routines/log.md")
         want_estimated = "true" if totals.estimated else "false"
         if data["estimated"] != want_estimated:
@@ -1408,7 +1424,7 @@ def check_days(vault: Vault) -> None:
         if data["status"] == "open":
             for key in NUTRIENTS:
                 exact = sum(t[key] for t in exact_totals)
-                if not within_rounding(data[key], exact, 1):
+                if not matches_rounding(data[key], exact, 1):
                     vault.fail(node.rel, f"`{key}` is {data[key]!r}, the nodes give {round_food_value(exact)} for the entry lines")
 
 
@@ -1440,7 +1456,7 @@ def _check_entry_line(vault: Vault, node: Node, heading: str, line: str, foods: 
         vault.fail(node.rel, f"[[{entry.name}]] is {what}, so the line needs the `~` mark right after the bullet: {line!r}")
     if node.data.get("status") == "open":
         for key in MACROS:
-            if not within_rounding(entry.macros[key], totals.exact[key]):
+            if not matches_rounding(entry.macros[key], totals.exact[key]):
                 vault.fail(node.rel, f"[[{entry.name}]] = {_num(entry.amount)} {entry.unit} says {key} {entry.macros[key]}, the node gives {round_total(totals.exact[key])} by the rounding rule in routines/log.md")
     return entry, totals.exact
 
