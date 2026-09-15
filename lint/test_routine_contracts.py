@@ -13,12 +13,12 @@ from pathlib import Path
 
 from vault_lint import (
     ROUTINE_SECTIONS,
-    round_food_value,
     apply_pantry_change,
     apply_restock,
     estimate_tokens,
     mark_reviewed,
     parse_frontmatter,
+    round_food_value,
 )
 
 # Spec #22, Routines: "Under 300 tokens each."
@@ -192,10 +192,6 @@ class PantryOkTouchesNoFoodTest(unittest.TestCase):
         self.assertEqual(self.FOOD["reviewed"], "false")
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class SpecNameCaseTest(unittest.TestCase):
     """Spec issue #22 writes "title case" for the Food file name, but every node
     in the repo is sentence case (`Chicken breast`, `Soy milk Alpro`). The
@@ -230,3 +226,7 @@ class SpecNameCaseTest(unittest.TestCase):
             words = path.stem.split(" ")
             self.assertTrue(words[0][:1].isupper(), path.name)
             self.assertEqual(words[0], words[0][:1] + words[0][1:].lower(), path.name)
+
+
+if __name__ == "__main__":
+    unittest.main()
