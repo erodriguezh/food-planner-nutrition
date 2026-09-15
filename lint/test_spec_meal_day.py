@@ -78,9 +78,13 @@ class SpecMealDayTest(unittest.TestCase):
         self.assertIn("shrink", rule)
         self.assertIn("`~`", rule)
 
-    def test_the_pantry_question_is_stated_in_the_day_lifecycle(self):
-        rule = self.one_line_with(self.day, "was that the last of X?")
+    def test_the_pantry_question_is_stated_once_in_the_day_lifecycle(self):
+        """The rule belongs where logging is specified. The Pantry section keeps
+        the short "Logging never changes the Pantry.", so the spec states the one
+        question once."""
+        rule = self.one_line_with(self.text, "was that the last of X?")
         self.assertIn("never changes the Pantry", rule)
+        self.assertIn(rule, self.day)
 
     def test_the_slot_rule_and_the_index_month_line_are_stated(self):
         self.assertIn("next slot in order", self.day)

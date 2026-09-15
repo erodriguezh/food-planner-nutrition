@@ -239,7 +239,7 @@ No other property is allowed.
 - Restock from a receipt, shopping-list or product photo takes exactly one ok: the agent resolves every line, stages the unknown Foods without writing them, and shows one list "Add to Pantry: ... Ok?". Nothing is written before that ok.
 - After the ok the agent creates each staged Food as `routines/create-food.md` describes, `reviewed: false`, one commit `create-food: <name>` each and no reply of its own, then applies the additions in one commit `pantry: <one line>`. The restock ok is not a Food review; the new Foods stay unreviewed and the pantry reply names them. Staples in the photo are skipped with a note.
 - A chat form ("I bought 1 kg chicken breast") with an unknown Food keeps the create-food path: the Food is written at once with its own reply and its own ok.
-- Logging never changes the Pantry. When the logged amount of a Food is more than the Pantry records for that Food, the agent asks "was that the last of X?" and still writes nothing to the Pantry; with no amount recorded the question does not come up (story 59).
+- Logging never changes the Pantry; `routines/log.md` step 6 holds the one question it may ask.
 - One change is one commit `pantry: <one line>`; a restock commits each staged Food first. `updated` is set on every change.
 - The Index holds one pointer line under `## Pantry`: `- [[Pantry]]`.
 - Body: optional `## Notes` section only, under the same rule as the Food body: empty, or one `## Notes` heading with its content and nothing outside it.
