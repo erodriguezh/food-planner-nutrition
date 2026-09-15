@@ -35,8 +35,9 @@ Checks (v3):
   the bullet, the ingredient change by portion), the four totals equal to the
   sum of the lines, `estimated` true exactly when a line is marked; an open
   Day also carries the mark on every estimated Food or Meal, matches its nodes
-  and carries no `## Summary`; a closed or auto-closed Day keeps its `~` marks
-  as written and carries a `## Summary` with the verdict words
+  and carries no `## Summary`; a closed or auto-closed Day is history: its
+  lines stand as written, whatever its nodes say today, and it carries a
+  `## Summary` with the verdict words
 - exactly one Pantry node sits at nodes/pantry/Pantry.md
 - the Pantry node has `updated`, staples as `"[[Food]]"`, items as
   `"[[Food or Meal]]"` with a grams, portion or cooked-grams amount and an
@@ -1140,7 +1141,7 @@ def check_foods(vault: Vault) -> None:
             if key in data and not is_number(data[key]):
                 vault.fail(node.rel, f"`{key}` must be a number, got {data[key]!r}")
         for key in FOOD_MACROS + FOOD_NUTRIENTS:
-            if key in data and _decimal(data[key]) != _decimal(round_food_value(data[key])):
+            if key in data and _decimal(data[key]) != _rounded(data[key], 1):
                 vault.fail(node.rel, f"`{key}` is {data[key]!r}, expected {round_food_value(data[key])} by the rounding rule in routines/create-food.md")
         _check_enum(vault, node, "category", FOOD_CATEGORIES)
         _check_enum(vault, node, "label_basis", LABEL_BASES)
@@ -1330,10 +1331,10 @@ def check_days(vault: Vault) -> None:
     totals must also match the nodes within the rounding rule, and every line
     of an estimated Food or Meal must carry the mark.
 
-    A closed or auto-closed Day is history: it keeps its totals and it keeps
-    its `~` marks as written. A Food that is reformulated or re-sourced as an
-    estimate after the Day was closed never makes an old unmarked line fail;
-    current-node provenance is checked on `status: open` only.
+    A closed or auto-closed Day is history: it keeps its totals and its lines
+    stand as written. A Food re-sourced as an estimate, or a Meal that lost an
+    ingredient, after the Day was closed never fails an old line; the nodes are
+    consulted on `status: open` only.
     """
     foods = {n.base_name: n.data for n in vault.nodes if n.type == "food"}
     for node in vault.nodes:
@@ -1412,21 +1413,18 @@ def _check_summary(vault: Vault, node: Node, sections: Mapping[str, list[str]]) 
 
 
 def _check_entry_line(vault: Vault, node: Node, heading: str, line: str, foods: Mapping[str, Mapping[str, object]]) -> tuple[Entry, dict]:
-    """One line under a slot heading: a canonical entry line whose links resolve and which its node can compute.
+    """One line under a slot heading: a canonical entry line whose link resolves to a Food or Meal.
 
-    entry_totals() runs on every Day, a closed one included, because the shape
-    rules (a Food in grams, the ingredient change by portion on a Meal naming
-    one of its ingredients) come out of it as a ValueError. The price is that a
-    closed Day still needs its line to be computable: a Meal that loses that
-    ingredient, or a Food that loses a macro, fails the old line. Kept on
-    purpose, because a line whose node cannot produce it is a broken link, not
-    a change of provenance.
-
-    The seven totals it returns are read on an open Day only. There the line
-    macros must match the node within the rounding rule, and a line of an
-    estimated Food or Meal must carry the `~`. A closed or auto-closed Day
-    keeps the mark of the line as written, so a Food that became an estimate
-    after the Day was closed does not rewrite that history.
+    Every Day gets the shape check and the link check; the four line macros
+    feed the Day sum in check_days(). Only an open Day is compared with its
+    nodes: entry_totals() runs there, the line macros must match the node
+    within the rounding rule, a line of an estimated Food or Meal must carry
+    the `~`, and the shape rules that come out of entry_totals() as a
+    ValueError (a Food in grams, the ingredient change by portion naming one
+    of the Meal's ingredients) apply. A closed or auto-closed Day is history:
+    its line stands as written, so a Food that became an estimate or a Meal
+    that lost an ingredient after the Day was closed does not fail it. The
+    exact totals are returned for an open Day and are empty for a closed one.
     """
     try:
         entry = parse_entry_line(line)
@@ -1437,19 +1435,20 @@ def _check_entry_line(vault: Vault, node: Node, heading: str, line: str, foods: 
         vault.fail(node.rel, f"`## {heading}` links to [[{entry.name}]], which does not exist")
     elif target.type not in ("food", "meal"):
         vault.fail(node.rel, f"`## {heading}` links to [[{entry.name}]], a {target.type} node, not a Food or Meal")
+    if node.data.get("status") != "open":
+        return entry, {}
     try:
         totals = entry_totals(target.data, entry.amount, entry.unit, foods, entry.change)
     except ValueError as exc:
         vault.fail(node.rel, f"{exc}: {line!r}")
     except (KeyError, TypeError, ZeroDivisionError) as exc:
         vault.fail(node.rel, f"cannot compute [[{entry.name}]] = {_num(entry.amount)} {entry.unit} from its node ({exc!r}): {line!r}")
-    if node.data.get("status") == "open":
-        if totals.estimated and not entry.marked:
-            what = "an estimated Food" if target.type == "food" else "an estimated Meal"
-            vault.fail(node.rel, f"[[{entry.name}]] is {what}, so the line needs the `~` mark right after the bullet: {line!r}")
-        for key in MACROS:
-            if not matches_rounding(entry.macros[key], totals.exact[key]):
-                vault.fail(node.rel, f"[[{entry.name}]] = {_num(entry.amount)} {entry.unit} says {key} {entry.macros[key]}, the node gives {round_total(totals.exact[key])} by the rounding rule in routines/log.md")
+    if totals.estimated and not entry.marked:
+        what = "an estimated Food" if target.type == "food" else "an estimated Meal"
+        vault.fail(node.rel, f"[[{entry.name}]] is {what}, so the line needs the `~` mark right after the bullet: {line!r}")
+    for key in MACROS:
+        if not matches_rounding(entry.macros[key], totals.exact[key]):
+            vault.fail(node.rel, f"[[{entry.name}]] = {_num(entry.amount)} {entry.unit} says {key} {entry.macros[key]}, the node gives {round_total(totals.exact[key])} by the rounding rule in routines/log.md")
     return entry, totals.exact
 
 

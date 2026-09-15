@@ -47,7 +47,7 @@ Glossary of the domain language for this vault. Terms are defined once here and 
 - **Entry line**: the canonical line of an entry: `- [[Name]] = <n> g — <kcal> kcal · <P> P · <F> F · <C> C`, with `- ~ ` for an estimated input and `, [[Food]] = <n> g` after the amount for an ingredient change. The four macros are whole numbers computed from the node at write time.
 - **Ingredient change**: a Meal entry by portion where one ingredient amount differs from the Meal node. Recorded on the entry line, never on the Meal.
 - **Guessed amount**: an amount the agent chose because the user did not state one. It puts the estimation mark on the entry line.
-- **Estimation mark**: the `~` right after the bullet of an entry line, written when the Food is an estimate, the Meal is estimated or the amount is guessed. It bubbles to the Day `estimated` checkbox, the chat totals, the Summary and the weekly average. Nowhere else on a line has meaning.
+- **Estimation mark**: the `~` right after the bullet of an entry line, written when the Food is an estimate, the Meal is estimated or the amount is guessed. On a closed or auto-closed Day the mark is history and stays as written when a node changes later. It bubbles to the Day `estimated` checkbox, the chat totals, the Summary and the weekly average. Nowhere else on a line has meaning.
 - **Month line**: the one Index line per Day month, `- <YYYY-MM> | nodes/day/<YYYY-MM>/`, added at the first log of the month.
 - **Running totals**: the seven totals (calories, protein, fat, carbs, fiber, sugar, salt) of everything eaten so far on a Day. Rewritten on every log.
 - **Remaining**: goal minus running totals. What is left to eat today. The basis for rebalance.

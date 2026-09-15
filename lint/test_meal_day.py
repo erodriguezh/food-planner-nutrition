@@ -675,6 +675,20 @@ class DayLintTest(LintCase):
         self.day(DAY.replace(BREAKFAST, "- ~ " + BREAKFAST[2:]))
         self.assertError("[[Rice]] is an estimated Food, so the line needs the `~` mark")
 
+    def test_a_closed_day_keeps_its_lines_when_a_meal_loses_the_changed_ingredient(self):
+        """The same rule for the shape: after the Day was closed, the Meal drops
+        the ingredient the dinner line changes. The old line stands; the open
+        Day would fail it.
+        """
+        bowl = BOWL.replace('  - "[[Skyr]] = 200 g"\n', "").replace("weight_g: 300", "weight_g: 100") \
+            .replace("kcal: 480", "kcal: 352").replace("protein_g: 29", "protein_g: 7") \
+            .replace("carbs_g: 86", "carbs_g: 78").replace("sugar_g: 8.2", "sugar_g: 0.2").replace("salt_g: 0.2", "salt_g: 0")
+        self.closed()
+        self.vault.write("nodes/meal/Rice bowl.md", bowl)
+        self.assertClean()
+        self.day(DAY.replace(BREAKFAST, "- [[Rice]] = 50 g — 176 kcal · 4 P · 0 F · 39 C"))
+        self.assertError("ingredient change names [[Skyr]], which is not an ingredient of [[Rice bowl]]")
+
     def test_a_closed_day_estimated_must_still_match_its_lines(self):
         """The invariant that stays on a closed Day: `estimated` is true exactly when a
         line carries the mark, whatever the nodes say today.
