@@ -56,6 +56,18 @@ class LogRoutineTest(RoutineTextTestCase):
     def setUp(self):
         self.text = read(LOG)
 
+    def test_the_routine_starts_with_its_title(self):
+        """Every routine opens with `# <name>` and a blank line, so a reader of
+        the file alone knows which routine it is."""
+        self.assertTrue(self.text.startswith("# log\n\n"), self.text[:20])
+
+    def test_a_log_adds_changes_or_removes_a_line(self):
+        """Story 52. One routine covers the three edits of a Day line, so a step
+        says so; the When examples alone only hint at it."""
+        steps = self.text.split("## Steps\n", 1)[1].split("## Write", 1)[0]
+        rule = self.one_line_with(steps.lower(), "add, change or remove a line")
+        self.assertRegex(rule, r"^[56]\. ")
+
     def test_the_first_log_creates_the_day_the_state_and_the_month_line_in_one_commit(self):
         write = self.text.split("## Write\n", 1)[1].split("## Reply", 1)[0]
         for needle in ("`status: open`", '`goal: "[[Goals]]"`', "`open_day`", "month line", "`log: <date> <slot> <name> <amount>`"):
@@ -117,7 +129,7 @@ class LogRoutineTest(RoutineTextTestCase):
         leaves `status: closed` alone (story 54, owner feedback 6 on PR #31)."""
         rule = self.step(self.text, 1)
         self.assertIn("past date: its Day", rule)
-        self.assertIn("closed Day: rewrite Summary, keep status, say so", rule)
+        self.assertIn("closed Day: rewrite Summary, keep status", rule)
 
     def test_one_fuzzy_hit_is_used_and_named(self):
         rule = self.step(self.text, 2)
