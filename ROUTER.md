@@ -23,7 +23,7 @@ Personal food planner and nutrition tracker for one person. Markdown vault, agen
 - When the user names a meal: read `routines/create-meal.md`
 - When the user bought, ran out of, or lists food: read `routines/pantry.md`
 - When the user sets or changes targets: read `routines/goals.md`
-- When the user asks about the week: read `routines/review.md`
+- When the user says "review" or asks about the week: read `routines/review.md`
 
 ## Hard rules
 

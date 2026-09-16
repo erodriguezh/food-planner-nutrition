@@ -69,6 +69,20 @@ class ShapeTest(unittest.TestCase):
         self.assertIn("`routines/close-day.md`", router)
         self.assertIn("`routines/review.md`", router)
 
+    def test_the_router_routes_the_bare_word_review(self):
+        """PR #32 review 4: the router line read "asks about the week" only, so
+        a bare "review" reached the review routine by guess. The line names the
+        word and the week, and `routines/review.md` keeps both triggers."""
+        router = read(VAULT / "ROUTER.md")
+        line = [one for one in router.split("\n") if "`routines/review.md`" in one]
+        self.assertEqual(len(line), 1, line)
+        self.assertIn('says "review"', line[0])
+        self.assertIn("week", line[0])
+        self.assertIn('"review"', self.section_when(read(REVIEW)))
+
+    def section_when(self, text: str) -> str:
+        return text.split("## When\n", 1)[1].split("\n\n", 1)[0]
+
 
 class CloseDayRoutineTest(RoutineTextTestCase):
     def setUp(self):
