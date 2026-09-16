@@ -252,15 +252,35 @@ class ReviewRoutineTest(RoutineTextTestCase):
     def test_the_week_is_monday_to_sunday_with_no_rolling_window(self):
         rule = self.step(self.steps, 1)
         self.assertIn("Monday to Sunday", rule)
-        self.assertIn("current week so far", rule)
-        self.assertIn('"last week": the previous week', rule)
-        self.assertIn("No rolling window", rule)
+        self.assertIn('"last week" is the previous one', rule)
+        self.assertIn("no rolling window", rule)
+
+    def test_the_denominator_is_the_eligible_dates_not_seven(self):
+        """PR #32 review 6: "this week" is Monday to today, so a Wednesday
+        review has three eligible dates, not seven, and the reply prints that
+        number. A date still to come is never reported as missing."""
+        rule = self.step(self.steps, 1)
+        self.assertIn("Eligible dates", rule)
+        self.assertIn("this week Monday to today", rule)
+        self.assertIn("last week all seven", rule)
+        self.assertIn("future dates never missing", rule)
+        days = self.one_line_with(self.section(self.text, "Reply"), "`Days:")
+        self.assertIn("of <eligible> closed", days)
+        self.assertNotIn("of 7", self.text)
+
+    def test_a_week_with_no_closed_day_has_a_fixed_shape(self):
+        """PR #32 review 6: with nothing counted the average has no divisor, so
+        the routine fixes the three lines instead of dividing by zero."""
+        rule = self.step(self.steps, 5)
+        for shape in ("`Average: n/a`", "`On target: 0 of 0`", "`Most common miss: none`"):
+            self.assertIn(shape, rule)
 
     def test_only_closed_days_count_and_the_open_day_gets_one_line(self):
         rule = self.step(self.steps, 2)
         self.assertIn("`status: closed` and `auto-closed` Days only", rule)
-        self.assertIn("Today open: leave it out, say so in one line", rule)
-        self.assertIn("Missing days: state them, never guess", rule)
+        self.assertIn("Today open: left out, say so in one line", rule)
+        self.assertIn("Missing: eligible dates with no such Day", rule)
+        self.assertIn("state them, never guess", rule)
 
     def test_the_average_carries_the_mark_when_any_counted_day_is_estimated(self):
         rule = self.step(self.steps, 3)
@@ -268,11 +288,11 @@ class ReviewRoutineTest(RoutineTextTestCase):
         # The rounding rule is stated once, in log.md step 4; this routine points there.
         self.assertIn("`routines/log.md` step 4", rule)
         self.assertNotIn("half up", self.text)
-        self.assertIn("`~` on the average when any counted Day is `estimated: true`", rule)
+        self.assertIn("`~` when a counted Day is `estimated: true`", rule)
 
     def test_days_on_target_and_the_most_common_miss_come_from_the_verdicts(self):
         rule = self.one_line_with(self.steps, "4. Days on target")
-        self.assertIn("verdict is `on target`", rule)
+        self.assertIn("verdicts reading `on target`", rule)
         self.assertIn("Most common miss", rule)
         self.assertIn("`<macro> low|high`", rule)
         self.assertIn("day count", rule)
