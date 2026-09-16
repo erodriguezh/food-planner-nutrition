@@ -465,6 +465,24 @@ PLAIN_SUMMARY = SUMMARY.replace("~", "") \
     .replace("kcal 1193 under", "kcal 1188 under").replace("protein 66 under", "protein 68 under") \
     .replace("fat 56 under", "fat 57 under").replace("carbs 106 under", "carbs 105 under")
 
+# The Day after the one correction three tests log into a closed Day (#26): the
+# lunch entry drops from 150 g to 100 g of Rice, so the Day totals follow it,
+# the four macros and the nutrients the smaller entry carries as well.
+SMALLER_LUNCH = "- [[Rice]] = 100 g — 352 kcal · 7 P · 1 F · 78 C"
+CORRECTED_DAY = DAY.replace(LUNCH, SMALLER_LUNCH) \
+    .replace("kcal: 1307", "kcal: 1131").replace("protein_g: 69", "protein_g: 65") \
+    .replace("carbs_g: 249", "carbs_g: 210") \
+    .replace("fiber_g: 8.8", "fiber_g: 8.3").replace("sugar_g: 16.7", "sugar_g: 16.6")
+
+
+def corrected_table(summary):
+    """The slot table of `summary` rewritten for `CORRECTED_DAY`: the lunch row
+    and the TOTAL row follow the smaller entry. The bullets and the verdict come
+    from the goal line the Summary carries, so each test writes its own."""
+    return summary.replace("| lunch | ~528 | ~11 | ~1 | ~117 |", "| lunch | ~352 | ~7 | ~1 | ~78 |") \
+        .replace("| TOTAL | ~1307 | ~69 | ~4 | ~249 |", "| TOTAL | ~1131 | ~65 | ~4 | ~210 |")
+
+
 DAY_INDEX = INDEX_WITH_MEAL.replace("## Day\n", "## Day\n- 2026-09 | nodes/day/2026-09/\n")
 OPEN_STATE = """---
 type: state
@@ -1000,7 +1018,7 @@ class DayLintTest(LintCase):
                     "|---|---|---|---|---|"):
             with self.subTest(row=row):
                 self.closed(DAY + SUMMARY.replace(SUMMARY_SEPARATOR, row))
-                self.assertError("---")
+                self.assertError(SUMMARY_SEPARATOR)
         self.closed(DAY + SUMMARY)
         self.assertClean()
 
@@ -1109,14 +1127,11 @@ class DayLintTest(LintCase):
     def test_a_log_into_a_closed_day_keeps_the_summary_consistent(self):
         """Acceptance #26: a log into a closed Day rewrites totals and Summary and
         keeps the status; a rewritten Day whose Summary was not rewritten fails."""
-        relogged = DAY.replace(LUNCH, "- [[Rice]] = 100 g — 352 kcal · 7 P · 1 F · 78 C") \
-            .replace("kcal: 1307", "kcal: 1131").replace("protein_g: 69", "protein_g: 65").replace("carbs_g: 249", "carbs_g: 210")
-        self.closed(relogged + SUMMARY)
+        self.closed(CORRECTED_DAY + SUMMARY)
         self.assertError("lunch")
-        summary = SUMMARY.replace("| lunch | ~528 | ~11 | ~1 | ~117 |", "| lunch | ~352 | ~7 | ~1 | ~78 |") \
-            .replace("| TOTAL | ~1307 | ~69 | ~4 | ~249 |", "| TOTAL | ~1131 | ~65 | ~4 | ~210 |") \
+        summary = corrected_table(SUMMARY) \
             .replace("kcal 1193 under", "kcal 1369 under").replace("protein 66 under", "protein 70 under").replace("carbs 106 under", "carbs 145 under")
-        self.closed(relogged + summary)
+        self.closed(CORRECTED_DAY + summary)
         self.assertClean()
 
     def test_refresh_keeps_historical_goals_snapshot(self):
@@ -1133,16 +1148,13 @@ class DayLintTest(LintCase):
         leaves the status and `open_day` alone is pinned next door, in
         `lint/test_routine_contracts_close_review.py`.
         """
-        relogged = DAY.replace(LUNCH, "- [[Rice]] = 100 g — 352 kcal · 7 P · 1 F · 78 C") \
-            .replace("kcal: 1307", "kcal: 1131").replace("protein_g: 69", "protein_g: 65").replace("carbs_g: 249", "carbs_g: 210")
-        corrected = SUMMARY.replace("| lunch | ~528 | ~11 | ~1 | ~117 |", "| lunch | ~352 | ~7 | ~1 | ~78 |") \
-            .replace("| TOTAL | ~1307 | ~69 | ~4 | ~249 |", "| TOTAL | ~1131 | ~65 | ~4 | ~210 |") \
+        corrected = corrected_table(SUMMARY) \
             .replace("kcal 1193 under", "kcal 1369 under").replace("protein 66 under", "protein 70 under") \
             .replace("carbs 106 under", "carbs 145 under")
         self.vault.write("nodes/goals/Goals.md", GOALS_B)
         for status in ("closed", "auto-closed"):
             with self.subTest(status=status):
-                self.closed(relogged + corrected, status=status)
+                self.closed(CORRECTED_DAY + corrected, status=status)
                 self.assertClean()
                 # The refresh rewrites the Summary only: the status the close
                 # wrote and the cleared `open_day` of the State stand.
@@ -1153,7 +1165,7 @@ class DayLintTest(LintCase):
         # low`, so the rewritten history fails.
         from_today = corrected.replace("off target: kcal low, protein low, fat low, carbs low",
                                        "off target: kcal low, protein low, carbs low")
-        self.closed(relogged + from_today)
+        self.closed(CORRECTED_DAY + from_today)
         self.assertError("verdict")
 
     def test_a_correction_into_an_old_day_keeps_the_newer_open_day_and_the_state(self):
@@ -1178,14 +1190,10 @@ class DayLintTest(LintCase):
         newer = DAY.replace("2026-09-15", "2026-09-16")
         newer_state = OPEN_STATE.replace('open_day: "[[2026-09-15]]"', 'open_day: "[[2026-09-16]]"') \
             .replace("updated: 2026-09-15", "updated: 2026-09-16")
-        corrected_day = DAY.replace(LUNCH, "- [[Rice]] = 100 g \u2014 352 kcal \u00b7 7 P \u00b7 1 F \u00b7 78 C") \
-            .replace("kcal: 1307", "kcal: 1131").replace("protein_g: 69", "protein_g: 65") \
-            .replace("carbs_g: 249", "carbs_g: 210")
         # 1131 kcal, 65 P, 4 F, 210 C against the stored 1307 (1242-1372), 69
         # (66-72), 4 (4-4), 249 (237-261): fat still sits in its range, the other
         # three fall out of theirs.
-        corrected_summary = ON_TARGET.replace("| lunch | ~528 | ~11 | ~1 | ~117 |", "| lunch | ~352 | ~7 | ~1 | ~78 |") \
-            .replace("| TOTAL | ~1307 | ~69 | ~4 | ~249 |", "| TOTAL | ~1131 | ~65 | ~4 | ~210 |") \
+        corrected_summary = corrected_table(ON_TARGET) \
             .replace("- kcal 0 under", "- kcal 176 under").replace("- protein 0 under", "- protein 4 under") \
             .replace("- carbs 0 under", "- carbs 39 under") \
             .replace("on target", "off target: kcal low, protein low, carbs low")
@@ -1199,7 +1207,7 @@ class DayLintTest(LintCase):
                 self.assertClean()
                 before = (self.vault.root / newer_rel).read_bytes()
                 # The result the refresh writes: the old Day only.
-                self.day((corrected_day + corrected_summary).replace("status: open", f"status: {status}"))
+                self.day((CORRECTED_DAY + corrected_summary).replace("status: open", f"status: {status}"))
                 self.assertClean()
                 old = (self.vault.root / "nodes/day/2026-09/2026-09-15.md").read_text()
                 self.assertIn("kcal: 1131", old)
@@ -1210,11 +1218,14 @@ class DayLintTest(LintCase):
                 self.assertIn(ON_TARGET_GOAL_LINE, old)
                 self.assertIn(f"status: {status}", old)
                 self.assertEqual((self.vault.root / newer_rel).read_bytes(), before)
+                self.assertIn("status: open", (self.vault.root / newer_rel).read_text())
                 self.assertIn('open_day: "[[2026-09-16]]"', (self.vault.root / "state.md").read_text())
-        # The same correction with the Summary of the close left in place: the
-        # fixture passes above because the Summary was rebuilt, not by accident.
-        self.day((corrected_day + ON_TARGET).replace("status: open", "status: closed"))
-        self.assertError("lunch")
+                # The same correction with the Summary of the close left in
+                # place: the fixture above passes because the Summary was
+                # rebuilt, not by accident.
+                self.day((CORRECTED_DAY + ON_TARGET).replace("status: open", f"status: {status}"))
+                self.assertError("lunch")
+
 
     # --- State and Index -----------------------------------------------------------
 
