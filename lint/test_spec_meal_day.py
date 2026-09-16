@@ -246,6 +246,20 @@ class SpecMealDayTest(unittest.TestCase):
         self.assertIn("seven totals", average)
         self.assertIn("`~` before every number", average)
 
+    def test_the_review_section_fixes_the_tie_shape_of_the_most_common_miss(self):
+        """PR #32 review round 4: the reply defined one miss only, so a tie left
+        the punctuation and the order to the app. The spec states the one line:
+        the tied misses `; ` apart in the macro order, `low` before `high`
+        inside one macro, `none` when nothing missed, and never a second line.
+        Issue #28 seeds an acceptance run that asserts the line."""
+        review = self.day.split("### Review\n", 1)[1].split("\n### ", 1)[0]
+        for needle in ("`; `", "`kcal`, `protein`, `fat`, `carbs`", "`low` before `high`",
+                       "`Most common miss: none`", "second `Most common miss` line", "no rolling window"):
+            self.assertIn(needle, review)
+        miss = self.one_line_with(read(GLOSSARY), "- **Most common miss**")
+        for needle in ("`; `", "`kcal`, `protein`, `fat`, `carbs`", "`low` before `high`"):
+            self.assertIn(needle, miss)
+
     def test_the_review_section_states_the_eligible_dates_and_the_empty_week(self):
         """Review item 6 on PR #32: "this week" runs Monday to today, so the
         denominator is the eligible dates and a date still to come is never

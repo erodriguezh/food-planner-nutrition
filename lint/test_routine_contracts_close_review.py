@@ -29,6 +29,23 @@ CLOSE_DAY = VAULT / "routines" / "close-day.md"
 REVIEW = VAULT / "routines" / "review.md"
 LOG = VAULT / "routines" / "log.md"
 
+MISS_DIRECTIONS = ("low", "high")
+
+
+def render_most_common_miss(misses, macro_order):
+    """Render the review's `Most common miss` line the way `routines/review.md`
+    states it: the top `<macro> low|high` with its day count, every tie on the
+    same line `; ` apart in the macro order, and `none` when nothing missed.
+
+    The lint never runs a routine, so this pure helper makes the stated shape
+    executable inside the test file: it takes `(macro, direction, days)` triples
+    and returns the one line the reply prints.
+    """
+    if not misses:
+        return "Most common miss: none"
+    order = sorted(misses, key=lambda miss: (macro_order.index(miss[0]), MISS_DIRECTIONS.index(miss[1])))
+    return "Most common miss: " + "; ".join(f"{macro} {direction}, {days} days" for macro, direction, days in order)
+
 
 def read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
@@ -300,11 +317,14 @@ class ReviewRoutineTest(RoutineTextTestCase):
         for phrase in ('"how was my week"', '"last week"', '"review"'):
             self.assertIn(phrase, when)
 
-    def test_the_week_is_monday_to_sunday_with_no_rolling_window(self):
+    def test_the_week_is_monday_to_sunday_and_the_spec_bans_the_rolling_window(self):
+        """PR #32 review round 4: the tie shape of `Most common miss` needed the
+        budget of "no rolling window", a restatement of "Monday to Sunday" plus
+        the eligible dates. `docs/spec/nodes.md` keeps the phrase."""
         rule = self.step(self.steps, 1)
         self.assertIn("Monday to Sunday", rule)
         self.assertIn('"last week" the previous one', rule)
-        self.assertIn("no rolling window", rule)
+        self.assertIn("no rolling window", read(VAULT / "docs" / "spec" / "nodes.md"))
 
     def test_the_denominator_is_the_eligible_dates_not_seven(self):
         """PR #32 review 6: "this week" is Monday to today, so a Wednesday
@@ -382,7 +402,8 @@ class ReviewRoutineTest(RoutineTextTestCase):
         self.assertIn("verdicts reading `on target`", rule)
         self.assertIn("Most common miss", rule)
         self.assertIn("`<macro> low|high`", rule)
-        self.assertIn("day count", rule)
+        # PR #32 review round 4: the day count is the Reply shape, stated once.
+        self.assertIn("<n> days", self.one_line_with(self.section(self.text, "Reply"), "`Most common miss:"))
 
     def test_the_review_writes_nothing(self):
         """Acceptance #26: the review writes nothing."""
@@ -504,6 +525,75 @@ class OpenDayIsNotAMissingDayTest(RoutineTextTestCase):
         covered = self.one_line_with(read(self.GLOSSARY), "- **Days covered**")
         self.assertIn("no Day node at all", covered)
         self.assertIn("not missing", covered)
+
+
+class MostCommonMissTieTest(RoutineTextTestCase):
+    """PR #32 review round 4: a tie in `Most common miss` has one reply shape.
+
+    Step 4 said "ties name each" while the Reply defined one miss only, so each
+    app was free to invent the punctuation and the order. The routine now fixes
+    both: every tie on the one line, `; ` apart, in the macro order
+    `kcal`>`protein`>`fat`>`carbs`. Issue #28 seeds an acceptance run that
+    asserts the line, so the four examples below are literal.
+    """
+
+    NODES_SPEC = VAULT / "docs" / "spec" / "nodes.md"
+
+    def setUp(self):
+        self.text = read(REVIEW)
+        self.steps = self.section(self.text, "Steps")
+        self.reply = self.section(self.text, "Reply")
+        self.rule = self.one_line_with(self.steps, "4. Days on target")
+        self.shape = self.one_line_with(self.reply, "`Most common miss:")
+        self.macro_order = tuple(self.rule.split("ties named, ", 1)[1].rstrip(".").split(">"))
+
+    def render(self, misses):
+        return render_most_common_miss(misses, self.macro_order)
+
+    def test_the_routine_states_the_macro_order_and_the_separator(self):
+        """The helper reads both rules out of the routine text, so a reworded
+        routine cannot leave the rendered examples behind."""
+        self.assertEqual(self.macro_order, SUMMARY_MACROS)
+        self.assertEqual(self.macro_order, ("kcal", "protein", "fat", "carbs"))
+        self.assertIn("ties `; ` apart", self.shape)
+
+    def test_one_most_common_miss_keeps_the_single_item_shape(self):
+        self.assertEqual(self.render([("protein", "low", 3)]), "Most common miss: protein low, 3 days")
+
+    def test_a_two_way_tie_names_both_in_the_macro_order(self):
+        """The input order is the tally order, never the reply order."""
+        self.assertEqual(
+            self.render([("protein", "low", 2), ("kcal", "low", 2)]),
+            "Most common miss: kcal low, 2 days; protein low, 2 days",
+        )
+
+    def test_a_four_way_tie_names_all_four_macros(self):
+        self.assertEqual(
+            self.render([("carbs", "high", 2), ("fat", "low", 2), ("kcal", "high", 2), ("protein", "low", 2)]),
+            "Most common miss: kcal high, 2 days; protein low, 2 days; fat low, 2 days; carbs high, 2 days",
+        )
+
+    def test_a_tie_inside_one_macro_keeps_low_before_high(self):
+        """`docs/spec/nodes.md` states the direction order; the macro order alone
+        leaves `protein low` and `protein high` unordered."""
+        self.assertEqual(
+            self.render([("protein", "high", 2), ("protein", "low", 2)]),
+            "Most common miss: protein low, 2 days; protein high, 2 days",
+        )
+        review = self.section(read(self.NODES_SPEC).replace("### Review", "## Review"), "Review")
+        self.assertIn("`low` before `high`", review)
+
+    def test_every_day_on_target_reads_none(self):
+        self.assertEqual(self.render([]), "Most common miss: none")
+
+    def test_the_reply_holds_one_most_common_miss_line_and_stays_six_lines(self):
+        """A tie never adds a second `Most common miss` line, so the reply keeps
+        its six lines and stays under the ten-line limit."""
+        self.assertEqual(self.reply.count("Most common miss"), 1)
+        lines = [line for line in self.reply.split("\n") if line.startswith("`")]
+        self.assertEqual(len(lines), 6)
+        self.assertLess(len(lines), 10)
+        self.assertEqual(self.shape.count("\n"), 0)
 
 
 if __name__ == "__main__":
