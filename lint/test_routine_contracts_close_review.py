@@ -69,6 +69,16 @@ class ShapeTest(unittest.TestCase):
         self.assertIn("`routines/close-day.md`", router)
         self.assertIn("`routines/review.md`", router)
 
+    def test_the_router_names_every_close_day_mode(self):
+        """Code review of PR #32: the router line named the close and the
+        auto-close, the two modes of the day the routine had then. The refresh
+        is the third, so the line names it as the auto-close is named."""
+        router = read(VAULT / "ROUTER.md")
+        line = [one for one in router.split("\n") if "`routines/close-day.md`" in one]
+        self.assertEqual(len(line), 1, line)
+        for mode in ("closes the day", "auto-closes", "refresh"):
+            self.assertIn(mode, line[0])
+
     def test_the_router_routes_the_bare_word_review(self):
         """PR #32 review 4: the router line read "asks about the week" only, so
         a bare "review" reached the review routine by guess. The line names the
