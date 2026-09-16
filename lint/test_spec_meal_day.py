@@ -225,8 +225,11 @@ class SpecMealDayTest(unittest.TestCase):
         line keeps the four Goals targets, and the estimation mark has one
         canonical position: `~` before every number of the Average line."""
         review = self.day.split("### Review\n", 1)[1].split("\n### ", 1)[0]
-        for needle in ("seven totals", "four", "`~` before every number"):
+        for needle in ("seven totals", "four Goals targets", "`~` before every number"):
             self.assertIn(needle, review)
+        # The three added labels are the Day node keys without `_g`.
+        for label in ("fiber", "sugar", "salt"):
+            self.assertIn(f"`{label}_g`", self.day)
         average = self.one_line_with(read(GLOSSARY), "- **Weekly average**")
         self.assertIn("seven totals", average)
         self.assertIn("`~` before every number", average)
