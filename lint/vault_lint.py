@@ -7,8 +7,8 @@ Run from the repository root:
 
 Exit code 0 when the vault is clean, 1 on the first violation. The checks run
 in a fixed order (nodes load, common conventions, node locations, Goals, Foods,
-Meals, Days, Pantry, Router, skill file, AGENTS.md, State, Index, routines), files in sorted path
-order, so the first violation is deterministic.
+Meals, Days, Pantry, Router, skill file, AGENTS.md, State, Index, routines),
+files in sorted path order, so the first violation is deterministic.
 No dependencies beyond the Python 3 standard library.
 
 Checks (v3):
@@ -52,10 +52,7 @@ Checks (v3):
 - ROUTER.md is under 500 tokens and names the skill file in exactly one line
 - the skill file (SKILL.md) exists at the vault root and its `## Fallback`
   section quotes exactly one line; besides docs/spec/context-mcp.md no other
-  markdown file of the vault repeats that line. What the rule says is the
-  business of SKILL.md and of docs/spec/context-mcp.md; this script holds no
-  copy of the Context MCP contract and its test seam belongs to the
-  internals map (#19)
+  markdown file of the vault repeats that line
 - AGENTS.md exists and holds the one line `Read ROUTER.md first.`
 - state.md has its fields and names the one open Day, or is empty when no Day
   is open; Open items holds no unreviewed Food lines

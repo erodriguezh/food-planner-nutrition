@@ -177,6 +177,8 @@ class SpecDocumentTest(unittest.TestCase):
     def test_says_the_lint_checks_the_wiring_and_not_the_contract(self):
         note = lines_with(self.text, "vault lint")[0]
         self.assertIn("checks the wiring", note)
+        self.assertIn("## Fallback", note)
+        self.assertIn("besides this document", note)
         self.assertNotIn("states this contract", self.text)
 
     def test_hands_the_contract_test_to_the_internals_map(self):

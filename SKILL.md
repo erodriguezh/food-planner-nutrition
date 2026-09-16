@@ -32,7 +32,7 @@ The service is read-only. Every write goes through the routines.
 
 ## Fallback
 
-When the server is down, the call fails, or it returns `not_found`, take path 2 — read `index.md`, then `state.md` — and say one short line:
+When the server is down, the call fails, or it returns `not_found`, take path 2: read `index.md`, then `state.md`. Say one short line:
 
 "context server down or no files found, read files directly."
 

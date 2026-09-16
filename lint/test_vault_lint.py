@@ -64,7 +64,7 @@ updated: 2026-09-15
 ## Open items
 """
 
-ROUTER = f"# Router\n\n1. Context MCP connected? Call `build_context` first, see `{SKILL_FILE}`. Otherwise read `index.md`.\n2. Read `state.md`.\n"
+ROUTER = f"# Router\n\n1. Context MCP connected? See `{SKILL_FILE}`. Otherwise read `index.md`.\n2. Read `state.md`.\n"
 
 RULE_LINE = "the one line the skill file quotes."
 
