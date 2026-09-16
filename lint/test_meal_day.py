@@ -1156,6 +1156,66 @@ class DayLintTest(LintCase):
         self.closed(relogged + from_today)
         self.assertError("verdict")
 
+    def test_a_correction_into_an_old_day_keeps_the_newer_open_day_and_the_state(self):
+        """PR #32 review round 3, item 3.
+
+        The scenario the older refresh test could not reach: a Day is closed,
+        a newer Day is already open, and only then does the correction arrive.
+        `test_refresh_keeps_historical_goals_snapshot` closes through `closed()`,
+        which empties the State, so it says nothing about a live `open_day`.
+
+        Here `2026-09-15` is closed (and auto-closed in the second round),
+        `2026-09-16` is open and the State names it. The correction changes the
+        lunch amount of the old Day, and the refresh of `routines/close-day.md`
+        rewrites its totals, slot table, TOTAL row, bullets and verdict from the
+        goal line the close stored: `on target` becomes `off target`. The lint
+        runs no routine, so the fixture is the result the refresh must produce
+        and the lint holds the file half: the old Day carries the corrected
+        Summary under the stored ranges, its status stands, the newer Day is
+        untouched byte for byte and the State still points at it.
+        """
+        newer_rel = "nodes/day/2026-09/2026-09-16.md"
+        newer = DAY.replace("2026-09-15", "2026-09-16")
+        newer_state = OPEN_STATE.replace('open_day: "[[2026-09-15]]"', 'open_day: "[[2026-09-16]]"') \
+            .replace("updated: 2026-09-15", "updated: 2026-09-16")
+        corrected_day = DAY.replace(LUNCH, "- [[Rice]] = 100 g \u2014 352 kcal \u00b7 7 P \u00b7 1 F \u00b7 78 C") \
+            .replace("kcal: 1307", "kcal: 1131").replace("protein_g: 69", "protein_g: 65") \
+            .replace("carbs_g: 249", "carbs_g: 210")
+        # 1131 kcal, 65 P, 4 F, 210 C against the stored 1307 (1242-1372), 69
+        # (66-72), 4 (4-4), 249 (237-261): fat still sits in its range, the other
+        # three fall out of theirs.
+        corrected_summary = ON_TARGET.replace("| lunch | ~528 | ~11 | ~1 | ~117 |", "| lunch | ~352 | ~7 | ~1 | ~78 |") \
+            .replace("| TOTAL | ~1307 | ~69 | ~4 | ~249 |", "| TOTAL | ~1131 | ~65 | ~4 | ~210 |") \
+            .replace("- kcal 0 under", "- kcal 176 under").replace("- protein 0 under", "- protein 4 under") \
+            .replace("- carbs 0 under", "- carbs 39 under") \
+            .replace("on target", "off target: kcal low, protein low, carbs low")
+        # Today's Goals moved after the close; the refresh must not read them.
+        self.vault.write("nodes/goals/Goals.md", GOALS_B)
+        for status in ("closed", "auto-closed"):
+            with self.subTest(status=status):
+                self.day((DAY + ON_TARGET).replace("status: open", f"status: {status}"))
+                self.vault.write(newer_rel, newer)
+                self.vault.write("state.md", newer_state)
+                self.assertClean()
+                before = (self.vault.root / newer_rel).read_bytes()
+                # The result the refresh writes: the old Day only.
+                self.day((corrected_day + corrected_summary).replace("status: open", f"status: {status}"))
+                self.assertClean()
+                old = (self.vault.root / "nodes/day/2026-09/2026-09-15.md").read_text()
+                self.assertIn("kcal: 1131", old)
+                self.assertIn("| lunch | ~352 | ~7 | ~1 | ~78 |", old)
+                self.assertIn("| TOTAL | ~1131 | ~65 | ~4 | ~210 |", old)
+                self.assertIn("- kcal 176 under", old)
+                self.assertIn("off target: kcal low, protein low, carbs low", old)
+                self.assertIn(ON_TARGET_GOAL_LINE, old)
+                self.assertIn(f"status: {status}", old)
+                self.assertEqual((self.vault.root / newer_rel).read_bytes(), before)
+                self.assertIn('open_day: "[[2026-09-16]]"', (self.vault.root / "state.md").read_text())
+        # The same correction with the Summary of the close left in place: the
+        # fixture passes above because the Summary was rebuilt, not by accident.
+        self.day((corrected_day + ON_TARGET).replace("status: open", "status: closed"))
+        self.assertError("lunch")
+
     # --- State and Index -----------------------------------------------------------
 
     def test_state_must_point_to_the_open_day(self):
