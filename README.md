@@ -17,7 +17,7 @@ python3 lint/vault_lint.py
 python3 -m unittest discover lint
 ```
 
-The first command checks the vault against the node schemas in `docs/spec/` and the Router, skill file, `AGENTS.md`, Index, State and routine rules. The second runs the lint's own tests.
+The first command checks the vault against the node schemas in `docs/spec/` and the Router, the Context MCP wiring (the skill file and its one Router pointer), `AGENTS.md`, Index, State and routine rules. The second runs the lint's own tests.
 
 To run both before every commit, install the local hook once:
 

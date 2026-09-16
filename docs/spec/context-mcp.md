@@ -4,7 +4,7 @@ Contract of the deterministic retrieval service. Derived from the spec issue
 ([#22](https://github.com/erodriguezh/food-planner-nutrition/issues/22)) and built by ticket
 [#27](https://github.com/erodriguezh/food-planner-nutrition/issues/27).
 The agent never loads this document in daily use; the skill file `SKILL.md` at the vault root carries the rule.
-The vault lint (`python3 lint/vault_lint.py`) checks that the skill file states this contract and that no other file repeats it.
+The vault lint (`python3 lint/vault_lint.py`) checks the wiring: the skill file exists, `ROUTER.md` points to it in one line, and no other file in daily use repeats the rule it quotes. The contract itself gets its test with the internals map, see Internals.
 
 ## Scope
 

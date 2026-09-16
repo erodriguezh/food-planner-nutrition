@@ -108,4 +108,4 @@ Glossary of the domain language for this vault. Terms are defined once here and 
 - **Spec**: the documents that describe the vault for the build session. Not read in daily use.
 - **Context MCP**: the planned read-only retrieval service with one tool, `build_context(question)`. The rule for using it lives in `SKILL.md`. The vault works without it.
 - **Evidence packet**: the answer of one `build_context` call. Its fields are defined in `SKILL.md`.
-- **Lint**: the script `lint/vault_lint.py` that checks every node, the Index, the State, the Router, the skill file, `AGENTS.md` and the routines against the schemas. Runs locally, by hand or from the pre-commit hook in `.githooks/`. No model involved.
+- **Lint**: the script `lint/vault_lint.py` that checks every node, the Index, the State, the Router, the Context MCP wiring (the skill file and its one Router pointer), `AGENTS.md` and the routines against the schemas. Runs locally, by hand or from the pre-commit hook in `.githooks/`. No model involved.

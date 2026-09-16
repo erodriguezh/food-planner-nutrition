@@ -137,9 +137,15 @@ class NoCopyOfTheRuleTest(unittest.TestCase):
         self.assertEqual(len(hits), 1)
         self.assertIn(f"`{SKILL_FILE}`", hits[0])
 
-    def test_the_glossary_lint_entry_names_the_skill_file_check(self):
+    def test_the_glossary_lint_entry_promises_the_wiring_and_not_the_contract(self):
         line = lines_with(read(GLOSSARY), "**Lint**")[0]
         self.assertIn("skill file", line)
+        self.assertIn("wiring", line)
+
+    def test_the_readme_lint_note_promises_the_wiring_and_not_the_contract(self):
+        note = lines_with(read(VAULT / "README.md"), "The first command checks")[0]
+        self.assertIn("wiring", note)
+        self.assertNotIn("contract", note)
 
 
 class SpecDocumentTest(unittest.TestCase):
@@ -161,6 +167,11 @@ class SpecDocumentTest(unittest.TestCase):
         owner = self.text.split("## Internals", 1)[1]
         for word in ("scoring", "hosting", "auth", "subscription"):
             self.assertIn(word, owner.lower(), word)
+
+    def test_says_the_lint_checks_the_wiring_and_not_the_contract(self):
+        note = lines_with(self.text, "vault lint")[0]
+        self.assertIn("checks the wiring", note)
+        self.assertNotIn("states this contract", self.text)
 
     def test_hands_the_contract_test_to_the_internals_map(self):
         # #22: the contract gets no test in this spec; its seam belongs to #19.
