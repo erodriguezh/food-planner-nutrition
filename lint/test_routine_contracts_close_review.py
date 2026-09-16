@@ -164,6 +164,17 @@ class CloseDayRoutineTest(RoutineTextTestCase):
         for macro in SUMMARY_MACROS:
             self.assertIsNotNone(SUMMARY_BULLET_RE.match(f"- {macro} 12 under"), macro)
 
+    def test_the_gap_spelling_and_the_exact_hit_match_the_lint(self):
+        """Review items 5 and 7 on PR #32: the lint takes one spelling of the
+        gap, the shortest, with a decimal only when the target has one, and one
+        word at zero. Step 4 says both, so the agent writes what the lint takes."""
+        rule = self.step(self.steps, 4)
+        self.assertIn("`0 under`", rule)
+        self.assertIn("the target's decimals only", rule)
+        self.assertIsNotNone(SUMMARY_BULLET_RE.match("- kcal 0 under"))
+        self.assertIsNone(SUMMARY_BULLET_RE.match("- kcal 0 over"))
+        self.assertIsNotNone(SUMMARY_BULLET_RE.match("- protein 66.5 under"))
+
     def test_the_verdict_words_are_the_fixed_ones(self):
         """Acceptance #26: `on target` when all four macros sit inside the stored
         bounds, else `off target:` with each off macro and its direction."""
