@@ -68,7 +68,7 @@ ROUTER = f"# Router\n\n1. Context MCP connected? Call `build_context` first, see
 
 RULE_LINE = "the one line the skill file quotes."
 
-SKILL = f"""# Context MCP\n\nThe rule for the retrieval service. Connected: call the tool first.\nNot connected: read `index.md`, then `state.md`.\n\n"{RULE_LINE}"\n"""
+SKILL = f"""# Context MCP\n\nThe rule for the retrieval service. Connected: call the tool first.\nNot connected: read `index.md`, then `state.md`.\n\n## Fallback\n\nSay one line:\n\n"{RULE_LINE}"\n"""
 
 CROISSANT = """---
 type: food
@@ -304,7 +304,7 @@ class LintTest(unittest.TestCase):
     def test_router_without_the_skill_pointer_fails(self):
         # #27: "The Router has one pointer line to the skill file."
         self.vault.write("ROUTER.md", "# Router\n\n1. Read `index.md`.\n2. Read `state.md`.\n")
-        self.assertError(SKILL_FILE)
+        self.assertError("points to")
 
     def test_router_with_two_skill_pointers_fails(self):
         self.vault.write("ROUTER.md", ROUTER + f"\nSee `{SKILL_FILE}` again.\n")
@@ -327,13 +327,21 @@ class LintTest(unittest.TestCase):
         self.vault.write(SKILL_FILE, SKILL.replace(f'"{RULE_LINE}"', RULE_LINE))
         self.assertError("exactly one line")
 
-    def test_skill_file_with_two_quoted_lines_fails(self):
+    def test_skill_file_without_a_fallback_section_fails(self):
+        self.vault.write(SKILL_FILE, SKILL.replace("## Fallback", "## Down"))
+        self.assertError("`## Fallback`")
+
+    def test_skill_file_with_two_quoted_lines_in_the_fallback_section_fails(self):
         self.vault.write(SKILL_FILE, SKILL + '\n"a second quoted line."\n')
         self.assertError("exactly one line")
 
-    def test_the_lint_reads_the_rule_line_out_of_the_skill_file(self):
+    def test_the_lint_reads_the_rule_line_out_of_the_fallback_section(self):
         self.assertEqual(skill_rule_line(SKILL), RULE_LINE)
-        self.assertIsNone(skill_rule_line("# Context MCP\n\nNo quoted line here.\n"))
+        # A quoted word outside the Fallback section does not confuse the read.
+        elsewhere = SKILL.replace("# Context MCP", '# Context MCP\n\nStatus is "ok" or not.')
+        self.assertEqual(skill_rule_line(elsewhere), RULE_LINE)
+        self.assertIsNone(skill_rule_line("# Context MCP\n\nNo fallback section.\n"))
+        self.assertIsNone(skill_rule_line("# Context MCP\n\n## Fallback\n\nNo quoted line.\n"))
 
     def test_another_file_that_repeats_the_rule_line_fails(self):
         # #27: "No other file in the repo and no app project instruction repeats the rule."

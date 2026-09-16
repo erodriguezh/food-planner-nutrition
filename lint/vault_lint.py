@@ -49,12 +49,13 @@ Checks (v3):
 - the Pantry node has `updated`, staples as `"[[Food]]"`, items as
   `"[[Food or Meal]]"` with a grams, portion or cooked-grams amount and an
   optional `until` date; every link resolves by canonical name
-- ROUTER.md is under 500 tokens, names the skill file in exactly one line
-  and holds neither the packet fields nor the fallback line
-- the skill file (SKILL.md) states the tool `build_context(question)`, the
-  five packet fields, the "may add, never remove" rule and the exact
-  fallback line; besides docs/spec/context-mcp.md no other file carries
-  the fallback line
+- ROUTER.md is under 500 tokens and names the skill file in exactly one line
+- the skill file (SKILL.md) exists at the vault root and its `## Fallback`
+  section quotes exactly one line; besides docs/spec/context-mcp.md no other
+  markdown file of the vault repeats that line. What the rule says is the
+  business of SKILL.md and of docs/spec/context-mcp.md; this script holds no
+  copy of the Context MCP contract and its test seam belongs to the
+  internals map (#19)
 - AGENTS.md exists and holds the one line `Read ROUTER.md first.`
 - state.md has its fields and names the one open Day, or is empty when no Day
   is open; Open items holds no unreviewed Food lines
@@ -91,6 +92,8 @@ ROUTINE_TOKEN_LIMIT = 300
 # (the rule the agent reads) and in the spec document (the rebuild copy); its
 # test seam is the tool call and belongs to the internals map (#19).
 SKILL_FILE = "SKILL.md"
+# The section of the skill file that quotes the line no other file may repeat.
+SKILL_FALLBACK = "## Fallback"
 AGENTS_POINTER = "Read ROUTER.md first."
 # The one file besides the skill file that may state the quoted rule line: the
 # spec document, written for a rebuild and never read in daily use.
@@ -1720,15 +1723,20 @@ def check_router(vault: Vault) -> None:
 
 
 def skill_rule_line(text: str) -> str | None:
-    """The one line the skill file quotes: what the agent says when it falls back.
+    """The one line the `## Fallback` section of the skill file quotes.
 
     The lint derives it from the skill file instead of holding a copy, so the
     Context MCP contract lives in two documents only: `SKILL.md`, the rule the
     agent reads, and the spec document, the copy for a rebuild (#27 round 2).
-    None when the file quotes no line, or more than one, because then the lint
-    cannot tell which line is the rule.
+    The read is anchored to the Fallback section, so a quoted word anywhere
+    else in the skill file changes nothing. None when the section is missing,
+    or quotes no line or more than one, because then the lint cannot tell
+    which line is the rule.
     """
-    quoted = sorted(set(re.findall(r'"([^"\n]+)"', text)))
+    if SKILL_FALLBACK not in text:
+        return None
+    section = text.split(SKILL_FALLBACK, 1)[1].split("\n## ", 1)[0]
+    quoted = re.findall(r'"([^"\n]+)"', section)
     return quoted[0] if len(quoted) == 1 else None
 
 
@@ -1746,9 +1754,13 @@ def check_skill(vault: Vault) -> None:
     if not path.is_file():
         vault.fail(SKILL_FILE, "file is missing")
         return
-    rule = skill_rule_line(path.read_text(encoding="utf-8"))
+    text = path.read_text(encoding="utf-8")
+    if SKILL_FALLBACK not in text:
+        vault.fail(SKILL_FILE, f"needs a `{SKILL_FALLBACK}` section; the lint reads the rule line from it")
+        return
+    rule = skill_rule_line(text)
     if rule is None:
-        vault.fail(SKILL_FILE, "must quote exactly one line, the one the agent says when the service is not there")
+        vault.fail(SKILL_FILE, f"`{SKILL_FALLBACK}` must quote exactly one line, the one the agent says when the service is not there")
         return
     for rel, other in vault_markdown_files(vault.root):
         if rel in (SKILL_FILE, CONTEXT_SPEC):

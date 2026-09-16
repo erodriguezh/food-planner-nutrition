@@ -69,7 +69,7 @@ class SkillFileTest(unittest.TestCase):
         steps = order_steps(self.text)
         self.assertEqual(len(steps), 2, steps)
         connected, fallback = steps
-        self.assertIn("`build_context(question)`", connected)
+        self.assertIn("build_context", connected)
         self.assertIn("`state.md`", connected)
         self.assertRegex(connected.lower(), r"do not read `index\.md`")
         self.assertNotIn("build_context", fallback)
@@ -96,6 +96,8 @@ class RouterPointerTest(unittest.TestCase):
         start = self.text.split("## Start every session", 1)[1].split("\n## ", 1)[0]
         steps = [line for line in start.split("\n") if line[:2] in ("1.", "2.")]
         self.assertEqual(len(steps), 2, steps)
+        self.assertIn("Context MCP", steps[0])
+        self.assertIn(f"`{SKILL_FILE}`", steps[0])
         self.assertIn("`index.md`", steps[0])
         self.assertIn("`state.md`", steps[1])
 
@@ -105,7 +107,11 @@ class RouterPointerTest(unittest.TestCase):
 
 class NoCopyOfTheRuleTest(unittest.TestCase):
     """#27 AC 3: no other file in the repo and no app project instruction
-    repeats the rule. The line to look for comes from the skill file."""
+    repeats the rule. The line to look for comes from the skill file, so no
+    test here states the rule. Keep it that way: the exact wording of the
+    line is the business of `SKILL.md` and of the spec document, and the two
+    stay equal because test_the_rule_line_lives_in_the_skill_file_and_the_spec_only
+    fails as soon as one of them changes the line alone."""
 
     def setUp(self):
         self.rule = skill_rule_line(read(SKILL))
