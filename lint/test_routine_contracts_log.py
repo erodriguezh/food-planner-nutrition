@@ -37,6 +37,13 @@ class RoutineTextTestCase(unittest.TestCase):
     def step(self, text: str, number: int) -> str:
         return self.one_line_with(text, f"{number}. ")
 
+    def number(self, line: str) -> int:
+        """The step number a routine line carries, so a test can pin the order
+        of two steps and not only their wording."""
+        match = re.match(r"^(\d+)\. ", line)
+        self.assertIsNotNone(match, line)
+        return int(match.group(1))
+
 
 class ShapeTest(unittest.TestCase):
     def test_the_three_routines_keep_the_five_sections_and_the_budget(self):
@@ -124,14 +131,42 @@ class LogRoutineTest(RoutineTextTestCase):
         for phrase in ('"it was 200 g"', '"remove the snack"', '"yesterday I had'):
             self.assertIn(phrase, when)
 
-    def test_a_past_date_writes_into_its_day_and_a_closed_day_is_refreshed(self):
-        """A log into a closed Day rebuilds the Summary that close-day wrote and
-        leaves the status alone (story 54, owner feedback 6 on PR #31). PR #32
-        review 2: the Summary algorithm is not repeated here, so step 1 names
-        the refresh mode of `routines/close-day.md` and the agent follows it."""
+    def test_step_1_names_a_closed_day_and_does_not_refresh_it(self):
+        """PR #32 review round 2, item 1. Step 1 invoked the close-day refresh
+        while the entry (step 5) and the Day totals (step 6) were still the old
+        ones, so the refresh rebuilt the Summary of the uncorrected Day. Step 1
+        only says which Day is written and that it is closed (story 54, owner
+        feedback 6 on PR #31); the older open Day still auto-closes here."""
         rule = self.step(self.text, 1)
         self.assertIn("past date: its Day", rule)
-        self.assertIn("closed Day: `routines/close-day.md` refresh, say so", rule)
+        self.assertIn("closed", rule)
+        self.assertIn("older open: auto-close", rule)
+        self.assertNotIn("refresh", rule)
+        self.assertNotIn("close-day", rule)
+
+    def test_the_refresh_runs_after_the_day_totals_are_rewritten(self):
+        """PR #32 review round 2, item 1: the order of the two steps is the fix.
+        The step that rewrites the Day totals comes before the step that invokes
+        the refresh, so the Summary is rebuilt from the corrected Day."""
+        steps = self.text.split("## Steps\n", 1)[1].split("\n## ", 1)[0]
+        totals = self.one_line_with(steps, "Rewrite Day totals")
+        refresh = self.one_line_with(steps, "`routines/close-day.md` refresh")
+        self.assertLess(self.number(totals), self.number(refresh))
+        self.assertLess(steps.index(totals), steps.index(refresh))
+
+    def test_the_refresh_rides_on_the_log_commit_and_the_reply_says_corrected(self):
+        """PR #32 review round 2, item 1: the refresh writes no commit of its
+        own, so the log keeps its one commit; `routines/close-day.md` pins the
+        rest of the refresh contract. The reply tells the user that a closed Day
+        was corrected, which the log alone would hide."""
+        write = self.text.split("## Write\n", 1)[1].split("\n## ", 1)[0]
+        self.assertEqual(write.count("commit"), 1)
+        self.assertNotIn("close-day:", self.text)
+        reply = self.text.split("## Reply\n", 1)[1]
+        self.assertIn("closed", reply)
+        self.assertIn("corrected", reply)
+        refresh = read(VAULT / "routines" / "close-day.md").split("Refresh:", 1)[1]
+        self.assertIn("no own commit", refresh)
 
     def test_one_fuzzy_hit_is_used_and_named(self):
         rule = self.step(self.text, 2)

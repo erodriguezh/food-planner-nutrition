@@ -217,6 +217,10 @@ class SpecMealDayTest(unittest.TestCase):
         self.assertIn("refresh", rule)
         self.assertIn("keeps the status", rule)
         self.assertIn("`log:", rule)
+        # PR #32 review round 2, item 1: the totals are rewritten first, the
+        # Summary is rebuilt from them afterwards.
+        self.assertLess(rule.index("totals"), rule.index("refresh"))
+        self.assertIn("then", rule)
 
 
 class GlossaryTest(unittest.TestCase):

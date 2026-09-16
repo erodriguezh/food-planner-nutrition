@@ -252,10 +252,12 @@ class CloseDayRoutineTest(RoutineTextTestCase):
             self.assertIn(needle, reply)
 
     def test_a_log_into_a_closed_day_points_at_the_close_day_refresh(self):
-        """PR #32 review 2: `routines/log.md` step 1 names the refresh path of
-        this file, so the Summary algorithm lives here only."""
+        """PR #32 review 2: `routines/log.md` names the refresh path of this
+        file, so the Summary algorithm lives here only. Review round 2, item 1
+        moved that pointer out of step 1 and behind the step that rewrites the
+        Day totals; `lint/test_routine_contracts_log.py` pins the order."""
         log = read(LOG)
-        self.assertIn("closed Day: `routines/close-day.md` refresh", log)
+        self.assertIn("`routines/close-day.md` refresh", log)
         for shape in ("| slot |", "over|under", "on target"):
             self.assertNotIn(shape, log)
 
