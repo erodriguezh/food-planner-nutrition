@@ -1476,7 +1476,8 @@ def _check_summary(vault: Vault, node: Node, sections: Mapping[str, list[str]], 
     non-empty lines come in this fixed order: the slot table (the header
     `| slot | kcal | P | F | C |`, one row per slot that has an entry, in the
     slot order, then the `TOTAL` row), the goal line
-    `Goal <kcal> kcal, <P> P, <F> F, <C> C.`, four bullets
+    `Goal <kcal> kcal (<min>-<max>), <P> P (<min>-<max>), <F> F (<min>-<max>),
+    <C> C (<min>-<max>).`, four bullets
     `- <macro> <n> over|under` in the column order, the verdict, and at most one
     `Hint: ...` line. The verdict is `on target`, or `off target:` followed by
     each macro that is off with `low` or `high`.
@@ -1491,12 +1492,18 @@ def _check_summary(vault: Vault, node: Node, sections: Mapping[str, list[str]], 
     What the lint compares: a slot row equals the sum of that slot's entry
     lines, the TOTAL row equals the Day totals, every table number carries the
     `~` exactly when the Day is estimated, a bullet is the TOTAL against the
-    goal line with the right direction, and a `high` or `low` macro in the
-    verdict is `over` or `under` in its bullet. The goal line records the
-    targets the close used, so it is not compared with today's Goals, and the
-    verdict's bounds are not on the file, so the verdict is checked for its
-    words and its directions only. `routines/close-day.md` writes the text; the
-    lint reads the result and runs no routine of its own.
+    target of the goal line with the right direction, and the verdict is the
+    TOTAL row against the ranges of the same line: every macro under its min is
+    `low`, every one over its max is `high`, and nothing off reads `on target`.
+
+    The goal line is the Goals snapshot of the close, the targets it used and
+    the range each was judged against (PR #32 review round 2, item 2). It is
+    never compared with today's Goals, so a goal change leaves an old Day
+    valid, and a refresh of a corrected Day rebuilds its Summary from the
+    snapshot instead of today's targets (story 13 of #22). A range that does
+    not hold its own target is a broken snapshot and fails.
+    `routines/close-day.md` writes the text; the lint reads the result and runs
+    no routine of its own.
     """
     status = node.data["status"]
     if status == "open":
