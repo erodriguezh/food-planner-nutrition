@@ -1,8 +1,18 @@
-"""The skill file, the Router pointer and docs/spec/context-mcp.md carry the Context MCP rule once (#27).
+"""The Context MCP wiring of #27: one skill file, one Router pointer, one rule.
 
-The rule lives in one skill file at the vault root. The Router points to it
-in one line. The spec document states the contract for a rebuild and hands
-the internals to the internals map (#19). No other file repeats the rule.
+The rule lives in one skill file at the vault root. The Router points to it in
+one line. The spec document states the contract for a rebuild and hands the
+internals to the internals map (#19). No other file repeats the rule.
+
+The contract itself gets no test here. #22 sets the boundary: "The Context MCP
+contract gets no test in this spec. Its test seam is build_context(question)
+and belongs to the internals map (#19)." So the tool signature, the five packet
+fields, the status values, the may-add-never-remove rule and the exact fallback
+line are not asserted in this file, and this file holds no surrogate test for
+`build_context`. What stays is build and wiring regression: the files exist,
+they point at each other once, the Router keeps its budget, the no-MCP start
+path is unchanged, and the two retrieval paths of the skill file stay mutually
+exclusive.
 
 Run: python3 -m unittest discover lint
 """
@@ -11,11 +21,10 @@ import unittest
 from pathlib import Path
 
 from vault_lint import (
-    FALLBACK_LINE,
-    PACKET_FIELDS,
     ROUTER_TOKEN_LIMIT,
     SKILL_FILE,
     estimate_tokens,
+    skill_rule_line,
     vault_markdown_files,
 )
 
@@ -25,6 +34,7 @@ ROUTER = VAULT / "ROUTER.md"
 AGENTS = VAULT / "AGENTS.md"
 GLOSSARY = VAULT / "CONTEXT.md"
 SPEC = VAULT / "docs" / "spec" / "context-mcp.md"
+SPEC_REL = "docs/spec/context-mcp.md"
 INTERNALS_MAP = "https://github.com/erodriguezh/food-planner-nutrition/issues/19"
 
 
@@ -43,9 +53,9 @@ def order_steps(text: str) -> list[str]:
 
 
 class SkillFileTest(unittest.TestCase):
-    """#27 AC 1: the skill file states the tool, the five fields and their
-    meaning, the "may add, never remove" rule, the call order and the exact
-    fallback line."""
+    """#27 AC 1: one skill file at the vault root, and its two retrieval paths
+    are mutually exclusive. What the file says about the contract is the
+    business of the internals map (#19)."""
 
     def setUp(self):
         self.text = read(SKILL)
@@ -53,28 +63,6 @@ class SkillFileTest(unittest.TestCase):
     def test_the_skill_file_sits_at_the_vault_root(self):
         self.assertTrue(SKILL.is_file(), SKILL)
         self.assertEqual(SKILL.parent, VAULT)
-
-    def test_names_the_one_tool(self):
-        self.assertIn("`build_context(question)`", self.text)
-
-    def test_the_five_fields_are_the_contract_fields(self):
-        self.assertEqual(PACKET_FIELDS, ("node", "section", "linked", "status", "index_version"))
-
-    def test_each_packet_field_has_one_line_with_its_meaning(self):
-        for name in PACKET_FIELDS:
-            hits = lines_with(self.text, f"`{name}`")
-            self.assertEqual(len(hits), 1, f"expected one line with `{name}`, got {hits}")
-            meaning = hits[0].split(f"`{name}`", 1)[1].strip(" :—-")
-            self.assertTrue(meaning, f"`{name}` carries no meaning")
-
-    def test_status_names_both_values(self):
-        line = lines_with(self.text, "`status`")[0]
-        self.assertIn("`ok`", line)
-        self.assertIn("`not_found`", line)
-
-    def test_states_the_may_add_never_remove_rule(self):
-        self.assertIn("may add", self.text.lower())
-        self.assertIn("never remove", self.text.lower())
 
     def test_the_two_retrieval_paths_are_mutually_exclusive(self):
         # Round 2 review: the successful MCP path replaces the Index read.
@@ -88,21 +76,6 @@ class SkillFileTest(unittest.TestCase):
         self.assertIn("not connected", fallback.lower())
         self.assertLess(fallback.index("`index.md`"), fallback.index("`state.md`"))
 
-    def test_states_the_exact_fallback_line_once_in_quotes(self):
-        self.assertEqual(self.text.count(f'"{FALLBACK_LINE}"'), 1)
-
-    def test_names_both_fallback_triggers(self):
-        self.assertIn("`not_found`", self.text)
-        self.assertIn("down", self.text.lower())
-
-    def test_holds_only_the_contract_and_no_extra_behaviour_rule(self):
-        # Spec review of 9b6456a: no line about how to weigh the packet.
-        self.assertNotIn("evidence, not", self.text)
-
-    def test_holds_no_internals(self):
-        for word in ("scoring", "Cloudflare", "OAuth", "Stripe", "subscription"):
-            self.assertNotIn(word.lower(), self.text.lower(), word)
-
 
 class RouterPointerTest(unittest.TestCase):
     """#27 AC 2 and 4: one pointer line, under 500 tokens, and the no-MCP path
@@ -114,20 +87,10 @@ class RouterPointerTest(unittest.TestCase):
     def test_one_pointer_line_to_the_skill_file(self):
         self.assertEqual(len(lines_with(self.text, f"`{SKILL_FILE}`")), 1)
 
-    def test_the_pointer_line_names_the_context_mcp(self):
+    def test_the_pointer_line_names_the_context_mcp_and_the_index(self):
         line = lines_with(self.text, f"`{SKILL_FILE}`")[0]
         self.assertIn("Context MCP", line)
-
-    def test_the_pointer_line_is_the_start_rule_of_spec_22(self):
-        # #22, Router: "call `build_context` first when the MCP is connected, otherwise read the Index".
-        line = lines_with(self.text, f"`{SKILL_FILE}`")[0]
-        self.assertIn("`build_context`", line)
-        self.assertIn("first", line)
         self.assertIn("`index.md`", line)
-
-    def test_the_router_does_not_repeat_the_rule(self):
-        self.assertNotIn(FALLBACK_LINE, self.text)
-        self.assertFalse(all(f"`{name}`" in self.text for name in PACKET_FIELDS))
 
     def test_the_start_rule_still_reads_index_then_state(self):
         start = self.text.split("## Start every session", 1)[1].split("\n## ", 1)[0]
@@ -142,19 +105,19 @@ class RouterPointerTest(unittest.TestCase):
 
 class NoCopyOfTheRuleTest(unittest.TestCase):
     """#27 AC 3: no other file in the repo and no app project instruction
-    repeats the rule."""
+    repeats the rule. The line to look for comes from the skill file."""
+
+    def setUp(self):
+        self.rule = skill_rule_line(read(SKILL))
+        self.assertIsNotNone(self.rule, f"{SKILL_FILE} must quote exactly one line")
 
     def vault_markdown(self):
         for rel, path in vault_markdown_files(VAULT):
             yield rel, read(path)
 
-    def test_the_fallback_line_lives_in_the_skill_file_and_the_spec_only(self):
-        holders = sorted(rel for rel, text in self.vault_markdown() if FALLBACK_LINE in text)
-        self.assertEqual(holders, sorted([SKILL_FILE, "docs/spec/context-mcp.md"]))
-
-    def test_the_packet_fields_are_listed_in_the_skill_file_and_the_spec_only(self):
-        holders = sorted(rel for rel, text in self.vault_markdown() if all(f"`{f}`" in text for f in PACKET_FIELDS))
-        self.assertEqual(holders, sorted([SKILL_FILE, "docs/spec/context-mcp.md"]))
+    def test_the_rule_line_lives_in_the_skill_file_and_the_spec_only(self):
+        holders = sorted(rel for rel, text in self.vault_markdown() if self.rule in text)
+        self.assertEqual(holders, sorted([SKILL_FILE, SPEC_REL]))
 
     def test_agents_md_is_the_one_pointer_line(self):
         self.assertEqual(read(AGENTS), "Read ROUTER.md first.\n")
@@ -173,7 +136,6 @@ class NoCopyOfTheRuleTest(unittest.TestCase):
         hits = lines_with(read(GLOSSARY), "**Evidence packet**")
         self.assertEqual(len(hits), 1)
         self.assertIn(f"`{SKILL_FILE}`", hits[0])
-        self.assertFalse(all(f"`{name}`" in hits[0] for name in PACKET_FIELDS))
 
     def test_the_glossary_lint_entry_names_the_skill_file_check(self):
         line = lines_with(read(GLOSSARY), "**Lint**")[0]
@@ -181,37 +143,18 @@ class NoCopyOfTheRuleTest(unittest.TestCase):
 
 
 class SpecDocumentTest(unittest.TestCase):
-    """#27 deliverable and AC 5: docs/spec/context-mcp.md states the contract,
-    the read-only rule, the rebuild trigger, the fallback and the auth
-    requirement, and names #19 as the owner of the internals."""
+    """#27 deliverable: the spec document exists, stays out of daily use and
+    hands the internals, and the contract test, to the internals map (#19)."""
 
     def setUp(self):
         self.text = read(SPEC)
 
-    def test_names_the_tool_and_its_one_argument(self):
-        self.assertIn("`build_context(question: string)`", self.text)
+    def test_the_spec_document_exists(self):
+        self.assertTrue(SPEC.is_file(), SPEC)
 
-    def test_lists_each_packet_field_as_a_table_row(self):
-        for name in PACKET_FIELDS:
-            rows = [line for line in self.text.split("\n") if line.startswith(f"| `{name}` |")]
-            self.assertEqual(len(rows), 1, name)
-
-    def test_states_the_may_add_never_remove_rule(self):
-        self.assertIn("may add fields and may never remove one", self.text)
-
-    def test_states_the_read_only_rule(self):
-        self.assertIn("Read-only", self.text)
-        self.assertNotIn("push_files", self.text)
-
-    def test_states_the_rebuild_trigger(self):
-        self.assertIn("each push to `main`", self.text)
-
-    def test_states_the_fallback_with_the_exact_line(self):
-        self.assertIn(f'"{FALLBACK_LINE}"', self.text)
+    def test_says_the_agent_never_loads_it(self):
+        self.assertIn("never loads this document", self.text)
         self.assertIn(f"`{SKILL_FILE}`", self.text)
-
-    def test_states_the_auth_requirement(self):
-        self.assertIn("paying subscribers", self.text)
 
     def test_names_the_internals_map_as_owner_of_the_internals(self):
         self.assertIn(INTERNALS_MAP, self.text)
@@ -219,11 +162,10 @@ class SpecDocumentTest(unittest.TestCase):
         for word in ("scoring", "hosting", "auth", "subscription"):
             self.assertIn(word, owner.lower(), word)
 
-    def test_says_the_agent_never_loads_it(self):
-        self.assertIn("never loads this document", self.text)
-
-    def test_the_nodes_spec_does_not_own_the_contract(self):
-        self.assertNotIn("build_context", read(VAULT / "docs" / "spec" / "nodes.md"))
+    def test_hands_the_contract_test_to_the_internals_map(self):
+        # #22: the contract gets no test in this spec; its seam belongs to #19.
+        owner = self.text.split("## Internals", 1)[1]
+        self.assertIn("no test in this spec", owner)
 
 
 if __name__ == "__main__":
