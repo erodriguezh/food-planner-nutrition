@@ -743,8 +743,7 @@ class DayLintTest(LintCase):
         """The changed link is a Food link on every Day: a missing node and a node of
         another type both fail, open or closed. What history frees is whether the
         Meal still lists that Food, not whether the Food exists. Decided with #26
-        after the PR #31 review: a deleted node is a broken link, as it is for the
-        entry's own link, and the spec names it next to the wrong type.
+        after the PR #31 review; the rationale sits in test_spec_meal_day.py.
         """
         missing = DAY.replace("[[Skyr]] = 300 g", "[[Quark]] = 300 g")
         other = DAY.replace("[[Skyr]] = 300 g", "[[Goals]] = 300 g")
