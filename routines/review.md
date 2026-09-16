@@ -4,23 +4,23 @@
 "how was my week", "last week", "review".
 
 ## Read
-The week's Days, Goals.
+Week's Days, Goals.
 
 ## Steps
 1. Week: Monday to Sunday, no rolling window. "how was my week"/"review" mean this week, "last week" the previous one. Eligible dates: this week Monday to today, last week all seven; future dates never missing.
 2. Counted: eligible `closed`/`auto-closed` Days. Open: the week's `open` Day, never counted, one line with its date. Missing: eligible dates with no Day node; state them, never guess.
-3. Average per day = totals ÷ counted, rounded by `routines/log.md` step 4; `~` on the average when a counted Day is `estimated: true`.
-4. Days on target: verdicts reading `on target`. Most common miss: top `<macro> low|high`, its day count; ties name each.
+3. Average per day = totals ÷ days counted, rounded by `routines/log.md` step 4; `~` on the average when a counted Day is `estimated: true`.
+4. Days on target: verdicts reading `on target`. Most common miss: the most frequent `<macro> low|high`, its day count; ties name each.
 5. None counted: `Average: n/a`, `On target: 0 of 0`, `Most common miss: none`.
 
 ## Write
-Nothing. No file, no commit.
+Nothing: no commit.
 
 ## Reply
-Under ten lines, in order:
+Under ten lines:
 `Days: <n> of <eligible> closed, <m> auto-closed, missing <dates|none>`
 `Average: <kcal> kcal · <P> P · <F> F · <C> C`
 `Target: <kcal> kcal · <P> P · <F> F · <C> C`
 `On target: <n> of <days>`
-`Most common miss: <macro> <low|high>, <n> days`
-`<date> is open and not counted.` if any.
+`Most common miss: <macro> <low|high>, <n> days` or `none`
+`<date> is open and not counted.`
