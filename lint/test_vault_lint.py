@@ -313,7 +313,7 @@ class LintTest(unittest.TestCase):
     def test_router_that_repeats_the_rule_line_fails(self):
         # #27: the Router points to the skill file and holds no copy of the rule.
         self.vault.write("ROUTER.md", ROUTER + f'\nWhen it is down say "{RULE_LINE}"\n')
-        self.assertError("ROUTER.md")
+        self.assertError("ROUTER.md: repeats the line")
 
     # --- Skill file -----------------------------------------------------
 
@@ -338,7 +338,7 @@ class LintTest(unittest.TestCase):
     def test_another_file_that_repeats_the_rule_line_fails(self):
         # #27: "No other file in the repo and no app project instruction repeats the rule."
         self.vault.write("AGENTS.md", f"Read ROUTER.md first. If the MCP is down say \"{RULE_LINE}\"\n")
-        self.assertError("AGENTS.md")
+        self.assertError("AGENTS.md: repeats the line")
 
     def test_the_spec_document_may_state_the_rule_line(self):
         self.vault.write("docs/spec/context-mcp.md", f"# Spec: Context MCP\n\nFallback: \"{RULE_LINE}\"\n")
@@ -346,7 +346,7 @@ class LintTest(unittest.TestCase):
 
     def test_another_spec_document_that_repeats_the_rule_line_fails(self):
         self.vault.write("docs/spec/nodes.md", f"# Spec: nodes\n\nFallback: \"{RULE_LINE}\"\n")
-        self.assertError("docs/spec/nodes.md")
+        self.assertError("docs/spec/nodes.md: repeats the line")
 
     def test_missing_agents_file_fails(self):
         # #22 story 3: AGENTS.md holds the one line; every app starts from it.
