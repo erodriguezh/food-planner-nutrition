@@ -29,22 +29,25 @@ CLOSE_DAY = VAULT / "routines" / "close-day.md"
 REVIEW = VAULT / "routines" / "review.md"
 LOG = VAULT / "routines" / "log.md"
 
+# `docs/spec/nodes.md` orders the two directions inside one macro; `routines/review.md`
+# has no token budget for the rule, so the routine states the macro order alone.
 MISS_DIRECTIONS = ("low", "high")
 
 
-def render_most_common_miss(misses, macro_order):
-    """Render the review's `Most common miss` line the way `routines/review.md`
-    states it: the top `<macro> low|high` with its day count, every tie on the
-    same line `; ` apart in the macro order, and `none` when nothing missed.
+def render_most_common_miss(misses, macro_order, separator):
+    """Render the review's `Most common miss` line from `(macro, direction, days)`
+    triples: the tied misses in the macro order, joined by the separator, and
+    `none` when no Day missed.
 
-    The lint never runs a routine, so this pure helper makes the stated shape
-    executable inside the test file: it takes `(macro, direction, days)` triples
-    and returns the one line the reply prints.
+    The lint never gains a helper that runs a routine. This one lives in the test
+    file and takes the macro order and the separator the caller read out of
+    `routines/review.md`, so the rendered examples below are the routine's own
+    shape rather than a second definition of it.
     """
     if not misses:
         return "Most common miss: none"
     order = sorted(misses, key=lambda miss: (macro_order.index(miss[0]), MISS_DIRECTIONS.index(miss[1])))
-    return "Most common miss: " + "; ".join(f"{macro} {direction}, {days} days" for macro, direction, days in order)
+    return "Most common miss: " + separator.join(f"{macro} {direction}, {days} days" for macro, direction, days in order)
 
 
 def read(path: Path) -> str:
@@ -317,14 +320,15 @@ class ReviewRoutineTest(RoutineTextTestCase):
         for phrase in ('"how was my week"', '"last week"', '"review"'):
             self.assertIn(phrase, when)
 
-    def test_the_week_is_monday_to_sunday_and_the_spec_bans_the_rolling_window(self):
-        """PR #32 review round 4: the tie shape of `Most common miss` needed the
-        budget of "no rolling window", a restatement of "Monday to Sunday" plus
-        the eligible dates. `docs/spec/nodes.md` keeps the phrase."""
+    def test_the_week_is_monday_to_sunday(self):
+        """PR #32 review round 4: the tie shape of `Most common miss` was paid
+        for with "no rolling window" and "future dates never missing", both
+        restatements of "Monday to Sunday" plus the eligible dates of step 1.
+        `docs/spec/nodes.md` and `CONTEXT.md` keep the two phrases and
+        `lint/test_spec_meal_day.py` pins them there."""
         rule = self.step(self.steps, 1)
         self.assertIn("Monday to Sunday", rule)
         self.assertIn('"last week" the previous one', rule)
-        self.assertIn("no rolling window", read(VAULT / "docs" / "spec" / "nodes.md"))
 
     def test_the_denominator_is_the_eligible_dates_not_seven(self):
         """PR #32 review 6: "this week" is Monday to today, so a Wednesday
@@ -334,7 +338,6 @@ class ReviewRoutineTest(RoutineTextTestCase):
         self.assertIn("Eligible dates", rule)
         self.assertIn("this week Monday to today", rule)
         self.assertIn("last week all seven", rule)
-        self.assertIn("future dates never missing", rule)
         days = self.one_line_with(self.section(self.text, "Reply"), "`Days:")
         self.assertIn("of <eligible> closed", days)
         self.assertNotIn("of 7", self.text)
@@ -402,8 +405,9 @@ class ReviewRoutineTest(RoutineTextTestCase):
         self.assertIn("verdicts reading `on target`", rule)
         self.assertIn("Most common miss", rule)
         self.assertIn("`<macro> low|high`", rule)
-        # PR #32 review round 4: the day count is the Reply shape, stated once.
-        self.assertIn("<n> days", self.one_line_with(self.section(self.text, "Reply"), "`Most common miss:"))
+        self.assertIn("day count", rule)
+        # PR #32 review round 4: the tie order sits next to the selection rule.
+        self.assertIn("ties in kcal>protein>fat>carbs", rule)
 
     def test_the_review_writes_nothing(self):
         """Acceptance #26: the review writes nothing."""
@@ -531,13 +535,13 @@ class MostCommonMissTieTest(RoutineTextTestCase):
     """PR #32 review round 4: a tie in `Most common miss` has one reply shape.
 
     Step 4 said "ties name each" while the Reply defined one miss only, so each
-    app was free to invent the punctuation and the order. The routine now fixes
-    both: every tie on the one line, `; ` apart, in the macro order
-    `kcal`>`protein`>`fat`>`carbs`. Issue #28 seeds an acceptance run that
-    asserts the line, so the four examples below are literal.
+    app was free to invent the punctuation and the order. The Reply now prints
+    the repeat literally, `Most common miss: <macro> <low|high>, <n> days[;
+    <macro> <low|high>, <n> days]`, and step 4 orders the tied misses by
+    `kcal>protein>fat>carbs`. Issue #28 seeds an acceptance run that asserts the
+    line, so the examples below are literal; the separator and the macro order
+    come out of the routine text, never out of this file.
     """
-
-    NODES_SPEC = VAULT / "docs" / "spec" / "nodes.md"
 
     def setUp(self):
         self.text = read(REVIEW)
@@ -545,17 +549,38 @@ class MostCommonMissTieTest(RoutineTextTestCase):
         self.reply = self.section(self.text, "Reply")
         self.rule = self.one_line_with(self.steps, "4. Days on target")
         self.shape = self.one_line_with(self.reply, "`Most common miss:")
-        self.macro_order = tuple(self.rule.split("ties named, ", 1)[1].rstrip(".").split(">"))
+        self.macro_order = self.macro_order_of(self.rule)
+        self.item, self.separator = self.item_and_separator_of(self.shape)
+
+    def macro_order_of(self, rule):
+        """Read the tie order out of step 4. A reworded step fails here with the
+        step quoted instead of raising out of the whole class."""
+        match = re.search(r"ties in ([a-z>]+)\.", rule)
+        self.assertIsNotNone(match, f"step 4 states no tie order: {rule!r}")
+        return tuple(match.group(1).split(">"))
+
+    def item_and_separator_of(self, shape):
+        """Split the Reply line `Most common miss: <item>[<separator><item>]` into
+        the one-miss item and the separator a tie puts before the next item."""
+        self.assertIn("[", shape, f"the Reply line shows no tie: {shape!r}")
+        line = shape.split("`")[1]
+        head, repeat = line.split("[", 1)
+        self.assertTrue(repeat.endswith("]"), shape)
+        item = head.split(": ", 1)[1]
+        repeat = repeat[:-1]
+        self.assertTrue(repeat.endswith(item), "a tie repeats the one-miss item as it stands")
+        return item, repeat[: -len(item)]
 
     def render(self, misses):
-        return render_most_common_miss(misses, self.macro_order)
+        return render_most_common_miss(misses, self.macro_order, self.separator)
 
-    def test_the_routine_states_the_macro_order_and_the_separator(self):
-        """The helper reads both rules out of the routine text, so a reworded
-        routine cannot leave the rendered examples behind."""
+    def test_the_reply_repeats_the_one_miss_item_after_the_separator(self):
+        """The rendered examples are only worth as much as the two rules they
+        read: the `; ` separator of the Reply and the macro order of step 4."""
+        self.assertEqual(self.item, "<macro> <low|high>, <n> days")
+        self.assertEqual(self.separator, "; ")
         self.assertEqual(self.macro_order, SUMMARY_MACROS)
         self.assertEqual(self.macro_order, ("kcal", "protein", "fat", "carbs"))
-        self.assertIn("ties `; ` apart", self.shape)
 
     def test_one_most_common_miss_keeps_the_single_item_shape(self):
         self.assertEqual(self.render([("protein", "low", 3)]), "Most common miss: protein low, 3 days")
@@ -574,14 +599,14 @@ class MostCommonMissTieTest(RoutineTextTestCase):
         )
 
     def test_a_tie_inside_one_macro_keeps_low_before_high(self):
-        """`docs/spec/nodes.md` states the direction order; the macro order alone
-        leaves `protein low` and `protein high` unordered."""
+        """The macro order alone leaves `protein low` and `protein high`
+        unordered. `docs/spec/nodes.md` states `low` before `high`, the routine
+        has no token budget for it, and `lint/test_spec_meal_day.py` pins the
+        spec sentence; `MISS_DIRECTIONS` is that rule made executable."""
         self.assertEqual(
             self.render([("protein", "high", 2), ("protein", "low", 2)]),
             "Most common miss: protein low, 2 days; protein high, 2 days",
         )
-        review = self.section(read(self.NODES_SPEC).replace("### Review", "## Review"), "Review")
-        self.assertIn("`low` before `high`", review)
 
     def test_every_day_on_target_reads_none(self):
         self.assertEqual(self.render([]), "Most common miss: none")

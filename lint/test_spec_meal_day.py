@@ -254,7 +254,10 @@ class SpecMealDayTest(unittest.TestCase):
         Issue #28 seeds an acceptance run that asserts the line."""
         review = self.day.split("### Review\n", 1)[1].split("\n### ", 1)[0]
         for needle in ("`; `", "`kcal`, `protein`, `fat`, `carbs`", "`low` before `high`",
-                       "`Most common miss: none`", "second `Most common miss` line", "no rolling window"):
+                       "`Most common miss: kcal low, 2 days; protein low, 2 days`",
+                       "`Most common miss: none`", "second `Most common miss` line",
+                       # Both phrases paid for the tie shape inside the routine's token budget.
+                       "no rolling window", "never missing"):
             self.assertIn(needle, review)
         miss = self.one_line_with(read(GLOSSARY), "- **Most common miss**")
         for needle in ("`; `", "`kcal`, `protein`, `fat`, `carbs`", "`low` before `high`"):
