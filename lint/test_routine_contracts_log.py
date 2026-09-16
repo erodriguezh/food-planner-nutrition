@@ -106,6 +106,9 @@ class LogRoutineTest(RoutineTextTestCase):
         order = [rule.index(slot) for slot in ("breakfast", "lunch", "snack", "dinner")]
         self.assertEqual(order, sorted(order), rule)
         self.assertIn("filled earlier: next in order", rule)
+        # Code review of round 3: the order of the words alone left the
+        # precedence to the reader, so the line says which one gives way.
+        self.assertIn("word, else clock", rule)
 
     def test_the_meal_amount_form_is_stated_in_the_meal_step(self):
         """PR #32 review round 3, item 1: the Meal amount rule belongs to the
@@ -114,7 +117,7 @@ class LogRoutineTest(RoutineTextTestCase):
         detail, so step 4, the Meal step, states the `portion` form again."""
         rule = self.step(self.text, 4)
         self.assertIn("`portion`", rule)
-        self.assertIn("Meal by `portion` or g", rule)
+        self.assertIn("Meal `portion` or g", rule)
         # The grams form of a Food entry is the line shape of step 5.
         self.assertIn("= <n> g", self.step(self.text, 5))
 
@@ -253,6 +256,8 @@ class LogRoutineTest(RoutineTextTestCase):
         writes nothing to the Pantry, so both halves sit on the same line."""
         rule = self.one_line_with(self.text, "was that the last of X?")
         self.assertIn("never the Pantry", rule)
+        # Code review of round 3: "over:" had no referent; the amount has.
+        self.assertIn("over it", rule)
 
     def test_the_reply_names_the_slot_and_points_at_rebalance(self):
         """The reply of a log is the rebalance reply plus the slot and the mark.

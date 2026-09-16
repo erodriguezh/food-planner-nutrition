@@ -19,7 +19,7 @@ Nothing: no commit.
 ## Reply
 Under ten lines:
 `Days: <n> of <eligible> closed, <m> auto-closed, missing <dates|none>`
-`Average: <kcal> kcal · <P> P · <F> F · <C> C · <n> fiber · <n> sugar · <n> salt`; counted Day estimated: `~` before every number
+`Average: <kcal> kcal · <P> P · <F> F · <C> C · <n> fiber · <n> sugar · <n> salt` (counted Day estimated: `~` before every number)
 `Target: <kcal> kcal · <P> P · <F> F · <C> C`
 `On target: <n> of <days>`
 `Most common miss: <macro> <low|high>, <n> days` or `none`

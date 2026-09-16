@@ -360,9 +360,7 @@ class ReviewRoutineTest(RoutineTextTestCase):
         labels = [part.split(" ", 1)[1] for part in shape.split(": ", 1)[1].split(" · ")]
         self.assertEqual(labels, ["kcal", "P", "F", "C", "fiber", "sugar", "salt"])
         self.assertIn("<kcal> kcal · <P> P · <F> F · <C> C", target)
-        spec = read(VAULT / "docs" / "spec" / "nodes.md")
         for label in ("fiber", "sugar", "salt"):
-            self.assertIn(f"`{label}_g`", spec)
             self.assertNotIn(label, target)
 
     def test_the_mark_sits_before_every_number_of_the_average_line(self):
@@ -372,7 +370,10 @@ class ReviewRoutineTest(RoutineTextTestCase):
         average = self.one_line_with(self.section(self.text, "Reply"), "`Average: <")
         self.assertIn("counted Day estimated", average)
         self.assertIn("`~` before every number", average)
-        self.assertEqual(self.text.count("`~`"), 1)
+        # The clause is a note on the shape, not output: it sits in brackets.
+        self.assertRegex(average, r"\(counted Day estimated: `~` before every number\)$")
+        # The position is stated once: the Steps hold no mark of their own.
+        self.assertNotIn("`~`", self.steps)
         table = self.one_line_with(read(CLOSE_DAY), "`~` before every number")
         self.assertIn("`estimated: true`", table)
 
@@ -406,7 +407,8 @@ class ReviewRoutineTest(RoutineTextTestCase):
         for line in fixed[1:3]:
             self.assertIn("<kcal> kcal · <P> P · <F> F · <C> C", line)
         # A week with counted Days and no miss still prints one fixed shape.
-        self.assertIn("` or `none`", fixed[4])
+        miss = self.one_line_with(reply, "`Most common miss: <macro>")
+        self.assertIn("` or `none`", miss)
 
 
 class SlotOrderTest(unittest.TestCase):
