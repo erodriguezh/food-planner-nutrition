@@ -15,6 +15,7 @@ from vault_lint import (
     ROUTER_TOKEN_LIMIT,
     SKILL_FILE,
     estimate_tokens,
+    vault_markdown_files,
 )
 
 VAULT = Path(__file__).resolve().parent.parent
@@ -81,6 +82,10 @@ class SkillFileTest(unittest.TestCase):
         self.assertIn("`not_found`", self.text)
         self.assertIn("down", self.text.lower())
 
+    def test_holds_only_the_contract_and_no_extra_behaviour_rule(self):
+        # Spec review of 9b6456a: no line about how to weigh the packet.
+        self.assertNotIn("evidence, not", self.text)
+
     def test_holds_no_internals(self):
         for word in ("scoring", "Cloudflare", "OAuth", "Stripe", "subscription"):
             self.assertNotIn(word.lower(), self.text.lower(), word)
@@ -100,9 +105,16 @@ class RouterPointerTest(unittest.TestCase):
         line = lines_with(self.text, f"`{SKILL_FILE}`")[0]
         self.assertIn("Context MCP", line)
 
+    def test_the_pointer_line_is_the_start_rule_of_spec_22(self):
+        # #22, Router: "call `build_context` first when the MCP is connected, otherwise read the Index".
+        line = lines_with(self.text, f"`{SKILL_FILE}`")[0]
+        self.assertIn("`build_context`", line)
+        self.assertIn("first", line)
+        self.assertIn("`index.md`", line)
+
     def test_the_router_does_not_repeat_the_rule(self):
-        self.assertNotIn("build_context", self.text)
         self.assertNotIn(FALLBACK_LINE, self.text)
+        self.assertFalse(all(f"`{name}`" in self.text for name in PACKET_FIELDS))
 
     def test_the_start_rule_still_reads_index_then_state(self):
         start = self.text.split("## Start every session", 1)[1].split("\n## ", 1)[0]
@@ -120,10 +132,7 @@ class NoCopyOfTheRuleTest(unittest.TestCase):
     repeats the rule."""
 
     def vault_markdown(self):
-        for path in sorted(VAULT.rglob("*.md")):
-            rel = path.relative_to(VAULT).as_posix()
-            if any(part.startswith(".") for part in rel.split("/")):
-                continue
+        for rel, path in vault_markdown_files(VAULT):
             yield rel, read(path)
 
     def test_the_fallback_line_lives_in_the_skill_file_and_the_spec_only(self):
@@ -147,8 +156,15 @@ class NoCopyOfTheRuleTest(unittest.TestCase):
         self.assertIn(f"`{SKILL_FILE}`", line)
         self.assertNotIn("first", line)
 
-    def test_the_glossary_defines_the_skill_file(self):
-        self.assertEqual(len(lines_with(read(GLOSSARY), "**Skill file**")), 1)
+    def test_the_glossary_defines_the_evidence_packet_without_the_rule(self):
+        hits = lines_with(read(GLOSSARY), "**Evidence packet**")
+        self.assertEqual(len(hits), 1)
+        self.assertIn(f"`{SKILL_FILE}`", hits[0])
+        self.assertFalse(all(f"`{name}`" in hits[0] for name in PACKET_FIELDS))
+
+    def test_the_glossary_lint_entry_names_the_skill_file_check(self):
+        line = lines_with(read(GLOSSARY), "**Lint**")[0]
+        self.assertIn("skill file", line)
 
 
 class SpecDocumentTest(unittest.TestCase):

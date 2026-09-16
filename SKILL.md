@@ -19,18 +19,18 @@ It returns an evidence packet with five fields:
 - `status`: `ok`, or `not_found` when no node fits.
 - `index_version`: the commit hash the index was built from.
 
-The service may add fields. It may never remove one of the five.
+Later versions may add fields. They may never remove one of the five.
 
 ## Order
 
-1. Connected: call `build_context(question)` first, before any file read. Read `state.md` after it.
+1. Connected: call `build_context(question)` first, before you read `index.md`. Then read `state.md`.
 2. Not connected: read `index.md`, then `state.md`, as the Router says.
 
-Treat the packet as evidence, not as an answer. Open a node only when the packet does not settle the question. The service never writes; every write goes through the routines.
+The service is read-only. Every write goes through the routines.
 
 ## Fallback
 
-When the call fails, times out, or returns `not_found`, read the files directly and say one short line:
+When the server is down, the call fails, or it returns `not_found`, read the files directly and say one short line:
 
 "context server down or no files found, read files directly."
 

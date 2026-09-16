@@ -107,7 +107,5 @@ Glossary of the domain language for this vault. Terms are defined once here and 
 - **Routine**: one file that tells the agent how to run one job: log, rebalance, close the day, create food, create meal, pantry, goals, review. A routine holds the method only; it never stores a result.
 - **Spec**: the documents that describe the vault for the build session. Not read in daily use.
 - **Context MCP**: the planned read-only retrieval service with one tool, `build_context(question)`. The rule for using it lives in `SKILL.md`. The vault works without it.
-- **Skill file**: `SKILL.md` at the vault root, the one place that holds the Context MCP rule: the tool, the evidence packet, the order and the fallback line. The Router points to it in one line; no app configuration holds a copy.
-- **Evidence packet**: the answer of one `build_context` call, defined in the skill file. The agent treats it as evidence, not as a stored fact.
-- **Fallback line**: the one fixed sentence the agent says when the Context MCP is down or finds nothing, before it reads files directly. Its exact words stand in the skill file.
-- **Lint**: the script `lint/vault_lint.py` that checks every node, the Index, the State, the Router and the routines against the schemas. Runs locally, by hand or from the pre-commit hook in `.githooks/`. No model involved.
+- **Evidence packet**: the answer of one `build_context` call. Its fields are defined in `SKILL.md`.
+- **Lint**: the script `lint/vault_lint.py` that checks every node, the Index, the State, the Router, the skill file, `AGENTS.md` and the routines against the schemas. Runs locally, by hand or from the pre-commit hook in `.githooks/`. No model involved.

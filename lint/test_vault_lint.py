@@ -7,6 +7,7 @@ from pathlib import Path
 
 from vault_lint import (
     FALLBACK_LINE,
+    PACKET_FIELDS,
     SKILL_FILE,
     apply_goal_change,
     compute_bounds,
@@ -64,7 +65,7 @@ updated: 2026-09-15
 ## Open items
 """
 
-ROUTER = f"# Router\n\n1. Context MCP rule: `{SKILL_FILE}`. Without it read `index.md`.\n2. Read `state.md`.\n"
+ROUTER = f"# Router\n\n1. Context MCP connected? Call `build_context` first, see `{SKILL_FILE}`. Otherwise read `index.md`.\n2. Read `state.md`.\n"
 
 SKILL = f"""# Context MCP\n\nOne tool: `build_context(question)`.\n\n`node`, `section`, `linked`, `status`, `index_version`. May add, never remove.\n\nConnected: call it first. Down or `not_found`: say "{FALLBACK_LINE}"\n"""
 
@@ -97,6 +98,7 @@ class VaultFixture:
         (self.root / "routines").mkdir()
         self.write("ROUTER.md", ROUTER)
         self.write(SKILL_FILE, SKILL)
+        self.write("AGENTS.md", "Read ROUTER.md first.\n")
         self.write("index.md", INDEX)
         self.write("state.md", STATE)
         self.write("nodes/goals/Goals.md", GOALS)
@@ -307,10 +309,15 @@ class LintTest(unittest.TestCase):
         self.vault.write("ROUTER.md", ROUTER + f"\nSee `{SKILL_FILE}` again.\n")
         self.assertError("one line")
 
-    def test_router_that_repeats_the_call_rule_fails(self):
-        # #27: no file besides the skill file holds the rule; the Router points only.
-        self.vault.write("ROUTER.md", ROUTER.replace("Context MCP rule", "Call `build_context(question)` first, rule"))
-        self.assertError("build_context")
+    def test_router_that_repeats_the_fallback_line_fails(self):
+        # #27: the Router names the tool (#22 start rule) but holds no copy of the rule.
+        self.vault.write("ROUTER.md", ROUTER + f'\nWhen it is down say "{FALLBACK_LINE}"\n')
+        self.assertError("repeats the Context MCP rule")
+
+    def test_router_that_lists_the_packet_fields_fails(self):
+        fields = ", ".join(f"`{name}`" for name in PACKET_FIELDS)
+        self.vault.write("ROUTER.md", ROUTER + f"\nThe packet has {fields}.\n")
+        self.assertError("repeats the Context MCP rule")
 
     # --- Skill file -----------------------------------------------------
 
@@ -342,6 +349,15 @@ class LintTest(unittest.TestCase):
     def test_the_spec_document_may_state_the_fallback_line(self):
         self.vault.write("docs/spec/context-mcp.md", f"# Spec: Context MCP\n\nFallback: \"{FALLBACK_LINE}\"\n")
         self.assertEqual(self.errors(), [])
+
+    def test_another_spec_document_that_repeats_the_fallback_line_fails(self):
+        self.vault.write("docs/spec/nodes.md", f"# Spec: nodes\n\nFallback: \"{FALLBACK_LINE}\"\n")
+        self.assertError("docs/spec/nodes.md")
+
+    def test_missing_agents_file_fails(self):
+        # #22 story 3: AGENTS.md holds the one line; every app starts from it.
+        os.remove(self.vault.root / "AGENTS.md")
+        self.assertError("AGENTS.md")
 
     def test_agents_file_with_more_than_the_pointer_line_fails(self):
         # #22 story 3: AGENTS.md holds one line, "Read ROUTER.md first."

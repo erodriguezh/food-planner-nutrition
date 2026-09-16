@@ -7,7 +7,7 @@ Run from the repository root:
 
 Exit code 0 when the vault is clean, 1 on the first violation. The checks run
 in a fixed order (nodes load, common conventions, node locations, Goals, Foods,
-Meals, Days, Pantry, Router, skill file, State, Index, routines), files in sorted path
+Meals, Days, Pantry, Router, skill file, AGENTS.md, State, Index, routines), files in sorted path
 order, so the first violation is deterministic.
 No dependencies beyond the Python 3 standard library.
 
@@ -50,11 +50,12 @@ Checks (v3):
   `"[[Food or Meal]]"` with a grams, portion or cooked-grams amount and an
   optional `until` date; every link resolves by canonical name
 - ROUTER.md is under 500 tokens, names the skill file in exactly one line
-  and repeats no part of the Context MCP rule
+  and holds neither the packet fields nor the fallback line
 - the skill file (SKILL.md) states the tool `build_context(question)`, the
   five packet fields, the "may add, never remove" rule and the exact
-  fallback line; no other file outside docs/spec/ carries the fallback line
-- AGENTS.md holds the one line `Read ROUTER.md first.`
+  fallback line; besides docs/spec/context-mcp.md no other file carries
+  the fallback line
+- AGENTS.md exists and holds the one line `Read ROUTER.md first.`
 - state.md has its fields and names the one open Day, or is empty when no Day
   is open; Open items holds no unreviewed Food lines
 - index.md has one section per node type and no line without a node; every
@@ -91,6 +92,9 @@ CONTEXT_TOOL = "build_context(question)"
 PACKET_FIELDS = ("node", "section", "linked", "status", "index_version")
 FALLBACK_LINE = "context server down or no files found, read files directly."
 AGENTS_POINTER = "Read ROUTER.md first."
+# The one file besides the skill file that may state the fallback line: the
+# spec document, written for a rebuild and never read in daily use.
+CONTEXT_SPEC = "docs/spec/context-mcp.md"
 MACROS = ("kcal", "protein_g", "fat_g", "carbs_g")
 
 FOOD_CATEGORIES = ("protein", "dairy", "grain", "vegetable", "fruit", "fat", "snack", "drink")
@@ -1098,6 +1102,19 @@ def check_common_conventions(vault: Vault) -> None:
             seen[node.base_name] = node.rel
 
 
+def vault_markdown_files(root: Path) -> list[tuple[str, Path]]:
+    """Every markdown file of the vault as (relative posix path, path), in sorted
+    path order. Hidden folders (.git, .obsidian and the like) are not part of the
+    vault and are skipped."""
+    files = []
+    for path in sorted(root.rglob("*.md")):
+        rel = path.relative_to(root).as_posix()
+        if any(part.startswith(".") for part in rel.split("/")):
+            continue
+        files.append((rel, path))
+    return files
+
+
 def check_node_locations(vault: Vault) -> None:
     """A node file lives under nodes/. Node frontmatter anywhere else is a stray node.
 
@@ -1105,9 +1122,8 @@ def check_node_locations(vault: Vault) -> None:
     root would otherwise pass unseen. Hidden folders (.git, .obsidian and the
     like) are not part of the vault and are skipped.
     """
-    for path in sorted(vault.root.rglob("*.md")):
-        rel = path.relative_to(vault.root).as_posix()
-        if rel.startswith("nodes/") or any(part.startswith(".") for part in rel.split("/")):
+    for rel, path in vault_markdown_files(vault.root):
+        if rel.startswith("nodes/"):
             continue
         try:
             data, _body = parse_frontmatter(path.read_text(encoding="utf-8"))
@@ -1701,16 +1717,15 @@ def check_router(vault: Vault) -> None:
     pointers = [line for line in text.split("\n") if f"`{SKILL_FILE}`" in line]
     if len(pointers) != 1:
         vault.fail("ROUTER.md", f"needs exactly one line that points to `{SKILL_FILE}`, found {len(pointers)}")
-    if "build_context" in text or FALLBACK_LINE in text:
-        vault.fail("ROUTER.md", f"repeats the Context MCP rule; only `{SKILL_FILE}` holds it (build_context, fallback line)")
+    if FALLBACK_LINE in text or all(f"`{name}`" in text for name in PACKET_FIELDS):
+        vault.fail("ROUTER.md", f"repeats the Context MCP rule (packet fields or fallback line); only `{SKILL_FILE}` holds it")
 
 
 def check_skill(vault: Vault) -> None:
     """The Context MCP rule lives in the skill file and nowhere else (#27).
 
-    docs/spec/ states the contract for a rebuild and is never read in daily
-    use, so it may carry the fallback line too. AGENTS.md (and CLAUDE.md, its
-    symlink) is the app project instruction and holds the one pointer line.
+    The spec document states the contract for a rebuild and is never read in
+    daily use, so it may carry the fallback line too.
     """
     path = vault.root / SKILL_FILE
     if not path.is_file():
@@ -1727,14 +1742,21 @@ def check_skill(vault: Vault) -> None:
         vault.fail(SKILL_FILE, 'does not state the "may add, never remove" rule')
     if f'"{FALLBACK_LINE}"' not in text:
         vault.fail(SKILL_FILE, f'does not state the exact fallback line "{FALLBACK_LINE}"')
-    for other in sorted(vault.root.rglob("*.md")):
-        rel = other.relative_to(vault.root).as_posix()
-        if rel == SKILL_FILE or rel.startswith("docs/spec/") or any(part.startswith(".") for part in rel.split("/")):
+    for rel, other in vault_markdown_files(vault.root):
+        if rel in (SKILL_FILE, CONTEXT_SPEC):
             continue
         if FALLBACK_LINE in other.read_text(encoding="utf-8"):
             vault.fail(rel, f"repeats the fallback line; only `{SKILL_FILE}` holds the rule")
+
+
+def check_agents(vault: Vault) -> None:
+    """AGENTS.md (and CLAUDE.md, its symlink) is the app project instruction.
+    It holds the one pointer line and no copy of any rule (#22 story 3)."""
     agents = vault.root / "AGENTS.md"
-    if agents.is_file() and agents.read_text(encoding="utf-8").strip() != AGENTS_POINTER:
+    if not agents.is_file():
+        vault.fail("AGENTS.md", "file is missing")
+        return
+    if agents.read_text(encoding="utf-8").strip() != AGENTS_POINTER:
         vault.fail("AGENTS.md", f"must hold the one line `{AGENTS_POINTER}`")
 
 
@@ -1949,6 +1971,7 @@ CHECKS = (
     check_pantry,
     check_router,
     check_skill,
+    check_agents,
     check_state,
     check_index,
     check_routines,
