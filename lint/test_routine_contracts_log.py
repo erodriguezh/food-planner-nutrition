@@ -107,14 +107,26 @@ class LogRoutineTest(RoutineTextTestCase):
         self.assertEqual(order, sorted(order), rule)
         self.assertIn("filled earlier: next in order", rule)
 
-    def test_the_meal_amount_forms_are_stated_once(self):
-        """A Meal is logged by portion or by grams, a Food by grams only
-        (`docs/spec/nodes.md`, entry line). `routines/log.md` step 4 carried the
-        rule until the refresh step of PR #32 review round 2 took its tokens, so
-        it now sits in hard rule 1 of `ROUTER.md`, which every session reads."""
-        rule = self.one_line_with(read(VAULT / "ROUTER.md"), "Grams only")
-        self.assertIn("portion", rule)
-        self.assertIn("Meal", rule)
+    def test_the_meal_amount_form_is_stated_in_the_meal_step(self):
+        """PR #32 review round 3, item 1: the Meal amount rule belongs to the
+        routine that writes the entry. Round 2 parked it in hard rule 1 of
+        `ROUTER.md`; spec #22 gives the Router "grams only" and no schema
+        detail, so step 4, the Meal step, states the `portion` form again."""
+        rule = self.step(self.text, 4)
+        self.assertIn("`portion`", rule)
+        self.assertIn("Meal by `portion` or g", rule)
+        # The grams form of a Food entry is the line shape of step 5.
+        self.assertIn("= <n> g", self.step(self.text, 5))
+
+    def test_the_router_hard_rule_carries_no_meal_schema_detail(self):
+        """PR #32 review round 3, item 1: the Router routes and states the hard
+        rules; a Meal amount form is schema detail of the entry line, so the
+        rule reads "grams only" and nothing about a Meal or a portion."""
+        router = read(VAULT / "ROUTER.md")
+        rule = self.one_line_with(router, "Grams only")
+        self.assertEqual(rule, "1. Grams only. Convert servings and ml before you write.")
+        for detail in ("portion", "Meal also"):
+            self.assertNotIn(detail, router)
 
     def test_a_slot_word_makes_the_meal_win(self):
         rule = self.one_line_with(self.text, "slot word")
