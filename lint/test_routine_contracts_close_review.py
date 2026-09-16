@@ -337,13 +337,44 @@ class ReviewRoutineTest(RoutineTextTestCase):
         self.assertIn("Missing: eligible dates with no Day node", rule)
         self.assertIn("state them, never guess", rule)
 
-    def test_the_average_carries_the_mark_when_any_counted_day_is_estimated(self):
+    def test_the_average_is_the_mean_of_the_seven_totals(self):
+        """PR #32 review round 3, item 2: spec #22 asks for "averages of the
+        seven totals" and `CONTEXT.md` defines the weekly average that way, so
+        the step divides all seven, not the four macros the Target line has."""
         rule = self.step(self.steps, 3)
         self.assertIn("Average per day", rule)
+        self.assertIn("seven totals", rule)
         # The rounding rule is stated once, in log.md step 4; this routine points there.
         self.assertIn("`routines/log.md` step 4", rule)
         self.assertNotIn("half up", self.text)
-        self.assertIn("`~` on the average when a counted Day is `estimated: true`", rule)
+
+    def test_the_average_line_carries_the_seven_totals_and_the_target_the_four(self):
+        """PR #32 review round 3, item 2: the Average line printed the four
+        macros only. It carries the seven totals of the Day node; the Target
+        line keeps the four, because Goals holds no fiber, sugar or salt
+        target. The three added labels are the node keys without `_g`."""
+        reply = self.section(self.text, "Reply")
+        average = self.one_line_with(reply, "`Average: <")
+        target = self.one_line_with(reply, "`Target: <")
+        shape = average.split("`")[1]
+        labels = [part.split(" ", 1)[1] for part in shape.split(": ", 1)[1].split(" · ")]
+        self.assertEqual(labels, ["kcal", "P", "F", "C", "fiber", "sugar", "salt"])
+        self.assertIn("<kcal> kcal · <P> P · <F> F · <C> C", target)
+        spec = read(VAULT / "docs" / "spec" / "nodes.md")
+        for label in ("fiber", "sugar", "salt"):
+            self.assertIn(f"`{label}_g`", spec)
+            self.assertNotIn(label, target)
+
+    def test_the_mark_sits_before_every_number_of_the_average_line(self):
+        """PR #32 review round 3, item 2: "`~` on the average" left the position
+        open. The Reply fixes one shape and takes it from the close-day table
+        rule: `~` before every number of the line."""
+        average = self.one_line_with(self.section(self.text, "Reply"), "`Average: <")
+        self.assertIn("counted Day estimated", average)
+        self.assertIn("`~` before every number", average)
+        self.assertEqual(self.text.count("`~`"), 1)
+        table = self.one_line_with(read(CLOSE_DAY), "`~` before every number")
+        self.assertIn("`estimated: true`", table)
 
     def test_days_on_target_and_the_most_common_miss_come_from_the_verdicts(self):
         rule = self.one_line_with(self.steps, "4. Days on target")
@@ -374,6 +405,8 @@ class ReviewRoutineTest(RoutineTextTestCase):
         self.assertIn("`<date> is open and not counted.`", reply)
         for line in fixed[1:3]:
             self.assertIn("<kcal> kcal · <P> P · <F> F · <C> C", line)
+        # A week with counted Days and no miss still prints one fixed shape.
+        self.assertIn("` or `none`", fixed[4])
 
 
 class SlotOrderTest(unittest.TestCase):
