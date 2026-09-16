@@ -701,6 +701,49 @@ class DayLintTest(LintCase):
         self.closed(plain.replace("estimated: true", "estimated: false"))
         self.assertClean()
 
+    # --- the shape rules every Day keeps --------------------------------------------
+
+    # PR #31 review: history freezes the line's nutrition, its `~` and the Meal
+    # it was written against. It never makes a malformed entry line valid, so
+    # the canonical shape of #25 is checked on a closed and auto-closed Day too.
+
+    def test_a_closed_day_still_fails_a_food_logged_by_portion(self):
+        for status in ("closed", "auto-closed"):
+            with self.subTest(status=status):
+                self.closed(DAY.replace("[[Rice]] = 150 g", "[[Rice]] = 1 portion"), status=status)
+                self.assertError("is a Food and is logged in grams")
+
+    def test_a_closed_day_still_fails_an_ingredient_change_on_a_food(self):
+        changed = "- [[Rice]] = 150 g, [[Skyr]] = 100 g — 528 kcal · 11 P · 1 F · 117 C"
+        for status in ("closed", "auto-closed"):
+            with self.subTest(status=status):
+                self.closed(DAY.replace(LUNCH, changed), status=status)
+                self.assertError("an ingredient change needs a Meal")
+
+    def test_a_closed_day_still_fails_an_ingredient_change_on_a_meal_by_grams(self):
+        for status in ("closed", "auto-closed"):
+            with self.subTest(status=status):
+                self.closed(DAY.replace("[[Rice bowl]] = 1 portion, [[Skyr]]", "[[Rice bowl]] = 150 g, [[Skyr]]"), status=status)
+                self.assertError("an ingredient change is logged by portion")
+
+    def test_the_changed_food_link_must_resolve_to_a_food(self):
+        """The changed link is a Food link on every Day: a missing node and a node of
+        another type both fail, open or closed. What history frees is whether the
+        Meal still lists that Food, not whether the Food exists.
+        """
+        missing = DAY.replace("[[Skyr]] = 300 g", "[[Quark]] = 300 g")
+        other = DAY.replace("[[Skyr]] = 300 g", "[[Goals]] = 300 g")
+        self.day(missing)
+        self.assertError("names [[Quark]], which does not exist")
+        self.day(other)
+        self.assertError("names [[Goals]], a goals node, not a Food")
+        for status in ("closed", "auto-closed"):
+            with self.subTest(status=status):
+                self.closed(missing, status=status)
+                self.assertError("names [[Quark]], which does not exist")
+                self.closed(other, status=status)
+                self.assertError("names [[Goals]], a goals node, not a Food")
+
     # --- totals from the lines ------------------------------------------------------
 
     def test_totals_must_equal_the_sum_of_the_lines(self):

@@ -13,6 +13,7 @@ from decimal import Decimal
 
 from test_meal_day import BOWL, BULGUR, RICE, SKYR, BREAKFAST, DINNER, LUNCH, SNACK
 from vault_lint import (
+    check_entry_shape,
     compute_meal,
     entry_totals,
     matches_rounding,
@@ -122,6 +123,34 @@ class EntryTotalsTest(unittest.TestCase):
             entry_totals(MEAL, 150, "g", FOODS, ("Skyr", 300))
         with self.assertRaises(ValueError):
             entry_totals(MEAL, 1, "portion", FOODS, ("Bulgur", 300))
+
+
+class EntryShapeTest(unittest.TestCase):
+    """`check_entry_shape()` is the part of the entry rules that no later change to
+    a node can undo, so the Day check applies it to a closed Day as well (PR #31).
+    """
+
+    def test_the_canonical_shapes_pass(self):
+        check_entry_shape("food", "Rice", "g")
+        check_entry_shape("meal", "Rice bowl", "portion")
+        check_entry_shape("meal", "Rice bowl", "g")
+        check_entry_shape("meal", "Rice bowl", "portion", ("Skyr", 300), "food")
+
+    def test_a_food_is_logged_in_grams_and_carries_no_change(self):
+        with self.assertRaises(ValueError):
+            check_entry_shape("food", "Rice", "portion")
+        with self.assertRaises(ValueError):
+            check_entry_shape("food", "Rice", "g", ("Skyr", 300), "food")
+
+    def test_an_ingredient_change_is_a_meal_by_portion(self):
+        with self.assertRaises(ValueError):
+            check_entry_shape("meal", "Rice bowl", "g", ("Skyr", 300), "food")
+
+    def test_the_changed_link_is_a_food(self):
+        with self.assertRaises(ValueError):
+            check_entry_shape("meal", "Rice bowl", "portion", ("Quark", 300), None)
+        with self.assertRaises(ValueError):
+            check_entry_shape("meal", "Rice bowl", "portion", ("Rice bowl", 300), "meal")
 
 
 class ComputeMealTest(unittest.TestCase):
