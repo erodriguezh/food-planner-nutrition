@@ -192,6 +192,12 @@ class SpecMealDayTest(unittest.TestCase):
         self.assertIn("column order", rule)
         self.assertNotIn("not the bounds", self.day)
 
+    def test_the_verdict_names_each_macro_at_most_once(self):
+        """PR #32 review round 2, item 4: the spec states the one-entry-per-macro
+        rule the lint checks, because the weekly review counts these entries."""
+        rule = self.one_line_with(self.day, "A `high` macro is `over` in its bullet")
+        self.assertIn("at most once", rule)
+
     def test_the_goal_line_is_the_goals_snapshot_a_refresh_reuses(self):
         """PR #32 review round 2, item 2 and spec #22 story 13: an old closed Day
         keeps the goal comparison it used, so the refresh of a corrected Day
@@ -256,6 +262,9 @@ class GlossaryTest(unittest.TestCase):
         verdict = [line for line in glossary.split("\n") if line.startswith("- **Verdict**")][0]
         for macro in SUMMARY_MACROS:
             self.assertIn(f"`{macro}`", verdict)
+        # PR #32 review round 2, item 4: one entry per off macro, in the column order.
+        self.assertIn("at most once", verdict)
+        self.assertIn("column order", verdict)
         self.assertIn("`- <macro> <n> over|under`", glossary)
         self.assertIn("`Hint: ...`", glossary)
 
