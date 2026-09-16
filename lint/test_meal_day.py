@@ -937,6 +937,34 @@ class DayLintTest(LintCase):
         self.closed(DAY + SUMMARY.replace("- kcal 1193 under", "- kcal 1193 over"))
         self.assertError("kcal")
 
+    def test_a_goal_line_target_may_carry_decimals(self):
+        """Review item 5 on PR #32: Goals `kcal`, `protein_g`, `fat_g` and `carbs_g`
+        are `number`, not integer, so a target such as 135.5 P is valid and its
+        bullet carries the decimal gap. The bullet arithmetic is decimal, so 69
+        against 135.5 is exactly 66.5."""
+        decimals = SUMMARY.replace("Goal 2500 kcal, 135 P, 60 F, 355 C.", "Goal 2500.5 kcal, 135.5 P, 60 F, 355 C.") \
+            .replace("- kcal 1193 under", "- kcal 1193.5 under").replace("- protein 66 under", "- protein 66.5 under")
+        self.closed(DAY + decimals)
+        self.assertClean()
+        self.closed(DAY + decimals.replace("- protein 66.5 under", "- protein 66 under"))
+        self.assertError("protein")
+        # A whole target gives a whole gap: the gap has one spelling, the shortest.
+        self.closed(DAY + SUMMARY.replace("- protein 66 under", "- protein 66.0 under"))
+        self.assertError("protein")
+
+    def test_an_exact_hit_writes_zero_under_and_never_zero_over(self):
+        """Review item 7 on PR #32: for a macro that hits its target exactly the one
+        canonical bullet is `- <macro> 0 under`; `0 over` fails."""
+        # kcal sits on its target, so the verdict does not name kcal either.
+        exact = SUMMARY.replace("Goal 2500 kcal", "Goal 1307 kcal").replace("- kcal 1193 under", "- kcal 0 under") \
+            .replace("off target: kcal low, protein low", "off target: protein low")
+        self.closed(DAY + exact)
+        self.assertClean()
+        self.closed(DAY + exact.replace("- kcal 0 under", "- kcal 0 over"))
+        self.assertError("0 under")
+        self.closed(DAY + exact.replace("- kcal 0 under", "- kcal 0.0 under"))
+        self.assertError("0 under")
+
     def test_the_hint_is_optional_and_one_line(self):
         self.closed(DAY + SUMMARY.replace("Hint: more protein at lunch.\n", ""))
         self.assertClean()

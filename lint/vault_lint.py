@@ -41,9 +41,10 @@ Checks (v3):
   malformed line still fails, and it carries a `## Summary` in the fixed
   shape: the slot table whose rows equal the slot lines and whose TOTAL row
   equals the Day totals, with the `~` on every number exactly when the Day is
-  estimated, the goal line, four macro bullets against that goal line, the
-  verdict in the fixed words with directions that match the bullets, and at
-  most one `Hint:` line
+  estimated, the goal line, whose targets may carry a decimal, four macro
+  bullets against that goal line, each the gap in its shortest spelling and
+  without a sign, `0 under` for an exact hit, the verdict in the fixed words
+  with directions that match the bullets, and at most one `Hint:` line
 - exactly one Pantry node sits at nodes/pantry/Pantry.md
 - the Pantry node has `updated`, staples as `"[[Food]]"`, items as
   `"[[Food or Meal]]"` with a grams, portion or cooked-grams amount and an
@@ -110,7 +111,10 @@ SUMMARY_TABLE_HEADER = "| slot | kcal | P | F | C |"
 SUMMARY_TOTAL_ROW = "TOTAL"
 
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
-NUMBER_RE = re.compile(r"^-?\d+(\.\d+)?$")
+UNSIGNED_NUMBER_PATTERN = r"\d+(?:\.\d+)?"
+"""The number grammar of the vault as it reads inside a line: digits, at most
+one dot, no sign. `NUMBER_RE` adds the minus a frontmatter number may carry."""
+NUMBER_RE = re.compile(rf"^-?{UNSIGNED_NUMBER_PATTERN}$")
 WIKILINK_RE = re.compile(r"\[\[([^\]|#]+)(?:[|#][^\]]*)?\]\]")
 KEY_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*):(?:\s+(.*))?$")
 INDEX_LINK_LINE_RE = re.compile(r"^- \[\[([^\]]+)\]\](?: \| .*)?$")
@@ -121,11 +125,18 @@ PANTRY_ITEM_RE = re.compile(r"^\[\[([^\]|#]+)\]\](?: = ([^,]+?))?(?:, until (\d{
 FOOD_AMOUNT_RE = re.compile(r"^\d+(\.\d+)? g$")
 MEAL_AMOUNT_RE = re.compile(r"^\d+(\.\d+)? (portion|g cooked)$")
 HEADING_RE = re.compile(r"^(#{1,6})\s+(.*)$")
-INGREDIENT_RE = re.compile(r"^\[\[([^\]|#]+)\]\] = (\d+(?:\.\d+)?) g$")
+INGREDIENT_RE = re.compile(rf"^\[\[([^\]|#]+)\]\] = ({UNSIGNED_NUMBER_PATTERN}) g$")
 SUMMARY_ROW_RE = re.compile(r"^\| (\S+) \| (~?\d+) \| (~?\d+) \| (~?\d+) \| (~?\d+) \|$")
 SUMMARY_SEPARATOR_RE = re.compile(r"^\|( -+ \|)+$")
-SUMMARY_GOAL_RE = re.compile(r"^Goal (\d+) kcal, (\d+) P, (\d+) F, (\d+) C\.$")
-SUMMARY_BULLET_RE = re.compile(r"^- (kcal|protein|fat|carbs) (\d+) (over|under)$")
+# The goal line carries the four targets of the Goals node, and those are
+# `number`, not integer, so a target may have a decimal (review item 5 of
+# PR #32). The gap of a bullet follows the targets, so it takes the same
+# grammar. The lookahead keeps `0 over` out: a macro that hits its target
+# exactly has one canonical bullet, `- <macro> 0 under` (review item 7). The
+# bullet loop rejects `0 over` by its arithmetic too; the regex carries the
+# rule as well, because the spec test reads it as the bullet shape on its own.
+SUMMARY_GOAL_RE = re.compile(rf"^Goal ({UNSIGNED_NUMBER_PATTERN}) kcal, ({UNSIGNED_NUMBER_PATTERN}) P, ({UNSIGNED_NUMBER_PATTERN}) F, ({UNSIGNED_NUMBER_PATTERN}) C\.$")
+SUMMARY_BULLET_RE = re.compile(rf"^- (kcal|protein|fat|carbs) (?!0+(?:\.0+)? over$)({UNSIGNED_NUMBER_PATTERN}) (over|under)$")
 SUMMARY_VERDICT_RE = re.compile(r"^off target: ((?:kcal|protein|fat|carbs) (?:low|high)(?:, (?:kcal|protein|fat|carbs) (?:low|high))*)$")
 SUMMARY_HINT_PREFIX = "Hint: "
 # `- [[Name]] = <n> g|portion — <kcal> kcal · <P> P · <F> F · <C> C`, with an
@@ -1462,6 +1473,13 @@ def _check_summary(vault: Vault, node: Node, sections: Mapping[str, list[str]], 
     `Hint: ...` line. The verdict is `on target`, or `off target:` followed by
     each macro that is off with `low` or `high`.
 
+    A target on the goal line and the gap of a bullet take the canonical number
+    of the vault, `UNSIGNED_NUMBER_PATTERN`, so a Goals target of 135.5 P closes into a
+    valid Day; the table itself stays whole, because a Day entry line is
+    rounded whole. A gap is compared as text, so it has one spelling, the
+    shortest one; and a macro that hits its target exactly has one bullet,
+    `- <macro> 0 under`, never `0 over`.
+
     What the lint compares: a slot row equals the sum of that slot's entry
     lines, the TOTAL row equals the Day totals, every table number carries the
     `~` exactly when the Day is estimated, a bullet is the TOTAL against the
@@ -1532,11 +1550,14 @@ def _check_summary(vault: Vault, node: Node, sections: Mapping[str, list[str]], 
         line = lines[index] if index < len(lines) else ""
         match = SUMMARY_BULLET_RE.match(line)
         if not match or match.group(1) != macro:
-            vault.fail(node.rel, f"the `## Summary` has four bullets `- <macro> <n> over|under` in the order kcal, protein, fat, carbs; expected the {macro} bullet, got {line!r}")
-        amount, direction = _decimal(match.group(2)), match.group(3)
+            vault.fail(node.rel, f"the `## Summary` has four bullets `- <macro> <n> over|under` in the order kcal, protein, fat, carbs, an exact hit `0 under`; expected the {macro} bullet, got {line!r}")
         diff = totals[macro] - goals[macro]
-        if amount != abs(diff) or (diff > 0 and direction != "over") or (diff < 0 and direction != "under"):
-            want = f"{_num(abs(diff))} {'over' if diff > 0 else 'under'}"
+        # The gap is compared as text, so it has one spelling: the shortest
+        # one, `0` and not `0.0`, `66` and not `66.0`. `normalize()` drops the
+        # trailing zeros a target like `135.50` would otherwise put on the gap.
+        want = f"{_num(abs(diff).normalize())} {'over' if diff > 0 else 'under'}"
+        direction = match.group(3)
+        if f"{match.group(2)} {direction}" != want:
             vault.fail(node.rel, f"the `## Summary` {macro} bullet says {match.group(2)} {direction}, the TOTAL row against the goal line gives {want}: {line!r}")
         directions[macro] = direction
         index += 1
