@@ -38,15 +38,20 @@ Checks (v3):
   and carries no `## Summary`; a closed or auto-closed Day is history: the
   numbers and the mark of its lines stand as written, whatever its nodes say
   today, while the canonical shape of every line is still checked and a
-  malformed line still fails, and it carries a `## Summary` with the verdict
-  words
+  malformed line still fails, and it carries a `## Summary` in the fixed
+  shape: the slot table whose rows equal the slot lines and whose TOTAL row
+  equals the Day totals, with the `~` on every number exactly when the Day is
+  estimated, the goal line, whose targets may carry a decimal, four macro
+  bullets against that goal line, each the gap in its shortest spelling and
+  without a sign, `0 under` for an exact hit, the verdict in the fixed words
+  with directions that match the bullets, and at most one `Hint:` line
 - exactly one Pantry node sits at nodes/pantry/Pantry.md
 - the Pantry node has `updated`, staples as `"[[Food]]"`, items as
   `"[[Food or Meal]]"` with a grams, portion or cooked-grams amount and an
   optional `until` date; every link resolves by canonical name
 - ROUTER.md is under 500 tokens
-- state.md has its fields and names the one open Day; Open items holds no
-  unreviewed Food lines
+- state.md has its fields and names the one open Day, or is empty when no Day
+  is open; Open items holds no unreviewed Food lines
 - index.md has one section per node type and no line without a node; every
   Food has exactly one line with its category and all aliases plus the label
   name; every Meal has exactly one line with its slots (or `any`) and all
@@ -99,9 +104,21 @@ MEAL_OPTIONAL = ("aliases", "slots", "cooked_weight_g")
 MEAL_BODY_SECTIONS = ("Prepare", "Notes")
 DAY_REQUIRED = ("type", "name", "date", "status", "goal") + TOTALS + ("estimated",)
 DAY_BODY_SECTIONS = SLOT_HEADINGS + ("Summary", "Notes")
+# The Summary of a closed Day (#26): the macro words of its bullets and verdict,
+# in the column order of MACROS.
+SUMMARY_MACROS = ("kcal", "protein", "fat", "carbs")
+SUMMARY_TABLE_HEADER = "| slot | kcal | P | F | C |"
+SUMMARY_TOTAL_ROW = "TOTAL"
+# The table has five columns, so its separator row has one spelling (PR #32
+# review round 3, item 4). The lint error names this row, and only this row
+# passes: another cell count or another dash length is a different table.
+SUMMARY_SEPARATOR = "| --- | --- | --- | --- | --- |"
 
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
-NUMBER_RE = re.compile(r"^-?\d+(\.\d+)?$")
+UNSIGNED_NUMBER_PATTERN = r"\d+(?:\.\d+)?"
+"""The number grammar of the vault as it reads inside a line: digits, at most
+one dot, no sign. `NUMBER_RE` adds the minus a frontmatter number may carry."""
+NUMBER_RE = re.compile(rf"^-?{UNSIGNED_NUMBER_PATTERN}$")
 WIKILINK_RE = re.compile(r"\[\[([^\]|#]+)(?:[|#][^\]]*)?\]\]")
 KEY_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*):(?:\s+(.*))?$")
 INDEX_LINK_LINE_RE = re.compile(r"^- \[\[([^\]]+)\]\](?: \| .*)?$")
@@ -112,7 +129,27 @@ PANTRY_ITEM_RE = re.compile(r"^\[\[([^\]|#]+)\]\](?: = ([^,]+?))?(?:, until (\d{
 FOOD_AMOUNT_RE = re.compile(r"^\d+(\.\d+)? g$")
 MEAL_AMOUNT_RE = re.compile(r"^\d+(\.\d+)? (portion|g cooked)$")
 HEADING_RE = re.compile(r"^(#{1,6})\s+(.*)$")
-INGREDIENT_RE = re.compile(r"^\[\[([^\]|#]+)\]\] = (\d+(?:\.\d+)?) g$")
+INGREDIENT_RE = re.compile(rf"^\[\[([^\]|#]+)\]\] = ({UNSIGNED_NUMBER_PATTERN}) g$")
+SUMMARY_ROW_RE = re.compile(r"^\| (\S+) \| (~?\d+) \| (~?\d+) \| (~?\d+) \| (~?\d+) \|$")
+# The goal line carries the four targets of the Goals node, and those are
+# `number`, not integer, so a target may have a decimal (review item 5 of
+# PR #32). The gap of a bullet follows the targets, so it takes the same
+# grammar. The lookahead keeps `0 over` out: a macro that hits its target
+# exactly has one canonical bullet, `- <macro> 0 under` (review item 7). The
+# bullet loop rejects `0 over` by its arithmetic too; the regex carries the
+# rule as well, because the spec test reads it as the bullet shape on its own.
+# Every target carries the range it was judged against, `(<min>-<max>)`, the
+# stored `<macro>_min` and `<macro>_max` of the same Goals (PR #32 review round
+# 2, item 2). Targets and ranges together are the whole goal comparison of that
+# close, so a refresh rebuilds an old Summary from the line and never reads
+# today's Goals for it.
+_SUMMARY_GOAL_MACRO = rf"({UNSIGNED_NUMBER_PATTERN}) %s \(({UNSIGNED_NUMBER_PATTERN})-({UNSIGNED_NUMBER_PATTERN})\)"
+SUMMARY_GOAL_RE = re.compile(
+    "^Goal " + ", ".join(_SUMMARY_GOAL_MACRO % unit for unit in ("kcal", "P", "F", "C")) + r"\.$"
+)
+SUMMARY_BULLET_RE = re.compile(rf"^- (kcal|protein|fat|carbs) (?!0+(?:\.0+)? over$)({UNSIGNED_NUMBER_PATTERN}) (over|under)$")
+SUMMARY_VERDICT_RE = re.compile(r"^off target: ((?:kcal|protein|fat|carbs) (?:low|high)(?:, (?:kcal|protein|fat|carbs) (?:low|high))*)$")
+SUMMARY_HINT_PREFIX = "Hint: "
 # `- [[Name]] = <n> g|portion — <kcal> kcal · <P> P · <F> F · <C> C`, with an
 # optional `~ ` right after the bullet and an optional ingredient change
 # `, [[Food]] = <n> g` after the amount.
@@ -1401,19 +1438,22 @@ def check_days(vault: Vault) -> None:
         _check_enum(vault, node, "estimated", CHECKBOX_VALUES)
         headings = _check_body_sections(vault, node, DAY_BODY_SECTIONS)
         sections = _sections(node.body)
-        _check_summary(vault, node, sections)
         entries: list[Entry] = []
         exact_totals: list[dict] = []
+        slot_sums: dict[str, dict[str, Decimal]] = {}
         for heading in headings:
             if heading not in SLOT_HEADINGS:
                 continue
             lines = [line for line in sections[heading] if line.strip()]
             if not lines:
                 vault.fail(node.rel, f"`## {heading}` has no entry; a slot section is present only when it has an entry")
+            slot_entries = []
             for line in lines:
                 entry, exact = _check_entry_line(vault, node, heading, line, foods)
                 entries.append(entry)
+                slot_entries.append(entry)
                 exact_totals.append(exact)
+            slot_sums[heading.lower()] = {key: sum((_decimal(e.macros[key]) for e in slot_entries), Decimal(0)) for key in MACROS}
         for key in MACROS:
             want = sum(e.macros[key] for e in entries)
             if _decimal(data[key]) != want:
@@ -1422,6 +1462,7 @@ def check_days(vault: Vault) -> None:
         if data["estimated"] != want_estimated:
             reason = "an entry line carries the `~` mark" if want_estimated == "true" else "no entry line carries the `~` mark"
             vault.fail(node.rel, f"`estimated` is {data['estimated']!r} but {reason}; it must be {want_estimated}")
+        _check_summary(vault, node, sections, slot_sums)
         if data["status"] == "open":
             for key in NUTRIENTS:
                 # A decimal sum, so the total is exact and does not depend on
@@ -1431,13 +1472,42 @@ def check_days(vault: Vault) -> None:
                     vault.fail(node.rel, f"`{key}` is {data[key]!r}, the nodes give {round_food_value(exact)} for the entry lines")
 
 
-def _check_summary(vault: Vault, node: Node, sections: Mapping[str, list[str]]) -> None:
-    """The Summary lifecycle of spec #22: an open Day has none, a closed or
-    auto-closed Day has one and it carries the verdict in the fixed words.
+def _check_summary(vault: Vault, node: Node, sections: Mapping[str, list[str]], slot_sums: Mapping[str, Mapping[str, Decimal]]) -> None:
+    """The Summary lifecycle of spec #22 and the Summary shape of #26.
 
-    The verdict is `on target` when all four macros sit inside min and max,
-    else `off target:` and each macro that is off with `low` or `high`.
-    close-day writes it (ticket #26); the lint only sees the result.
+    An open Day has no Summary. A closed or auto-closed Day has one, and its
+    non-empty lines come in this fixed order: the slot table (the header
+    `| slot | kcal | P | F | C |`, one row per slot that has an entry, in the
+    slot order, then the `TOTAL` row), the goal line
+    `Goal <kcal> kcal (<min>-<max>), <P> P (<min>-<max>), <F> F (<min>-<max>),
+    <C> C (<min>-<max>).`, four bullets
+    `- <macro> <n> over|under` in the column order, the verdict, and at most one
+    `Hint: ...` line. The verdict is `on target`, or `off target:` followed by
+    each macro that is off with `low` or `high`, each macro at most once and in
+    the column order.
+
+    A target on the goal line and the gap of a bullet take the canonical number
+    of the vault, `UNSIGNED_NUMBER_PATTERN`, so a Goals target of 135.5 P closes into a
+    valid Day; the table itself stays whole, because a Day entry line is
+    rounded whole. A gap is compared as text, so it has one spelling, the
+    shortest one; and a macro that hits its target exactly has one bullet,
+    `- <macro> 0 under`, never `0 over`.
+
+    What the lint compares: a slot row equals the sum of that slot's entry
+    lines, the TOTAL row equals the Day totals, every table number carries the
+    `~` exactly when the Day is estimated, a bullet is the TOTAL against the
+    target of the goal line with the right direction, and the verdict is the
+    TOTAL row against the ranges of the same line: every macro under its min is
+    `low`, every one over its max is `high`, and nothing off reads `on target`.
+
+    The goal line is the Goals snapshot of the close, the targets it used and
+    the range each was judged against (PR #32 review round 2, item 2). It is
+    never compared with today's Goals, so a goal change leaves an old Day
+    valid, and a refresh of a corrected Day rebuilds its Summary from the
+    snapshot instead of today's targets (story 13 of #22). A range that does
+    not hold its own target is a broken snapshot and fails.
+    `routines/close-day.md` writes the text; the lint reads the result and runs
+    no routine of its own.
     """
     status = node.data["status"]
     if status == "open":
@@ -1446,11 +1516,115 @@ def _check_summary(vault: Vault, node: Node, sections: Mapping[str, list[str]]) 
         return
     if "Summary" not in sections:
         vault.fail(node.rel, f"a {status} Day needs a `## Summary` section with its table, the goal used and the verdict")
-    text = "\n".join(sections["Summary"])
-    if "on target" not in text and "off target:" not in text:
-        vault.fail(node.rel, "the `## Summary` needs the verdict in the fixed words `on target` or `off target: <macro> low|high`")
-    if "off target:" in text and not re.search(r"\b(low|high)\b", text):
-        vault.fail(node.rel, "an `off target:` verdict names each macro that is off with `low` or `high`")
+    lines = [line.strip() for line in sections["Summary"] if line.strip()]
+    marked = node.data["estimated"] == "true"
+
+    # The slot table.
+    if not lines or not lines[0].startswith("|"):
+        vault.fail(node.rel, f"the `## Summary` starts with the slot table `{SUMMARY_TABLE_HEADER}` and its TOTAL row")
+    if lines[0] != SUMMARY_TABLE_HEADER:
+        vault.fail(node.rel, f"the `## Summary` table header must be `{SUMMARY_TABLE_HEADER}`, got {lines[0]!r}")
+    rows = []
+    index = 1
+    if index >= len(lines) or lines[index] != SUMMARY_SEPARATOR:
+        vault.fail(node.rel, f"the `## Summary` table header is followed by its `{SUMMARY_SEPARATOR}` row")
+    index += 1
+    while index < len(lines) and lines[index].startswith("|"):
+        match = SUMMARY_ROW_RE.match(lines[index])
+        if not match:
+            vault.fail(node.rel, f"a `## Summary` table row is `| <slot or TOTAL> | <kcal> | <P> | <F> | <C> |` with whole numbers: {lines[index]!r}")
+        rows.append((match.group(1), match.groups()[1:], lines[index]))
+        index += 1
+    if not rows or rows[-1][0] != SUMMARY_TOTAL_ROW:
+        vault.fail(node.rel, "the `## Summary` table ends with its `| TOTAL | ... |` row")
+    want_slots = [slot for slot in SLOTS if slot in slot_sums]
+    seen_slots = [name for name, _, _ in rows[:-1]]
+    if seen_slots != want_slots:
+        if sorted(seen_slots) == sorted(want_slots):
+            vault.fail(node.rel, f"the `## Summary` slot rows must follow the slot order {want_slots}, got {seen_slots}")
+        vault.fail(node.rel, f"the `## Summary` has one row per slot with an entry, {want_slots}, got {seen_slots}")
+    for name, numbers, row in rows:
+        want = node.data if name == SUMMARY_TOTAL_ROW else slot_sums[name]
+        what = "the Day totals" if name == SUMMARY_TOTAL_ROW else f"the `## {name.capitalize()}` lines"
+        for key, text in zip(MACROS, numbers):
+            if text.startswith("~") != marked:
+                rule = "carries the `~` before every number" if marked else "carries no `~`"
+                vault.fail(node.rel, f"the Day is {'' if marked else 'not '}estimated, so the `## Summary` table {rule}: {row!r}")
+            if _decimal(text.lstrip("~")) != _decimal(want[key]):
+                vault.fail(node.rel, f"the `## Summary` {name} row says {key} {text}, {what} give {_num(want[key])}: {row!r}")
+    totals = {macro: _decimal(rows[-1][1][i].lstrip("~")) for i, macro in enumerate(SUMMARY_MACROS)}
+
+    # The goal line.
+    if index >= len(lines) or not lines[index].startswith("Goal"):
+        vault.fail(node.rel, "the `## Summary` table is followed by the goal line `Goal <kcal> kcal (<min>-<max>), <P> P (<min>-<max>), <F> F (<min>-<max>), <C> C (<min>-<max>).`")
+    line = lines[index]
+    match = SUMMARY_GOAL_RE.match(line)
+    if not match:
+        vault.fail(node.rel, f"the `## Summary` goal line is `Goal <kcal> kcal (<min>-<max>), <P> P (<min>-<max>), <F> F (<min>-<max>), <C> C (<min>-<max>).`: {lines[index]!r}")
+    # Three groups per macro, in the column order: the target and its range.
+    numbers = [_decimal(value) for value in match.groups()]
+    triples = [numbers[start:start + 3] for start in range(0, len(numbers), 3)]
+    goals, bounds = {}, {}
+    for macro, (target, low, high) in zip(SUMMARY_MACROS, triples):
+        if not low <= target <= high:
+            vault.fail(node.rel, f"the `## Summary` goal line gives {macro} the range {_num(low)} to {_num(high)}, which is no range around its target {_num(target)}: {line!r}")
+        goals[macro], bounds[macro] = target, (low, high)
+    index += 1
+
+    # The four macro bullets.
+    for macro in SUMMARY_MACROS:
+        line = lines[index] if index < len(lines) else ""
+        match = SUMMARY_BULLET_RE.match(line)
+        if not match or match.group(1) != macro:
+            vault.fail(node.rel, f"the `## Summary` has four bullets `- <macro> <n> over|under` in the order kcal, protein, fat, carbs, an exact hit `0 under`; expected the {macro} bullet, got {line!r}")
+        diff = totals[macro] - goals[macro]
+        # The gap is compared as text, so it has one spelling: the shortest
+        # one, `0` and not `0.0`, `66` and not `66.0`. `normalize()` drops the
+        # trailing zeros a target like `135.50` would otherwise put on the gap.
+        want = f"{_num(abs(diff).normalize())} {'over' if diff > 0 else 'under'}"
+        direction = match.group(3)
+        if f"{match.group(2)} {direction}" != want:
+            vault.fail(node.rel, f"the `## Summary` {macro} bullet says {match.group(2)} {direction}, the TOTAL row against the goal line gives {want}: {line!r}")
+        index += 1
+
+    # The verdict, recomputed from the TOTAL row against the stored bounds.
+    line = lines[index] if index < len(lines) else ""
+    off = []
+    for macro in SUMMARY_MACROS:
+        low, high = bounds[macro]
+        if totals[macro] < low:
+            off.append(f"{macro} low")
+        elif totals[macro] > high:
+            off.append(f"{macro} high")
+    # The off macros come in the column order, the order this loop found them,
+    # so the verdict of a Summary has one spelling.
+    want = "off target: " + ", ".join(off) if off else "on target"
+    match = SUMMARY_VERDICT_RE.match(line)
+    if line == "on target" or match:
+        if match:
+            # One entry per off macro: the weekly review counts these entries
+            # for its most common miss, so a macro named twice would inflate
+            # the count (PR #32 review round 2, item 4). The regex reads the
+            # entry shape; the repeat is counted here, where the message can
+            # name the macro. The column order is the comparison below.
+            named = [entry.split(" ", 1)[0] for entry in match.group(1).split(", ")]
+            repeated = [macro for macro in SUMMARY_MACROS if named.count(macro) > 1]
+            if repeated:
+                vault.fail(node.rel, f"an `off target:` verdict names each macro at most once, {', '.join(repeated)} is named more than once: {line!r}")
+        if line != want:
+            vault.fail(node.rel, f"the `## Summary` verdict says {line!r}, the TOTAL row against the goal line ranges gives {want!r}")
+    elif line.startswith("off target:"):
+        vault.fail(node.rel, f"an `off target:` verdict names each macro that is off, kcal, protein, fat or carbs, with `low` or `high`: {line!r}")
+    else:
+        vault.fail(node.rel, f"the `## Summary` bullets are followed by the verdict in the fixed words `on target` or `off target: <macro> low|high`, got {line!r}")
+    index += 1
+
+    # The optional hint, and nothing else.
+    rest = lines[index:]
+    if len(rest) > 1 or (rest and not rest[0].startswith(SUMMARY_HINT_PREFIX)):
+        if rest and rest[0].startswith(SUMMARY_HINT_PREFIX):
+            vault.fail(node.rel, f"the `## Summary` holds at most one `Hint: ...` line after the verdict, found {rest[1]!r}")
+        vault.fail(node.rel, f"after the verdict the `## Summary` holds one optional `Hint: ...` line and nothing else, found {rest[0]!r}")
 
 
 def _check_entry_line(vault: Vault, node: Node, heading: str, line: str, foods: Mapping[str, Mapping[str, object]]) -> tuple[Entry, dict]:

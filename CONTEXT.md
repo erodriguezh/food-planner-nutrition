@@ -54,8 +54,10 @@ Glossary of the domain language for this vault. Terms are defined once here and 
 - **Status**: the state of a Day. `open` (logs still come), `closed` (the user closed the day), `auto-closed` (a log for a later date closed it).
 - **Close the day**: the user's request that ends a Day. Writes the status and the summary.
 - **Auto-close**: a log whose date is later than the last open Day closes that Day and opens a new one.
-- **Summary**: the text written at close: totals per slot, the goal used, over or under per macro, and the verdict.
-- **Verdict**: fixed words at close. `on target` when all four macros are inside their range; otherwise `off target:` followed by each macro that is off and its direction (`low` or `high`).
+- **Summary**: the `## Summary` section written at close, in a fixed order: the slot table with one row per slot with an entry and a TOTAL row, the goal line with the targets used and the range each was judged against, one bullet per macro with its amount over or under the target, the verdict, and at most one hint. Every table number carries the estimation mark when the Day is estimated. A log into a closed Day rewrites it, after the entry and the Day totals.
+- **Verdict**: fixed words at close, one line of the Summary. `on target` when all four macros are inside the range the goal line stores for them; otherwise `off target:` followed by each macro that is off and its direction (`low` or `high`), comma separated, each macro at most once and in the column order. The macro words are `kcal`, `protein`, `fat`, `carbs`.
+- **Macro bullet**: one Summary line per macro, `- <macro> <n> over|under`, the day's total against the target used. Four per Summary, in the column order. The gap carries no sign, and it carries a decimal only when the target does. A macro that hits its target exactly writes `0 under`; `0 over` is not a shape.
+- **Hint**: the one optional last line of the Summary, `Hint: ...`, a pointer for tomorrow. Written only when useful; never an open item.
 - **Open slot**: a slot with no entry on the Day. Open slots are counted in the fixed slot order. The user can remove one in chat ("no snack today").
 - **Next slot**: the first open slot in order. The one slot a suggestion covers in full.
 - **Rebalance**: the act of computing what is left today and, on request, suggesting the next slot. Works from numbers only; there is no stored plan.
@@ -67,7 +69,7 @@ Glossary of the domain language for this vault. Terms are defined once here and 
 - **Target**: one daily number for calories, protein, fat or carbs. There are four targets and no variants per day type.
 - **Range**: the min and max stored per macro, computed from the target and the tolerance when the goal is set. Under min or over max is not an error; the agent states it and the user decides.
 - **Tolerance**: one percent applied to every target to build its range. Default 5.
-- **Goal change**: the user states a new target in chat. Range and tolerance are rewritten with it. The Goals node is edited; git keeps the old values. Each closed Day summary records the targets it used.
+- **Goal change**: the user states a new target in chat. Range and tolerance are rewritten with it. The Goals node is edited; git keeps the old values. Each closed Day summary records the targets and the ranges it used, and a refresh of that Day reuses them.
 - **Bound**: one end of a range, stored as `<macro>_min` or `<macro>_max`. Eight bounds per Goals node.
 - **Rounding rule**: how a computed number becomes the stored one. Goals bounds: whole number, a half rounds up, stated in `routines/goals.md` step 4. Food numbers: one decimal, a half rounds up, stated in `routines/create-food.md` step 3. Entry line macros and the kcal, protein, fat and carbs totals of a Meal or Day: whole number, a half rounds up; their fiber, sugar and salt: one decimal; stated in `routines/log.md` step 4. The lint applies all three rules; it reads the stored numbers as decimals and scales, divides and sums them as decimals, so a half the arithmetic itself produces still rounds up.
 
@@ -85,9 +87,10 @@ Glossary of the domain language for this vault. Terms are defined once here and 
 
 - **Review**: the agent's look-back over one calendar week, computed in chat from closed Days only. Nothing is stored. Started by meaning ("how was my week", "last week", "review"), never by a fixed phrase.
 - **Week**: Monday to Sunday. "This week" is the current week so far; "last week" is the previous full week. There is no rolling window.
-- **Days covered**: how many of the seven days have a closed Day, and how many of those were auto-closed. Missing days are skipped and stated, never guessed and never counted as off target. An open Day is not counted; the review says so in one line.
-- **Weekly average**: the per-day mean of each of the seven totals over the closed Days, shown against the target.
-- **Most common miss**: the macro and direction that appear most often in the week's verdicts, with the day count.
+- **Days covered**: how many of the eligible dates have a closed Day, and how many of those were auto-closed. Eligible dates are Monday to today for the current week and all of a past week; a date still to come is not one. A missing day is an eligible date with no Day node at all; missing days are stated, never guessed and never counted as off target. The week's open Day is not counted and not missing; the review names its date in one line.
+- **Weekly average**: the per-day mean of each of the seven totals over the closed Days, shown against the target. `~` before every number of the line when a counted Day is estimated.
+- **Days on target**: how many counted Days carry the verdict `on target`.
+- **Most common miss**: the macro and direction that appear most often in the week's verdicts, with the day count. A tie names each tied miss on the one line, the items `; ` apart, in the macro order `kcal`, `protein`, `fat`, `carbs`, with `low` before `high` inside one macro.
 
 ## Units
 

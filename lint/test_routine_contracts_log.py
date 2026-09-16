@@ -37,6 +37,13 @@ class RoutineTextTestCase(unittest.TestCase):
     def step(self, text: str, number: int) -> str:
         return self.one_line_with(text, f"{number}. ")
 
+    def number(self, line: str) -> int:
+        """The step number a routine line carries, so a test can pin the order
+        of two steps and not only their wording."""
+        match = re.match(r"^(\d+)\. ", line)
+        self.assertIsNotNone(match, line)
+        return int(match.group(1))
+
 
 class ShapeTest(unittest.TestCase):
     def test_the_three_routines_keep_the_five_sections_and_the_budget(self):
@@ -99,6 +106,30 @@ class LogRoutineTest(RoutineTextTestCase):
         order = [rule.index(slot) for slot in ("breakfast", "lunch", "snack", "dinner")]
         self.assertEqual(order, sorted(order), rule)
         self.assertIn("filled earlier: next in order", rule)
+        # Code review of round 3: the order of the words alone left the
+        # precedence to the reader, so the line says which one gives way.
+        self.assertIn("word, else clock", rule)
+
+    def test_the_meal_amount_form_is_stated_in_the_meal_step(self):
+        """PR #32 review round 3, item 1: the Meal amount rule belongs to the
+        routine that writes the entry. Round 2 parked it in hard rule 1 of
+        `ROUTER.md`; spec #22 gives the Router "grams only" and no schema
+        detail, so step 4, the Meal step, states the `portion` form again."""
+        rule = self.step(self.text, 4)
+        self.assertIn("`portion`", rule)
+        self.assertIn("Meal `portion` or g", rule)
+        # The grams form of a Food entry is the line shape of step 5.
+        self.assertIn("= <n> g", self.step(self.text, 5))
+
+    def test_the_router_hard_rule_carries_no_meal_schema_detail(self):
+        """PR #32 review round 3, item 1: the Router routes and states the hard
+        rules; a Meal amount form is schema detail of the entry line, so the
+        rule reads "grams only" and nothing about a Meal or a portion."""
+        router = read(VAULT / "ROUTER.md")
+        rule = self.one_line_with(router, "Grams only")
+        self.assertEqual(rule, "1. Grams only. Convert servings and ml before you write.")
+        for detail in ("portion", "Meal also"):
+            self.assertNotIn(detail, router)
 
     def test_a_slot_word_makes_the_meal_win(self):
         rule = self.one_line_with(self.text, "slot word")
@@ -124,12 +155,42 @@ class LogRoutineTest(RoutineTextTestCase):
         for phrase in ('"it was 200 g"', '"remove the snack"', '"yesterday I had'):
             self.assertIn(phrase, when)
 
-    def test_a_past_date_writes_into_its_day_and_a_closed_day_keeps_its_status(self):
-        """A log into a closed Day rewrites the Summary that close-day wrote and
-        leaves `status: closed` alone (story 54, owner feedback 6 on PR #31)."""
+    def test_step_1_names_a_closed_day_and_does_not_refresh_it(self):
+        """PR #32 review round 2, item 1. Step 1 invoked the close-day refresh
+        while the entry (step 5) and the Day totals (step 6) were still the old
+        ones, so the refresh rebuilt the Summary of the uncorrected Day. Step 1
+        only says which Day is written and that it is closed (story 54, owner
+        feedback 6 on PR #31); the older open Day still auto-closes here."""
         rule = self.step(self.text, 1)
         self.assertIn("past date: its Day", rule)
-        self.assertIn("closed Day: rewrite Summary, keep status, say so", rule)
+        self.assertIn("closed", rule)
+        self.assertIn("older open: auto-close", rule)
+        self.assertNotIn("refresh", rule)
+        self.assertNotIn("close-day", rule)
+
+    def test_the_refresh_runs_after_the_day_totals_are_rewritten(self):
+        """PR #32 review round 2, item 1: the order of the two steps is the fix.
+        The step that rewrites the Day totals comes before the step that invokes
+        the refresh, so the Summary is rebuilt from the corrected Day."""
+        steps = self.text.split("## Steps\n", 1)[1].split("\n## ", 1)[0]
+        totals = self.one_line_with(steps, "Rewrite Day totals")
+        refresh = self.one_line_with(steps, "`routines/close-day.md` refresh")
+        self.assertLess(self.number(totals), self.number(refresh))
+        self.assertLess(steps.index(totals), steps.index(refresh))
+
+    def test_the_refresh_rides_on_the_log_commit_and_the_reply_says_corrected(self):
+        """PR #32 review round 2, item 1: the refresh writes no commit of its
+        own, so the log keeps its one commit; `routines/close-day.md` pins the
+        rest of the refresh contract. The reply tells the user that a closed Day
+        was corrected, which the log alone would hide."""
+        write = self.text.split("## Write\n", 1)[1].split("\n## ", 1)[0]
+        self.assertEqual(write.count("commit"), 1)
+        self.assertNotIn("close-day:", self.text)
+        reply = self.text.split("## Reply\n", 1)[1]
+        self.assertIn("closed", reply)
+        self.assertIn("corrected", reply)
+        refresh = read(VAULT / "routines" / "close-day.md").split("Refresh:", 1)[1]
+        self.assertIn("no own commit", refresh)
 
     def test_one_fuzzy_hit_is_used_and_named(self):
         rule = self.step(self.text, 2)
@@ -195,6 +256,8 @@ class LogRoutineTest(RoutineTextTestCase):
         writes nothing to the Pantry, so both halves sit on the same line."""
         rule = self.one_line_with(self.text, "was that the last of X?")
         self.assertIn("never the Pantry", rule)
+        # Code review of round 3: "over:" had no referent; the amount has.
+        self.assertIn("over it", rule)
 
     def test_the_reply_names_the_slot_and_points_at_rebalance(self):
         """The reply of a log is the rebalance reply plus the slot and the mark.

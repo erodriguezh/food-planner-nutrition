@@ -1,0 +1,639 @@
+"""Contract tests for the close-day and review routine texts (#26).
+
+The routine files are what the agent reads at runtime. The lint judges the
+Summary a close leaves on disk; the rules it cannot see (the reply, the "ok"
+step, the review lines, what a routine writes) live in the routine text. These
+tests pin that text next to the lint constants, so the two cannot drift apart.
+
+Run: python3 -m unittest discover lint
+"""
+import re
+import unittest
+from collections import namedtuple
+from pathlib import Path
+
+from vault_lint import (
+    ROUTINE_SECTIONS,
+    ROUTINE_TOKEN_LIMIT,
+    SLOTS,
+    SUMMARY_BULLET_RE,
+    SUMMARY_GOAL_RE,
+    SUMMARY_HINT_PREFIX,
+    SUMMARY_MACROS,
+    SUMMARY_TABLE_HEADER,
+    SUMMARY_VERDICT_RE,
+    estimate_tokens,
+)
+
+VAULT = Path(__file__).resolve().parent.parent
+CLOSE_DAY = VAULT / "routines" / "close-day.md"
+REVIEW = VAULT / "routines" / "review.md"
+LOG = VAULT / "routines" / "log.md"
+
+# The three rules a tied `Most common miss` line follows, all read out of
+# `routines/review.md`: the macro order and the direction order of step 4, and
+# the separator of the Reply line.
+MissTieRules = namedtuple("MissTieRules", "macro_order direction_order separator")
+
+
+def render_most_common_miss(misses, rules):
+    """Render the review's `Most common miss` line from `(macro, direction, days)`
+    triples: the tied misses in the macro order, then in the direction order,
+    joined by the separator, and `none` when no Day missed.
+
+    The lint never gains a helper that runs a routine. This one lives in the test
+    file and holds no ordering of its own: every rule arrives in `rules`, read out
+    of `routines/review.md`, so the rendered examples below are the routine's own
+    shape rather than a second definition of it.
+    """
+    if not misses:
+        return "Most common miss: none"
+    order = sorted(misses, key=lambda miss: (rules.macro_order.index(miss[0]), rules.direction_order.index(miss[1])))
+    return "Most common miss: " + rules.separator.join(f"{macro} {direction}, {days} days" for macro, direction, days in order)
+
+
+def read(path: Path) -> str:
+    return path.read_text(encoding="utf-8")
+
+
+class RoutineTextTestCase(unittest.TestCase):
+    def one_line_with(self, text: str, needle: str) -> str:
+        hits = [line for line in text.split("\n") if needle in line]
+        self.assertEqual(len(hits), 1, f"expected exactly one line with {needle!r}, found {len(hits)}")
+        return hits[0]
+
+    def step(self, text: str, number: int) -> str:
+        return self.one_line_with(text, f"{number}. ")
+
+    def section(self, text: str, name: str) -> str:
+        after = text.split(f"## {name}\n", 1)[1]
+        return after.split("\n## ", 1)[0]
+
+
+class ShapeTest(unittest.TestCase):
+    def test_both_routines_keep_the_five_sections_and_the_budget(self):
+        for path in (CLOSE_DAY, REVIEW):
+            text = read(path)
+            headings = [line[3:].strip() for line in text.split("\n") if line.startswith("## ")]
+            self.assertEqual(headings, list(ROUTINE_SECTIONS), path.name)
+            self.assertLess(estimate_tokens(text), ROUTINE_TOKEN_LIMIT, path.name)
+
+    def test_both_routines_start_with_their_title(self):
+        self.assertTrue(read(CLOSE_DAY).startswith("# close-day\n\n"))
+        self.assertTrue(read(REVIEW).startswith("# review\n\n"))
+
+    def test_the_router_points_at_both_and_they_exist(self):
+        """ROUTER.md named the two files before they existed; now every routine
+        the router names is a file."""
+        router = read(VAULT / "ROUTER.md")
+        for name in re.findall(r"`routines/([a-z-]+)\.md`", router):
+            self.assertTrue((VAULT / "routines" / f"{name}.md").is_file(), name)
+        self.assertIn("`routines/close-day.md`", router)
+        self.assertIn("`routines/review.md`", router)
+
+    def test_the_router_names_every_close_day_mode(self):
+        """Code review of PR #32: the router line named the close and the
+        auto-close, the two modes of the day the routine had then. The refresh
+        is the third, so the line names it as the auto-close is named."""
+        router = read(VAULT / "ROUTER.md")
+        line = [one for one in router.split("\n") if "`routines/close-day.md`" in one]
+        self.assertEqual(len(line), 1, line)
+        for mode in ("closes the day", "auto-closes", "refresh"):
+            self.assertIn(mode, line[0])
+
+    def test_the_router_routes_the_bare_word_review(self):
+        """PR #32 review 4: the router line read "asks about the week" only, so
+        a bare "review" reached the review routine by guess. The line names the
+        word and the week, and `routines/review.md` keeps both triggers."""
+        router = read(VAULT / "ROUTER.md")
+        line = [one for one in router.split("\n") if "`routines/review.md`" in one]
+        self.assertEqual(len(line), 1, line)
+        self.assertIn('says "review"', line[0])
+        self.assertIn("week", line[0])
+        self.assertIn('"review"', self.section_when(read(REVIEW)))
+
+    def section_when(self, text: str) -> str:
+        return text.split("## When\n", 1)[1].split("\n\n", 1)[0]
+
+
+class CloseDayRoutineTest(RoutineTextTestCase):
+    def setUp(self):
+        self.text = read(CLOSE_DAY)
+        self.steps = self.section(self.text, "Steps")
+
+    def test_the_when_covers_the_request_and_the_auto_close(self):
+        when = self.section(self.text, "When")
+        self.assertIn('"close the day"', when)
+        self.assertIn("auto-close", when)
+
+    def test_the_read_names_the_foods_step_7_needs(self):
+        """PR #32 review 3: `## Read` said "The open Day, Goals." while step 7
+        needs the `reviewed` flag of the Foods eaten that day, which a logged
+        Meal only reaches through its own Foods. The Read section names both,
+        and the Day covers the open one and the older one of an auto-close."""
+        read_section = self.section(self.text, "Read").strip()
+        self.assertTrue(read_section.startswith("The Day, Goals"), read_section)
+        self.assertIn("`reviewed`", read_section)
+        # PR #32 review round 2, item 2: a refresh judges an old Day by the
+        # snapshot on the Day, so it never opens Goals.
+        self.assertIn("Goals (not refresh)", read_section)
+        self.assertIn("Foods", read_section)
+        self.assertIn("Meals", read_section)
+        # One short line: the vault opens as few files as it can.
+        self.assertEqual(len(read_section.split("\n")), 1, read_section)
+
+    def test_the_step_that_picks_the_day_reaches_every_mode(self):
+        """Code review of PR #32 item 2: a refresh runs on a closed Day with no
+        open Day, so step 1 has to name the Day of that mode as well, or the
+        agent stops at step 1 and never rebuilds the Summary. The When line
+        carries the trigger of every mode the Write section writes."""
+        rule = self.step(self.steps, 1)
+        self.assertIn("none: say so, stop", rule)
+        self.assertIn("refresh", rule)
+        when = self.section(self.text, "When")
+        for mode in ("auto-close", "refresh"):
+            self.assertIn(mode, when)
+
+    def test_the_write_names_one_status_per_close_mode_and_none_on_its_own(self):
+        """PR #32 review 1: step 1 wrote `status: auto-closed` while `## Write`
+        said `status: closed` for every close, so the file contradicted itself.
+        The statuses live in `## Write`, each in the clause of its own mode, and
+        no clause anywhere in the file names a status without its mode."""
+        write = self.section(self.text, "Write")
+        clauses = [clause.strip() for clause in re.split(r"[.;]", write) if "`status:" in clause]
+        by_status = {re.search(r"`status: (auto-closed|closed)`", clause).group(1): clause for clause in clauses}
+        self.assertEqual(set(by_status), {"closed", "auto-closed"}, write)
+        self.assertTrue(by_status["closed"].startswith("Close:"), by_status["closed"])
+        self.assertTrue(by_status["auto-closed"].startswith("Auto-close:"), by_status["auto-closed"])
+        self.assertIn("before the new Day", by_status["auto-closed"])
+        for clause in re.split(r"[.;]", self.text):
+            if "`status:" in clause:
+                self.assertRegex(clause.strip(), r"^(Close|Auto-close):", clause)
+
+    def test_both_close_modes_clear_the_open_day(self):
+        """Acceptance #26: the close clears `state.md` `open_day` in the same
+        commit, whichever mode wrote the status."""
+        write = self.section(self.text, "Write")
+        both = self.one_line_with(write, "Both:").split("Both:", 1)[1]
+        self.assertIn("`state.md`", both)
+        self.assertIn('`open_day: ""`', both)
+        self.assertIn("`close-day: <date> <verdict>`", both)
+
+    def test_the_refresh_mode_keeps_the_status_the_state_and_the_log_commit(self):
+        """PR #32 review 2: a log into a closed Day rebuilds the Summary through
+        this routine's `Refresh` mode, so the Summary algorithm is stated once.
+        Refresh keeps the `closed` or `auto-closed` status, leaves `state.md`
+        `open_day` as it is and writes no `close-day:` commit of its own."""
+        write = self.section(self.text, "Write")
+        refresh = write.split("Refresh:", 1)[1]
+        self.assertIn("Summary only", refresh)
+        self.assertIn("status", refresh)
+        self.assertIn("`open_day` stay", refresh)
+        self.assertIn("no own commit", refresh)
+        self.assertNotIn("`status:", refresh)
+        self.assertNotIn("close-day:", refresh)
+
+    def test_the_table_step_matches_the_lint_header_and_the_total_row(self):
+        rule = self.step(self.steps, 2)
+        self.assertIn(f"`{SUMMARY_TABLE_HEADER}`", rule)
+        self.assertIn("`| TOTAL | ... |`", rule)
+        self.assertIn("a row per filled slot in order", rule)
+        self.assertIn("Day totals", rule)
+
+    def test_the_mark_goes_on_every_table_number_of_an_estimated_day(self):
+        rule = self.step(self.steps, 2)
+        self.assertIn("`estimated: true`", rule)
+        self.assertIn("`~` before every number", rule)
+
+    def test_the_goal_line_shape_and_the_range_of_every_target_parse(self):
+        """PR #32 review round 2, item 2: the goal line carries the four targets
+        and, after each one, the range it is judged against, so the line the step
+        describes is the line the lint takes."""
+        rule = self.step(self.steps, 3)
+        shape = re.search(r"`(Goal .*?C\.)`", rule).group(1)
+        self.assertIn("` (<min>-<max>)` after each unit", rule)
+        line = shape.replace("<kcal>", "2500").replace("<P>", "135").replace("<F>", "60").replace("<C>", "355")
+        # the step puts the range after each unit, so the test builds it there
+        for unit, span in (("kcal", "2375-2625"), ("P", "128-142"), ("F", "57-63"), ("C", "337-373")):
+            line = line.replace(f" {unit}", f" {unit} ({span})", 1)
+        self.assertIsNotNone(SUMMARY_GOAL_RE.match(line), line)
+
+    def test_refresh_keeps_historical_goals_snapshot(self):
+        """PR #32 review round 2, item 2, the routine half of the seam.
+
+        Spec #22 story 13: an old closed Day keeps the goal comparison it was
+        closed with. The refresh rebuilds the Summary of a corrected Day from
+        the goal line that Day already carries, so it reads Goals for a close
+        and an auto-close only, and it still leaves the status and the State
+        alone. The file half is `test_refresh_keeps_historical_goals_snapshot`
+        in `lint/test_meal_day.py`, which the lint checks on disk.
+        """
+        self.assertIn("Goals (not refresh)", self.section(self.text, "Read"))
+        self.assertIn("` (<min>-<max>)`", self.step(self.steps, 3))
+        self.assertIn("stored min-max", self.step(self.steps, 5))
+        refresh = self.section(self.text, "Write").split("Refresh:", 1)[1]
+        for needle in ("Summary only", "goal line kept", "status", "`open_day` stay", "no own commit"):
+            self.assertIn(needle, refresh)
+        self.assertNotIn("Goals", refresh)
+
+    def test_the_four_bullets_name_the_lint_macro_words_in_order(self):
+        rule = self.step(self.steps, 4)
+        self.assertIn("Four bullets", rule)
+        self.assertIn("`- <kcal|protein|fat|carbs> <n> over|under`", rule)
+        self.assertIn("in order", rule)
+        self.assertIn("no sign", rule)
+        for macro in SUMMARY_MACROS:
+            self.assertIsNotNone(SUMMARY_BULLET_RE.match(f"- {macro} 12 under"), macro)
+
+    def test_the_gap_spelling_and_the_exact_hit_match_the_lint(self):
+        """Review items 5 and 7 on PR #32: the lint takes one spelling of the
+        gap, the shortest, with a decimal only when the target has one, and one
+        word at zero. Step 4 says both, so the agent writes what the lint takes."""
+        rule = self.step(self.steps, 4)
+        self.assertIn("`0 under`", rule)
+        self.assertIn("the target's decimals only", rule)
+        self.assertIsNotNone(SUMMARY_BULLET_RE.match("- kcal 0 under"))
+        self.assertIsNone(SUMMARY_BULLET_RE.match("- kcal 0 over"))
+        self.assertIsNotNone(SUMMARY_BULLET_RE.match("- protein 66.5 under"))
+
+    def test_the_verdict_words_are_the_fixed_ones(self):
+        """Acceptance #26: `on target` when all four macros sit inside the stored
+        bounds, else `off target:` with each off macro and its direction. The
+        bounds are the ranges of the goal line (PR #32 review round 2, item 2)."""
+        rule = self.step(self.steps, 5)
+        self.assertIn("`on target`", rule)
+        self.assertIn("inside the stored min-max", rule)
+        self.assertIn("`off target: <macro> low|high`", rule)
+        self.assertIn("one per off macro", rule)
+        # The comma between two off macros is the lint regex and the glossary
+        # Verdict term; the routine budget paid for the refresh mode with it.
+        self.assertIsNotNone(SUMMARY_VERDICT_RE.match("off target: protein low, fat high"))
+        self.assertIn("comma separated", read(VAULT / "CONTEXT.md"))
+
+    def test_the_hint_is_one_optional_last_line(self):
+        rule = self.step(self.steps, 6)
+        self.assertIn(f"`{SUMMARY_HINT_PREFIX}<one line>`", rule)
+        self.assertIn("Last line", rule)
+        self.assertIn("when useful", rule)
+
+    def test_unreviewed_foods_are_named_and_one_ok_reviews_them_all(self):
+        """Acceptance #26: the reply ends with one line naming unreviewed Foods
+        eaten today; "ok" reviews them all."""
+        rule = self.step(self.steps, 7)
+        self.assertIn("Name the Day's unreviewed Foods", rule)  # the Day of step 1, which an auto-close or a refresh closes for a past date
+        self.assertIn('"ok": `reviewed: true` on all', rule)
+        self.assertIn("commit `close-day: reviewed <names>`", rule)
+
+    def test_the_write_closes_clears_and_commits_in_one_step(self):
+        """Acceptance #26: the Summary, the status, the cleared State and the
+        commit are one step. The one `close-day:` commit message is named once;
+        the second "commit" is the refresh saying it writes none."""
+        write = self.section(self.text, "Write")
+        for needle in ("`## Summary`", "`status: closed`", "`state.md`", '`open_day: ""`', "`updated`", "`close-day: <date> <verdict>`"):
+            self.assertIn(needle, write)
+        self.assertEqual(write.count("`close-day: <date> <verdict>`"), 1)
+
+    def test_the_reply_has_the_table_the_verdict_the_hint_and_the_unreviewed_line(self):
+        """The reply repeats what the steps built, so it names them instead of
+        restating their shape; the `~` of an estimated Day rides on the table of
+        step 2."""
+        reply = self.section(self.text, "Reply")
+        for needle in ("Steps 2, 5-7", "none: no line"):
+            self.assertIn(needle, reply)
+
+    def test_a_log_into_a_closed_day_points_at_the_close_day_refresh(self):
+        """PR #32 review 2: `routines/log.md` names the refresh path of this
+        file, so the Summary algorithm lives here only. Review round 2, item 1
+        moved that pointer out of step 1 and behind the step that rewrites the
+        Day totals; `lint/test_routine_contracts_log.py` pins the order."""
+        log = read(LOG)
+        self.assertIn("`routines/close-day.md` refresh", log)
+        for shape in ("| slot |", "over|under", "on target"):
+            self.assertNotIn(shape, log)
+
+
+class ReviewRoutineTest(RoutineTextTestCase):
+    def setUp(self):
+        self.text = read(REVIEW)
+        self.steps = self.section(self.text, "Steps")
+
+    def test_the_when_has_the_three_meanings(self):
+        when = self.section(self.text, "When")
+        for phrase in ('"how was my week"', '"last week"', '"review"'):
+            self.assertIn(phrase, when)
+
+    def test_the_week_is_monday_to_sunday(self):
+        """PR #32 review round 4: the tie shape of `Most common miss` was paid
+        for with "no rolling window" and "future dates never missing", both
+        restatements of "Monday to Sunday" plus the eligible dates of step 1.
+        `docs/spec/nodes.md` and `CONTEXT.md` keep the two phrases and
+        `lint/test_spec_meal_day.py` pins them there."""
+        rule = self.step(self.steps, 1)
+        self.assertIn("Monday to Sunday", rule)
+        self.assertIn('"last week" the previous one', rule)
+
+    def test_the_denominator_is_the_eligible_dates_not_seven(self):
+        """PR #32 review 6: "this week" is Monday to today, so a Wednesday
+        review has three eligible dates, not seven, and the reply prints that
+        number. A date still to come is never reported as missing."""
+        rule = self.step(self.steps, 1)
+        self.assertIn("Eligible dates", rule)
+        self.assertIn("this week Monday to today", rule)
+        self.assertIn("last week all seven", rule)
+        days = self.one_line_with(self.section(self.text, "Reply"), "`Days:")
+        self.assertIn("of <eligible> closed", days)
+        self.assertNotIn("of 7", self.text)
+
+    def test_a_week_with_no_closed_day_has_a_fixed_shape(self):
+        """PR #32 review 6: with nothing counted the average has no divisor, so
+        the routine fixes the three lines instead of dividing by zero."""
+        rule = self.step(self.steps, 5)
+        for shape in ("`Average: n/a`", "`On target: 0 of 0`", "`Most common miss: none`"):
+            self.assertIn(shape, rule)
+
+    def test_only_closed_days_count_and_the_open_day_gets_one_line(self):
+        """PR #32 review round 2, item 3: the step used to count "`status:
+        closed` and `auto-closed` Days only" and then call a date with no such
+        Day missing, which made the one open Day open and missing at once.
+        The three sets are separate now; OpenDayIsNotAMissingDayTest pins them."""
+        rule = self.step(self.steps, 2)
+        self.assertIn("Counted: eligible `closed`/`auto-closed` Days", rule)
+        self.assertIn("never counted, one line with its date", rule)
+        self.assertIn("Missing: eligible dates with no Day node", rule)
+        self.assertIn("state them, never guess", rule)
+
+    def test_the_average_is_the_mean_of_the_seven_totals(self):
+        """PR #32 review round 3, item 2: spec #22 asks for "averages of the
+        seven totals" and `CONTEXT.md` defines the weekly average that way, so
+        the step divides all seven, not the four macros the Target line has."""
+        rule = self.step(self.steps, 3)
+        self.assertIn("Average per day", rule)
+        self.assertIn("seven totals", rule)
+        # The rounding rule is stated once, in log.md step 4; this routine points there.
+        self.assertIn("`routines/log.md` step 4", rule)
+        self.assertNotIn("half up", self.text)
+
+    def test_the_average_line_carries_the_seven_totals_and_the_target_the_four(self):
+        """PR #32 review round 3, item 2: the Average line printed the four
+        macros only. It carries the seven totals of the Day node; the Target
+        line keeps the four, because Goals holds no fiber, sugar or salt
+        target. The three added labels are the node keys without `_g`."""
+        reply = self.section(self.text, "Reply")
+        average = self.one_line_with(reply, "`Average: <")
+        target = self.one_line_with(reply, "`Target: <")
+        shape = average.split("`")[1]
+        labels = [part.split(" ", 1)[1] for part in shape.split(": ", 1)[1].split(" · ")]
+        self.assertEqual(labels, ["kcal", "P", "F", "C", "fiber", "sugar", "salt"])
+        self.assertIn("<kcal> kcal · <P> P · <F> F · <C> C", target)
+        for label in ("fiber", "sugar", "salt"):
+            self.assertNotIn(label, target)
+
+    def test_the_mark_sits_before_every_number_of_the_average_line(self):
+        """PR #32 review round 3, item 2: "`~` on the average" left the position
+        open. The Reply fixes one shape and takes it from the close-day table
+        rule: `~` before every number of the line."""
+        average = self.one_line_with(self.section(self.text, "Reply"), "`Average: <")
+        self.assertIn("counted Day estimated", average)
+        self.assertIn("`~` before every number", average)
+        # The clause is a note on the shape, not output: it sits in brackets.
+        self.assertRegex(average, r"\(counted Day estimated: `~` before every number\)$")
+        # The position is stated once: the Steps hold no mark of their own.
+        self.assertNotIn("`~`", self.steps)
+        table = self.one_line_with(read(CLOSE_DAY), "`~` before every number")
+        self.assertIn("`estimated: true`", table)
+
+    def test_days_on_target_and_the_most_common_miss_come_from_the_verdicts(self):
+        rule = self.one_line_with(self.steps, "4. Days on target")
+        self.assertIn("verdicts reading `on target`", rule)
+        self.assertIn("Most common miss", rule)
+        # PR #32 review round 5: `top ... day count` is the selection rule itself.
+        # The routine states it, because the agent never reads the spec in daily use.
+        self.assertIn("top `<macro> low|high`, day count", rule)
+        # PR #32 review rounds 4 and 5: both tie orders sit next to the selection rule.
+        self.assertIn("ties: kcal>protein>fat>carbs, low>high", rule)
+
+    def test_the_review_writes_nothing(self):
+        """Acceptance #26: the review writes nothing."""
+        write = self.section(self.text, "Write")
+        self.assertTrue(write.strip().startswith("Nothing"), write)
+        self.assertIn("no commit", write)
+        self.assertNotIn("state.md", self.text)
+
+    def test_the_reply_is_the_fixed_lines_under_ten(self):
+        """The four fixed review lines: days covered with the auto-closed count,
+        the average against the target on two lines, days on target, the most
+        common miss; plus the one line for the week's open Day."""
+        reply = self.section(self.text, "Reply")
+        self.assertIn("Under ten lines", reply)
+        fixed = [line for line in reply.split("\n") if line.startswith("`")]
+        self.assertLess(len(fixed), 10)
+        starts = [line.split(":")[0].lstrip("`") for line in fixed]
+        self.assertEqual(starts[:5], ["Days", "Average", "Target", "On target", "Most common miss"])
+        self.assertIn("auto-closed", fixed[0])
+        self.assertIn("missing", fixed[0])
+        self.assertIn("`<date> is open and not counted.`", reply)
+        for line in fixed[1:3]:
+            self.assertIn("<kcal> kcal · <P> P · <F> F · <C> C", line)
+        # A week with counted Days and no miss still prints one fixed shape.
+        miss = self.one_line_with(reply, "`Most common miss: <macro>")
+        self.assertIn("` or `none`", miss)
+
+
+class SlotOrderTest(unittest.TestCase):
+    def test_the_lint_slot_order_is_the_one_the_routines_use(self):
+        self.assertEqual(SLOTS, ("breakfast", "lunch", "snack", "dinner"))
+
+
+class OpenDayIsNotAMissingDayTest(RoutineTextTestCase):
+    """PR #32 review round 2, item 3: an open Day is not a missing Day.
+
+    Step 2 defined a missing day as an eligible date with no closed or
+    auto-closed Day, so the one open Day of the week landed in the missing
+    list and in the open line at once. The routine names three sets now:
+    counted, open and missing.
+
+    Worked example A: Monday and Tuesday closed, Wednesday open, review run
+    on Wednesday. Eligible dates are Monday to Wednesday, so the reply reads
+    `Days: 2 of 3 closed, ... missing none` plus the open line for Wednesday.
+
+    Worked example B: Monday and Tuesday closed, Wednesday still open,
+    review run on Thursday before any Thursday log arrived. Wednesday is
+    reported open and not counted, Thursday is missing because it has no Day
+    node, and Wednesday never appears in the missing list as well.
+    """
+
+    NODES_SPEC = VAULT / "docs" / "spec" / "nodes.md"
+    GLOSSARY = VAULT / "CONTEXT.md"
+
+    def setUp(self):
+        self.text = read(REVIEW)
+        self.steps = self.section(self.text, "Steps")
+        self.rule = self.step(self.steps, 2)
+        for term in ("Counted:", "Open:", "Missing:"):
+            self.assertIn(term, self.rule, "step 2 names the three sets")
+        self.counted, rest = self.rule.split("Open:", 1)
+        self.open_set, self.missing = rest.split("Missing:", 1)
+
+    def test_missing_means_no_day_node_at_all(self):
+        """A date with a `status: open` Day has a Day node, so it is not
+        missing. The old wording "no such Day" read back to the closed and
+        auto-closed statuses of the sentence before it, and any rewording that
+        names a status again brings the defect back."""
+        self.assertIn("no Day node", self.missing)
+        self.assertNotIn("no such Day", self.text)
+        for status in ("closed", "auto-closed", "open", "status"):
+            self.assertNotIn(status, self.missing)
+
+    def test_counted_open_and_missing_are_three_separate_definitions(self):
+        for term in ("Counted:", "Open:", "Missing:"):
+            self.assertIn(term, self.rule)
+        self.assertIn("`closed`", self.counted)
+        self.assertIn("`auto-closed`", self.counted)
+        self.assertNotIn("`open`", self.counted)
+        self.assertIn("`open`", self.open_set)
+        self.assertIn("never counted", self.open_set)
+
+    def test_the_open_day_of_the_week_need_not_be_today(self):
+        """No later log may have arrived to auto-close it, so the open Day can
+        be an earlier date of the week (worked example B). Neither the step nor
+        the reply line may call it today."""
+        self.assertIn("the week's `open` Day", self.open_set)
+        self.assertIn("one line with its date", self.open_set)
+        self.assertNotIn("today", self.open_set.lower())
+        open_line = self.one_line_with(self.section(self.text, "Reply"), "is open and not counted")
+        self.assertEqual(open_line, "`<date> is open and not counted.`")
+
+    def test_the_open_day_is_reported_once_and_never_in_the_missing_dates(self):
+        """Worked example A: Wednesday is open, so `Days: 2 of 3 closed` counts
+        two of the three eligible dates, `missing` reads none, and the open
+        line carries Wednesday. The open Day appears in one place only."""
+        days = self.one_line_with(self.section(self.text, "Reply"), "`Days:")
+        self.assertIn("of <eligible> closed", days)
+        self.assertIn("missing <dates|none>", days)
+        self.assertNotIn("open", days)
+        self.assertEqual(self.text.count("is open and not counted"), 1)
+
+    def test_step_1_maps_each_trigger_phrase_to_a_week(self):
+        """"how was my week" and a bare "review" mean the current week, and
+        "last week" means the previous Monday to Sunday week."""
+        head = self.step(self.steps, 1).split("Eligible dates", 1)[0]
+        self.assertIn("Monday to Sunday", head)
+        self.assertIn('"how was my week"', head)
+        self.assertIn('"review"', head)
+        self.assertIn("this week", head)
+        self.assertIn('"last week" the previous one', head)
+
+    def test_the_spec_and_the_glossary_define_a_missing_day_the_same_way(self):
+        """`docs/spec/nodes.md` and `CONTEXT.md` are the ubiquitous language,
+        so both must keep the open Day out of the missing days too."""
+        review = self.section(read(self.NODES_SPEC).replace("### Review", "## Review"), "Review")
+        self.assertIn("no Day node at all", review)
+        self.assertIn("never also missing", review)
+        covered = self.one_line_with(read(self.GLOSSARY), "- **Days covered**")
+        self.assertIn("no Day node at all", covered)
+        self.assertIn("not missing", covered)
+
+
+class MostCommonMissTieTest(RoutineTextTestCase):
+    """The contract: `Most common miss` is one reply line, and step 4 of
+    `routines/review.md` carries every rule that renders it: the miss with the
+    highest day count, tied misses in the macro order `kcal>protein>fat>carbs`
+    and, inside one macro, in the direction order `low>high`, the items `; `
+    apart, `none` when no Day missed.
+
+    PR #32 review round 5: the direction order lived in `docs/spec/nodes.md` and
+    in a constant of this file only, so a contract test knew an ordering the
+    routine the agent reads did not. Every rule below is parsed out of the
+    routine text, so a step that drops one fails here. Issue #28 seeds an
+    acceptance run that asserts the line, so the examples are literal.
+    """
+
+    def setUp(self):
+        self.text = read(REVIEW)
+        self.steps = self.section(self.text, "Steps")
+        self.reply = self.section(self.text, "Reply")
+        self.rule = self.one_line_with(self.steps, "4. Days on target")
+        self.shape = self.one_line_with(self.reply, "`Most common miss:")
+        macro_order, direction_order = self.orders_of(self.rule)
+        self.item, separator = self.item_and_separator_of(self.shape)
+        self.rules = MissTieRules(macro_order, direction_order, separator)
+
+    def orders_of(self, rule):
+        """Read the macro order and the direction order out of step 4. A step
+        that drops either one fails here with the step quoted instead of raising
+        out of the whole class."""
+        match = re.search(r"ties: ([a-z>]+), ([a-z>]+)\.", rule)
+        self.assertIsNotNone(match, f"step 4 states no tie order: {rule!r}")
+        return tuple(match.group(1).split(">")), tuple(match.group(2).split(">"))
+
+    def item_and_separator_of(self, shape):
+        """Split the Reply line `Most common miss: <item>[<separator><item>]` into
+        the one-miss item and the separator a tie puts before the next item."""
+        self.assertIn("[", shape, f"the Reply line shows no tie: {shape!r}")
+        line = shape.split("`")[1]
+        head, repeat = line.split("[", 1)
+        self.assertTrue(repeat.endswith("]"), shape)
+        item = head.split(": ", 1)[1]
+        repeat = repeat[:-1]
+        self.assertTrue(repeat.endswith(item), "a tie repeats the one-miss item as it stands")
+        return item, repeat[: -len(item)]
+
+    def render(self, misses):
+        return render_most_common_miss(misses, self.rules)
+
+    def test_the_reply_repeats_the_one_miss_item_after_the_separator(self):
+        """PR #32 review round 5: the rendered examples are only worth as much as
+        the three rules they read out of the routine: the `; ` separator of the
+        Reply and the two orders of step 4."""
+        self.assertEqual(self.item, "<macro> <low|high>, <n> days")
+        self.assertEqual(self.rules.separator, "; ")
+        self.assertEqual(self.rules.macro_order, SUMMARY_MACROS)
+        self.assertEqual(self.rules.macro_order, ("kcal", "protein", "fat", "carbs"))
+        self.assertEqual(self.rules.direction_order, ("low", "high"))
+
+    def test_one_most_common_miss_keeps_the_single_item_shape(self):
+        """PR #32 review round 5: one miss keeps the item shape, no separator."""
+        self.assertEqual(self.render([("protein", "low", 3)]), "Most common miss: protein low, 3 days")
+
+    def test_a_two_way_tie_names_both_in_the_macro_order(self):
+        """PR #32 review round 5: the input order is the tally order, never the
+        reply order, so the macro order of step 4 sorts it."""
+        self.assertEqual(
+            self.render([("protein", "low", 2), ("kcal", "low", 2)]),
+            "Most common miss: kcal low, 2 days; protein low, 2 days",
+        )
+
+    def test_a_four_way_tie_names_all_four_macros(self):
+        """PR #32 review round 5: four tied macros stay on the one line."""
+        self.assertEqual(
+            self.render([("carbs", "high", 2), ("fat", "low", 2), ("kcal", "high", 2), ("protein", "low", 2)]),
+            "Most common miss: kcal high, 2 days; protein low, 2 days; fat low, 2 days; carbs high, 2 days",
+        )
+
+    def test_a_tie_inside_one_macro_keeps_low_before_high(self):
+        """PR #32 review round 5: the macro order alone leaves `protein low` and
+        `protein high` unordered. The routine states `low>high` in step 4, so the
+        direction order is read out of the routine here, not held as a constant of
+        this file; `docs/spec/nodes.md` and `CONTEXT.md` keep the same order in
+        words and `lint/test_spec_meal_day.py` pins those sentences."""
+        self.assertEqual(
+            self.render([("protein", "high", 2), ("protein", "low", 2)]),
+            "Most common miss: protein low, 2 days; protein high, 2 days",
+        )
+
+    def test_every_day_on_target_reads_none(self):
+        """PR #32 review round 5: no miss reads `none`, never an empty line."""
+        self.assertEqual(self.render([]), "Most common miss: none")
+
+    def test_the_reply_holds_one_most_common_miss_line_and_stays_six_lines(self):
+        """A tie never adds a second `Most common miss` line, so the reply keeps
+        its six lines and stays under the ten-line limit."""
+        self.assertEqual(self.reply.count("Most common miss"), 1)
+        lines = [line for line in self.reply.split("\n") if line.startswith("`")]
+        self.assertEqual(len(lines), 6)
+        self.assertLess(len(lines), 10)
+        self.assertEqual(self.shape.count("\n"), 0)
+
+
+if __name__ == "__main__":
+    unittest.main()
