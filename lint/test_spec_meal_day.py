@@ -154,6 +154,25 @@ class SpecMealDayTest(unittest.TestCase):
         self.assertEqual(len(hint), 1, hint)
         self.assertTrue(hint[0].startswith(SUMMARY_HINT_PREFIX), hint)
 
+    def test_the_bullet_shape_itself_rejects_zero_over(self):
+        """Review item 7 on PR #32: `SUMMARY_BULLET_RE` is the bullet shape the spec
+        example is read against, so the shape rejects `0 over` on its own, without
+        the arithmetic of the bullet loop."""
+        for line in ("- kcal 0 over", "- protein 0.0 over"):
+            self.assertIsNone(SUMMARY_BULLET_RE.match(line), line)
+        for line in ("- kcal 0 under", "- protein 66.5 under", "- carbs 106 over"):
+            self.assertIsNotNone(SUMMARY_BULLET_RE.match(line), line)
+
+    def test_the_goal_and_gap_number_grammar_and_the_exact_hit_are_stated(self):
+        """Review items 5 and 7 on PR #32: a Goals target is a `number`, so the goal
+        line and the gap of a bullet may carry a decimal, and a macro that hits its
+        target exactly has one bullet, `- <macro> 0 under`."""
+        rule = self.one_line_with(self.day, "`- <macro> 0 under`")
+        self.assertIn("135.5", rule)
+        self.assertIn("`0 over` fails", rule)
+        self.assertIn("no sign", rule)
+        self.assertIn("the table numbers stay whole", rule)
+
     def test_the_mark_and_the_goal_change_rules_are_stated_for_the_summary(self):
         rule = self.one_line_with(self.day, "a plain Day carries none")
         self.assertIn("exactly when the Day is estimated", rule)
@@ -198,6 +217,16 @@ class GlossaryTest(unittest.TestCase):
             self.assertIn(f"`{macro}`", verdict)
         self.assertIn("`- <macro> <n> over|under`", glossary)
         self.assertIn("`Hint: ...`", glossary)
+
+    def test_the_macro_bullet_term_states_the_exact_hit_and_the_decimal_gap(self):
+        """Review items 5 and 7 on PR #32: the glossary is the ubiquitous language, so
+        the Macro bullet line carries the `0 under` rule and the decimal gap."""
+        glossary = read(GLOSSARY)
+        bullet = [line for line in glossary.split("\n") if line.startswith("- **Macro bullet**")][0]
+        self.assertIn("`0 under`", bullet)
+        self.assertIn("`0 over`", bullet)
+        self.assertIn("decimal", bullet)
+        self.assertIn("no sign", bullet)
 
     def test_the_pantry_amount_states_the_one_log_question(self):
         """Story 59 lives in one glossary line: a log leaves the amount alone and
