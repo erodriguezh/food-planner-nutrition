@@ -4,7 +4,7 @@
 "close the day", "done for today", a later-dated log (auto-close).
 
 ## Read
-The open Day, Goals.
+The Day, Goals, its Foods (Meals too) for `reviewed`.
 
 ## Steps
 1. Day: the open one; none: say so, stop.

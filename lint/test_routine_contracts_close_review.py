@@ -80,6 +80,19 @@ class CloseDayRoutineTest(RoutineTextTestCase):
         self.assertIn('"close the day"', when)
         self.assertIn("auto-close", when)
 
+    def test_the_read_names_the_foods_step_7_needs(self):
+        """PR #32 review 3: `## Read` said "The open Day, Goals." while step 7
+        needs the `reviewed` flag of the Foods eaten that day, which a logged
+        Meal only reaches through its own Foods. The Read section names both,
+        and the Day covers the open one and the older one of an auto-close."""
+        read_section = self.section(self.text, "Read").strip()
+        self.assertTrue(read_section.startswith("The Day, Goals"), read_section)
+        self.assertIn("`reviewed`", read_section)
+        self.assertIn("Foods", read_section)
+        self.assertIn("Meals", read_section)
+        # One short line: the vault opens as few files as it can.
+        self.assertEqual(len(read_section.split("\n")), 1, read_section)
+
     def test_the_step_that_picks_the_day_stops_when_there_is_none(self):
         rule = self.step(self.steps, 1)
         self.assertIn("none: say so, stop", rule)
