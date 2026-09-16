@@ -130,6 +130,41 @@ class LintTest(unittest.TestCase):
         self.assertEqual(round_bound(141.75), 142)
         self.assertEqual(round_bound(2375.0), 2375)
 
+    def test_a_bound_half_produced_by_the_tolerance_rounds_up(self):
+        """Round-3 feedback item 1: the half comes out of the multiplication.
+
+        A target of 1850 with a tolerance of 7 gives exactly 1720.5, which
+        stores 1721. In binary floats the product is 1720.4999999999998 and
+        stores 1720, so the bounds are computed as decimals.
+        """
+        bounds = compute_bounds({"kcal": "1850", "protein_g": "135", "fat_g": "60", "carbs_g": "355"}, "7")
+        self.assertEqual(bounds["kcal_min"], 1721)
+        self.assertEqual(bounds["kcal_max"], 1980)
+
+    def half_bound_goals(self, kcal_min):
+        """The Goals node of a 1850 kcal target with a tolerance of 7, whose
+        `kcal_min` is the exact half 1720.5. Every other bound is its own
+        rounded value."""
+        self.vault.write("nodes/goals/Goals.md", GOALS
+                         .replace("kcal: 2500", "kcal: 1850")
+                         .replace("tolerance_pct: 5", "tolerance_pct: 7")
+                         .replace("kcal_min: 2375", f"kcal_min: {kcal_min}")
+                         .replace("kcal_max: 2625", "kcal_max: 1980")
+                         .replace("protein_g_min: 128", "protein_g_min: 126")
+                         .replace("protein_g_max: 142", "protein_g_max: 144")
+                         .replace("fat_g_min: 57", "fat_g_min: 56")
+                         .replace("fat_g_max: 63", "fat_g_max: 64")
+                         .replace("carbs_g_min: 337", "carbs_g_min: 330")
+                         .replace("carbs_g_max: 373", "carbs_g_max: 380"))
+
+    def test_a_goals_node_on_a_bound_half_passes(self):
+        self.half_bound_goals(1721)
+        self.assertEqual(self.errors(), [])
+
+    def test_a_bound_half_rounded_down_fails(self):
+        self.half_bound_goals(1720)
+        self.assertError("kcal_min")
+
     def test_token_estimate_is_chars_over_four(self):
         self.assertEqual(estimate_tokens("abcd" * 10), 10)
         self.assertEqual(estimate_tokens("abcde"), 2)
