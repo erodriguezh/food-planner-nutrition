@@ -198,6 +198,27 @@ class SpecMealDayTest(unittest.TestCase):
             self.assertIn(needle, review)
 
 
+    def test_the_review_section_states_the_eligible_dates_and_the_empty_week(self):
+        """Review item 6 on PR #32: "this week" runs Monday to today, so the
+        denominator is the eligible dates and a date still to come is never
+        missing. A week with nothing counted has a fixed shape, so the average
+        never divides by zero."""
+        review = self.day.split("### Review\n", 1)[1].split("\n### ", 1)[0]
+        for needle in ("eligible dates", "Monday to today", "never missing", "`Average: n/a`",
+                       "`On target: 0 of 0`", "`Most common miss: none`"):
+            self.assertIn(needle, review)
+        self.assertNotIn("seven days", review)
+
+    def test_a_log_into_a_closed_day_names_the_close_day_refresh(self):
+        """Review item 2 on PR #32: the rebuild of a closed Day's Summary is the
+        refresh mode of `routines/close-day.md`, and it rides on the `log:`
+        commit instead of writing a `close-day:` one."""
+        rule = self.one_line_with(self.day, "A log into a closed Day")
+        self.assertIn("refresh", rule)
+        self.assertIn("keeps the status", rule)
+        self.assertIn("`log:", rule)
+
+
 class GlossaryTest(unittest.TestCase):
     def test_the_new_terms_are_defined_once(self):
         glossary = read(GLOSSARY)
@@ -217,6 +238,14 @@ class GlossaryTest(unittest.TestCase):
             self.assertIn(f"`{macro}`", verdict)
         self.assertIn("`- <macro> <n> over|under`", glossary)
         self.assertIn("`Hint: ...`", glossary)
+
+    def test_the_days_covered_term_counts_the_eligible_dates(self):
+        """Review item 6 on PR #32: the term said "the seven days", which made a
+        date still to come a missing day of the current week."""
+        glossary = read(GLOSSARY)
+        line = [one for one in glossary.split("\n") if one.startswith("- **Days covered**")][0]
+        self.assertIn("eligible", line)
+        self.assertNotIn("seven", line)
 
     def test_the_macro_bullet_term_states_the_exact_hit_and_the_decimal_gap(self):
         """Review items 5 and 7 on PR #32: the glossary is the ubiquitous language, so

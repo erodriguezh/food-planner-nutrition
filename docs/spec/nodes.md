@@ -436,13 +436,15 @@ Alias resolution at log time uses the shared table with one exception: a slot wo
 ### Lifecycle, State and Index
 
 - The first log of a date creates the Day with `status: open`, sets the State `open_day` to its link and, on the first log of a month, adds the Index month line `- <YYYY-MM> | nodes/day/<YYYY-MM>/`, all in one commit `log: <date> <slot> <name> <amount>`. An unknown Food inside a log is created first in its own `create-food: <name>` commit.
-- A log for a past date writes into that Day. A log into a closed Day rewrites totals and Summary, keeps the status, and the agent says so. A log for a later date auto-closes the older open Day first, with `status: auto-closed` and the same Summary; the auto-close belongs to `routines/close-day.md` (ticket #26), and the lint holds the invariant.
+- A log for a past date writes into that Day. A log into a closed Day rewrites the totals and, through the refresh mode of `routines/close-day.md`, the Summary; it keeps the status and the State, rides on the `log:` commit, and the agent says so. A log for a later date auto-closes the older open Day first, with `status: auto-closed` and the same Summary; the auto-close belongs to `routines/close-day.md` (ticket #26), and the lint holds the invariant.
 - The State names the one open Day; the lint fails two open Days, an `open_day` that points elsewhere and an `open_day` that still names a closed or auto-closed Day: the close clears it in the same commit, `close-day: <date> <verdict>`. Every existing `nodes/day/<YYYY-MM>/` folder has exactly one Index month line.
 - Logging never changes the Pantry. When the logged amount of a Food is more than the Pantry records for that Food, the agent asks "was that the last of X?" and still writes nothing to the Pantry; with no amount recorded the question does not come up (story 59).
 
 ### Review
 
 The weekly review (`routines/review.md`, ticket #26) is computed in chat from the Day files of one calendar week, Monday to Sunday, and the Goals node. It writes nothing, so the lint has nothing to check; the routine text is the contract. It counts `closed` and `auto-closed` Days only, states the missing days and the auto-closed count, leaves an open Day out with one line, gives the average per day against the target on two lines, the days whose verdict reads `on target`, and the most common `<macro> low|high` of the verdicts with its day count. The average carries the `~` when any counted Day is estimated. The whole reply is under ten lines.
+
+The denominator is the eligible dates of the week, not the calendar seven: Monday to today for the current week, all seven for a past one, so a Wednesday review reads `Days: 2 of 3 closed` and a date still to come is never missing. A missing day is an eligible date with no `closed` or `auto-closed` Day. A week with nothing counted has no divisor, so the reply takes the fixed shape `Average: n/a`, `On target: 0 of 0` and `Most common miss: none`.
 
 ### Example
 
