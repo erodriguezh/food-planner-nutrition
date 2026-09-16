@@ -303,7 +303,7 @@ class ReviewRoutineTest(RoutineTextTestCase):
     def test_the_week_is_monday_to_sunday_with_no_rolling_window(self):
         rule = self.step(self.steps, 1)
         self.assertIn("Monday to Sunday", rule)
-        self.assertIn('"last week" is the previous one', rule)
+        self.assertIn('"last week" the previous one', rule)
         self.assertIn("no rolling window", rule)
 
     def test_the_denominator_is_the_eligible_dates_not_seven(self):
@@ -327,10 +327,14 @@ class ReviewRoutineTest(RoutineTextTestCase):
             self.assertIn(shape, rule)
 
     def test_only_closed_days_count_and_the_open_day_gets_one_line(self):
+        """PR #32 review round 2, item 3: the step used to count "`status:
+        closed` and `auto-closed` Days only" and then call a date with no such
+        Day missing, which made the one open Day open and missing at once.
+        The three sets are separate now; OpenDayIsNotAMissingDayTest pins them."""
         rule = self.step(self.steps, 2)
-        self.assertIn("`status: closed` and `auto-closed` Days only", rule)
-        self.assertIn("Today open: left out, say so in one line", rule)
-        self.assertIn("Missing: eligible dates with no such Day", rule)
+        self.assertIn("Counted: eligible `closed`/`auto-closed` Days", rule)
+        self.assertIn("never counted, one line with its date", rule)
+        self.assertIn("Missing: eligible dates with no Day node", rule)
         self.assertIn("state them, never guess", rule)
 
     def test_the_average_carries_the_mark_when_any_counted_day_is_estimated(self):
@@ -358,7 +362,7 @@ class ReviewRoutineTest(RoutineTextTestCase):
     def test_the_reply_is_the_fixed_lines_under_ten(self):
         """The four fixed review lines: days covered with the auto-closed count,
         the average against the target on two lines, days on target, the most
-        common miss; plus the one line for an open today."""
+        common miss; plus the one line for the week's open Day."""
         reply = self.section(self.text, "Reply")
         self.assertIn("Under ten lines", reply)
         fixed = [line for line in reply.split("\n") if line.startswith("`")]
@@ -367,7 +371,7 @@ class ReviewRoutineTest(RoutineTextTestCase):
         self.assertEqual(starts[:5], ["Days", "Average", "Target", "On target", "Most common miss"])
         self.assertIn("auto-closed", fixed[0])
         self.assertIn("missing", fixed[0])
-        self.assertIn("`Today is open and not counted.`", reply)
+        self.assertIn("`<date> is open and not counted.`", reply)
         for line in fixed[1:3]:
             self.assertIn("<kcal> kcal · <P> P · <F> F · <C> C", line)
 
@@ -375,6 +379,80 @@ class ReviewRoutineTest(RoutineTextTestCase):
 class SlotOrderTest(unittest.TestCase):
     def test_the_lint_slot_order_is_the_one_the_routines_use(self):
         self.assertEqual(SLOTS, ("breakfast", "lunch", "snack", "dinner"))
+
+
+class OpenDayIsNotAMissingDayTest(RoutineTextTestCase):
+    """PR #32 review round 2, item 3: an open Day is not a missing Day.
+
+    Step 2 defined a missing day as an eligible date with no closed or
+    auto-closed Day, so the one open Day of the week landed in the missing
+    list and in the open line at once. The routine now names three sets:
+    counted, open and missing.
+
+    Worked example A: Monday and Tuesday closed, Wednesday open, review run
+    on Wednesday. The reply reads `Days: 2 of 3 closed, ... missing none`
+    plus the open line for Wednesday.
+
+    Worked example B: Monday and Tuesday closed, Wednesday still open,
+    review run on Thursday before any Thursday log arrived. Wednesday is
+    reported open and not counted, Thursday may be missing, and Wednesday
+    never appears in the missing list as well.
+    """
+
+    def setUp(self):
+        self.text = read(REVIEW)
+        self.steps = self.section(self.text, "Steps")
+        self.rule = self.step(self.steps, 2)
+
+    def test_missing_means_no_day_node_at_all(self):
+        """A date with a `status: open` Day has a Day node, so it is not
+        missing. The old wording "no such Day" read back to the closed and
+        auto-closed statuses of the sentence before it."""
+        self.assertIn("no Day node", self.rule)
+        self.assertNotIn("no such Day", self.text)
+
+    def test_counted_open_and_missing_are_three_separate_definitions(self):
+        for term in ("Counted:", "Open:", "Missing:"):
+            self.assertIn(term, self.rule)
+        counted, rest = self.rule.split("Open:", 1)
+        open_part, missing = rest.split("Missing:", 1)
+        self.assertIn("`closed`", counted)
+        self.assertIn("`auto-closed`", counted)
+        self.assertIn("`open`", open_part)
+        self.assertIn("never counted", open_part)
+        self.assertNotIn("`open`", counted)
+        self.assertNotIn("closed", missing)
+
+    def test_the_open_day_of_the_week_need_not_be_today(self):
+        """No later log may have arrived to auto-close it, so the open Day can
+        be an earlier date of the week. Neither the step nor the reply line
+        may call it today."""
+        self.assertIn("the week's `open` Day", self.rule)
+        reply = self.section(self.text, "Reply")
+        self.assertIn("`<date> is open and not counted.`", reply)
+        self.assertNotIn("Today", self.text)
+        self.assertNotIn("today open", self.text.lower())
+
+    def test_step_1_maps_each_trigger_phrase_to_a_week(self):
+        """"how was my week" and a bare "review" mean the current week, and
+        "last week" means the previous Monday to Sunday week."""
+        rule = self.step(self.steps, 1)
+        head = rule.split("Eligible dates", 1)[0]
+        self.assertIn('"how was my week"', head)
+        self.assertIn('"review"', head)
+        self.assertIn("this week", head)
+        self.assertIn('"last week" the previous one', head)
+        self.assertIn("Monday to Sunday", head)
+
+    def test_the_spec_and_the_glossary_define_a_missing_day_the_same_way(self):
+        """`docs/spec/nodes.md` and `CONTEXT.md` are the ubiquitous language,
+        so both must exclude the open Day from the missing days too."""
+        review = read(VAULT / "docs" / "spec" / "nodes.md").split("### Review\n", 1)[1].split("\n### ", 1)[0]
+        self.assertIn("no Day node at all", review)
+        self.assertIn("never also missing", review)
+        covered = self.one_line_with(read(VAULT / "CONTEXT.md"), "- **Days covered**")
+        self.assertIn("no Day node at all", covered)
+        self.assertIn("not missing", covered)
 
 
 if __name__ == "__main__":
