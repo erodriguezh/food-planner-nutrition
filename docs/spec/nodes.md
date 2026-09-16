@@ -48,7 +48,7 @@ All properties are required. No other property is allowed: the spec forbids a hi
 - Every change, however small, rewrites all four targets, the tolerance, all eight bounds and `since`. Nothing is recomputed at read time. Git keeps the history.
 - No history table, no day types, no fiber, sugar or salt targets.
 - The Index holds one pointer line under `## Goals`: `- [[Goals]]`.
-- Each closed Day Summary records the targets it used, so a goal change does not touch old Days.
+- Each closed Day Summary records the targets and the ranges it used, so a goal change does not touch old Days, and a later correction of such a Day is judged against the snapshot it carries.
 
 ### Body
 
@@ -375,9 +375,9 @@ An open Day has no `## Summary`; a closed or auto-closed Day has one, and the li
 Written by `routines/close-day.md` (ticket #26) when the user closes the day, or by the auto-close when a log for a later date arrives; rewritten by a log into a closed Day. The non-empty lines of `## Summary` come in this fixed order:
 
 1. The slot table, header `| slot | kcal | P | F | C |`, then one row per slot that has an entry, in the slot order, then the `| TOTAL | <kcal> | <P> | <F> | <C> |` row. A slot row is the sum of that slot's entry lines; the TOTAL row equals the Day totals. Every table number carries the `~` exactly when the Day is estimated (`| TOTAL | ~1307 | ~69 | ~4 | ~249 |`); a plain Day carries none.
-2. The goal line `Goal <kcal> kcal, <P> P, <F> F, <C> C.` with the four targets used at close, each as written on the Goals node, a whole number or a decimal. It records the targets, so a later goal change leaves the Day valid; the lint does not compare it with today's Goals.
+2. The goal line `Goal <kcal> kcal (<min>-<max>), <P> P (<min>-<max>), <F> F (<min>-<max>), <C> C (<min>-<max>).`: the four targets used at close, each as written on the Goals node, a whole number or a decimal, and after each one the range it was judged against, the `<macro>_min` and `<macro>_max` of the same Goals. It records the targets and the ranges, which together are the whole goal comparison of that close: a later goal change leaves the Day valid, the refresh of a corrected Day rebuilds its Summary from this line, and neither the lint nor the refresh reads today's Goals for an old Day (story 13 of #22). Every range holds its own target, `<macro>_min` <= target <= `<macro>_max`, and the lint fails one that does not.
 3. Four bullets `- <macro> <n> over|under`, in the order `kcal`, `protein`, `fat`, `carbs`, with `<n>` the gap between the TOTAL row and the goal line, no sign. A target and a gap take the number grammar of the vault, digits with at most one dot and no sign, so a target of `135.5 P` gives the gap `- protein 66.5 under`, while the table numbers stay whole, because an entry line is rounded whole. A gap has one spelling, the shortest one: against a whole target it is whole, `66` and not `66.0`. A macro that hits its target exactly writes `- <macro> 0 under`; `0 over` fails.
-4. The verdict in fixed words: `on target` when all four macros sit inside min and max, else `off target:` and each macro that is off with `low` or `high`, comma separated (`off target: kcal low, protein low`). A `high` macro is `over` in its bullet, a `low` one `under`. The bounds are not on the file, so the lint checks the words and the directions, not the bounds.
+4. The verdict in fixed words: `on target` when all four macros sit inside min and max, else `off target:` and each macro that is off with `low` or `high`, comma separated (`off target: kcal low, protein low`). A `high` macro is `over` in its bullet, a `low` one `under`, because the bounds sit around the target. The lint recomputes the verdict from the TOTAL row against the ranges of the goal line and fails a verdict they do not give.
 5. At most one line `Hint: <one line for tomorrow>`, only when useful.
 
 The lint fails a closed or auto-closed Day whose Summary misses the TOTAL row, the goal line, one of the four bullets or the verdict, holds a free-text verdict, a `protein_g`-style macro word, a `0 over` bullet, a table number that differs from the lines, a `~` that does not match `estimated`, or any other line. The macro words `kcal`, `protein`, `fat`, `carbs` are the column order; the Day properties they report on are `kcal`, `protein_g`, `fat_g`, `carbs_g`.
@@ -390,7 +390,7 @@ The lint fails a closed or auto-closed Day whose Summary misses the TOTAL row, t
 | breakfast | ~784 | ~51 | ~20 | ~95 |
 | TOTAL | ~784 | ~51 | ~20 | ~95 |
 
-Goal 2500 kcal, 135 P, 60 F, 355 C.
+Goal 2500 kcal (2375-2625), 135 P (128-142), 60 F (57-63), 355 C (337-373).
 
 - kcal 1716 under
 - protein 84 under

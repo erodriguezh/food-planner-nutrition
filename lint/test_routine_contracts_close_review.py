@@ -112,6 +112,9 @@ class CloseDayRoutineTest(RoutineTextTestCase):
         read_section = self.section(self.text, "Read").strip()
         self.assertTrue(read_section.startswith("The Day, Goals"), read_section)
         self.assertIn("`reviewed`", read_section)
+        # PR #32 review round 2, item 2: a refresh judges an old Day by the
+        # snapshot on the Day, so it never opens Goals.
+        self.assertIn("Goals (not refresh)", read_section)
         self.assertIn("Foods", read_section)
         self.assertIn("Meals", read_section)
         # One short line: the vault opens as few files as it can.
@@ -180,18 +183,41 @@ class CloseDayRoutineTest(RoutineTextTestCase):
         self.assertIn("`estimated: true`", rule)
         self.assertIn("`~` before every number", rule)
 
-    def test_the_goal_line_shape_parses(self):
+    def test_the_goal_line_shape_and_the_range_of_every_target_parse(self):
+        """PR #32 review round 2, item 2: the goal line carries the four targets
+        and, after each one, the range it is judged against, so the line the step
+        describes is the line the lint takes."""
         rule = self.step(self.steps, 3)
         shape = re.search(r"`(Goal .*?C\.)`", rule).group(1)
+        self.assertIn("each with ` (<min>-<max>)`", rule)
         line = shape.replace("<kcal>", "2500").replace("<P>", "135").replace("<F>", "60").replace("<C>", "355")
+        for macro, span in (("kcal", "2375-2625"), ("P", "128-142"), ("F", "57-63"), ("C", "337-373")):
+            line = line.replace(f" {macro}", f" {macro} ({span})", 1)
         self.assertIsNotNone(SUMMARY_GOAL_RE.match(line), line)
-        self.assertIn("Goals targets", rule)
+
+    def test_refresh_keeps_historical_goals_snapshot(self):
+        """PR #32 review round 2, item 2, the routine half of the seam.
+
+        Spec #22 story 13: an old closed Day keeps the goal comparison it was
+        closed with. The refresh rebuilds the Summary of a corrected Day from
+        the goal line that Day already carries, so it reads Goals for a close
+        and an auto-close only, and it still leaves the status and the State
+        alone. The file half is `test_refresh_keeps_historical_goals_snapshot`
+        in `lint/test_meal_day.py`, which the lint checks on disk.
+        """
+        self.assertIn("Goals (not refresh)", self.section(self.text, "Read"))
+        self.assertIn("` (<min>-<max>)`", self.step(self.steps, 3))
+        self.assertIn("stored min-max", self.step(self.steps, 5))
+        refresh = self.section(self.text, "Write").split("Refresh:", 1)[1]
+        for needle in ("Summary only", "goal line kept", "status", "`open_day` stay", "no own commit"):
+            self.assertIn(needle, refresh)
+        self.assertNotIn("Goals", refresh)
 
     def test_the_four_bullets_name_the_lint_macro_words_in_order(self):
         rule = self.step(self.steps, 4)
         self.assertIn("Four bullets", rule)
         self.assertIn("`- <kcal|protein|fat|carbs> <n> over|under`", rule)
-        self.assertIn("in that order", rule)
+        self.assertIn("in order", rule)
         self.assertIn("no sign", rule)
         for macro in SUMMARY_MACROS:
             self.assertIsNotNone(SUMMARY_BULLET_RE.match(f"- {macro} 12 under"), macro)
@@ -209,10 +235,11 @@ class CloseDayRoutineTest(RoutineTextTestCase):
 
     def test_the_verdict_words_are_the_fixed_ones(self):
         """Acceptance #26: `on target` when all four macros sit inside the stored
-        bounds, else `off target:` with each off macro and its direction."""
+        bounds, else `off target:` with each off macro and its direction. The
+        bounds are the ranges of the goal line (PR #32 review round 2, item 2)."""
         rule = self.step(self.steps, 5)
         self.assertIn("`on target`", rule)
-        self.assertIn("inside min and max", rule)
+        self.assertIn("inside the stored min-max", rule)
         self.assertIn("`off target: <macro> low|high`", rule)
         self.assertIn("one per off macro", rule)
         # The comma between two off macros is the lint regex and the glossary

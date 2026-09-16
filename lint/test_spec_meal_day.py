@@ -129,7 +129,7 @@ class SpecMealDayTest(unittest.TestCase):
         summary = self.day.split("### Summary\n", 1)[1].split("\n### ", 1)[0]
         self.assertIn(f"`{SUMMARY_TABLE_HEADER}`", summary)
         self.assertIn("`| TOTAL | <kcal> | <P> | <F> | <C> |`", summary)
-        self.assertIn("`Goal <kcal> kcal, <P> P, <F> F, <C> C.`", summary)
+        self.assertIn("`Goal <kcal> kcal (<min>-<max>), <P> P (<min>-<max>), <F> F (<min>-<max>), <C> C (<min>-<max>).`", summary)
         self.assertIn("`- <macro> <n> over|under`", summary)
         self.assertIn("`Hint: <one line for tomorrow>`", summary)
         order = [summary.index(word) for word in ("slot table", "goal line", "Four bullets", "verdict in fixed words", "At most one line")]
@@ -145,7 +145,8 @@ class SpecMealDayTest(unittest.TestCase):
         self.assertEqual(lines[0], SUMMARY_TABLE_HEADER)
         total = [i for i, line in enumerate(lines) if line.startswith("| TOTAL | ~")]
         self.assertEqual(len(total), 1, lines)
-        goal, bullets, verdict, hint = lines[total[0] + 1], lines[total[0] + 2:total[0] + 6], lines[total[0] + 6], lines[total[0] + 7:]
+        goal = lines[total[0] + 1]
+        bullets, verdict, hint = lines[total[0] + 2:total[0] + 6], lines[total[0] + 6], lines[total[0] + 7:]
         self.assertIsNotNone(SUMMARY_GOAL_RE.match(goal), goal)
         for macro, line in zip(SUMMARY_MACROS, bullets):
             self.assertRegex(line, SUMMARY_BULLET_RE)
@@ -180,11 +181,25 @@ class SpecMealDayTest(unittest.TestCase):
         self.assertIn("goal change", rule)
         self.assertIn("today's Goals", rule)
 
-    def test_the_verdict_directions_and_the_bounds_are_stated(self):
+    def test_the_verdict_is_stated_against_the_stored_bounds(self):
+        """PR #32 review round 2, item 2: the bounds of the close are on the file
+        now, so the spec says the verdict is judged against them and not against
+        today's Goals."""
         rule = self.one_line_with(self.day, "A `high` macro is `over` in its bullet")
         self.assertIn("`on target`", rule)
         self.assertIn("`off target:`", rule)
-        self.assertIn("not the bounds", rule)
+        self.assertIn("range", rule)
+        self.assertNotIn("not the bounds", self.day)
+
+    def test_the_goal_line_is_the_goals_snapshot_a_refresh_reuses(self):
+        """PR #32 review round 2, item 2 and spec #22 story 13: an old closed Day
+        keeps the goal comparison it used, so the refresh of a corrected Day
+        reads the stored targets and bounds instead of today's Goals."""
+        rule = self.one_line_with(self.day, "It records the targets and the ranges")
+        self.assertIn("refresh", rule)
+        self.assertIn("today's Goals", rule)
+        self.assertIn("`<macro>_min`", rule)
+        self.assertIn("`<macro>_max`", rule)
 
     def test_the_state_is_cleared_at_close(self):
         rule = self.one_line_with(self.day, "still names a closed or auto-closed Day")
@@ -235,7 +250,7 @@ class GlossaryTest(unittest.TestCase):
         lines carry the same fixed order and macro words the lint checks."""
         glossary = read(GLOSSARY)
         summary = [line for line in glossary.split("\n") if line.startswith("- **Summary**")][0]
-        for part in ("slot table", "TOTAL row", "goal line", "one bullet per macro", "verdict", "at most one hint", "rewrites it"):
+        for part in ("slot table", "TOTAL row", "goal line", "range", "one bullet per macro", "verdict", "at most one hint", "rewrites it"):
             self.assertIn(part, summary)
         verdict = [line for line in glossary.split("\n") if line.startswith("- **Verdict**")][0]
         for macro in SUMMARY_MACROS:

@@ -135,7 +135,15 @@ SUMMARY_SEPARATOR_RE = re.compile(r"^\|( -+ \|)+$")
 # exactly has one canonical bullet, `- <macro> 0 under` (review item 7). The
 # bullet loop rejects `0 over` by its arithmetic too; the regex carries the
 # rule as well, because the spec test reads it as the bullet shape on its own.
-SUMMARY_GOAL_RE = re.compile(rf"^Goal ({UNSIGNED_NUMBER_PATTERN}) kcal, ({UNSIGNED_NUMBER_PATTERN}) P, ({UNSIGNED_NUMBER_PATTERN}) F, ({UNSIGNED_NUMBER_PATTERN}) C\.$")
+# Every target carries the range it was judged against, `(<min>-<max>)`, the
+# stored `<macro>_min` and `<macro>_max` of the same Goals (PR #32 review round
+# 2, item 2). Targets and ranges together are the whole goal comparison of that
+# close, so a refresh rebuilds an old Summary from the line and never reads
+# today's Goals for it.
+_SUMMARY_GOAL_MACRO = rf"({UNSIGNED_NUMBER_PATTERN}) %s \(({UNSIGNED_NUMBER_PATTERN})-({UNSIGNED_NUMBER_PATTERN})\)"
+SUMMARY_GOAL_RE = re.compile(
+    "^Goal " + ", ".join(_SUMMARY_GOAL_MACRO % unit for unit in ("kcal", "P", "F", "C")) + r"\.$"
+)
 SUMMARY_BULLET_RE = re.compile(rf"^- (kcal|protein|fat|carbs) (?!0+(?:\.0+)? over$)({UNSIGNED_NUMBER_PATTERN}) (over|under)$")
 SUMMARY_VERDICT_RE = re.compile(r"^off target: ((?:kcal|protein|fat|carbs) (?:low|high)(?:, (?:kcal|protein|fat|carbs) (?:low|high))*)$")
 SUMMARY_HINT_PREFIX = "Hint: "
@@ -1537,15 +1545,20 @@ def _check_summary(vault: Vault, node: Node, sections: Mapping[str, list[str]], 
 
     # The goal line.
     if index >= len(lines) or not lines[index].startswith("Goal"):
-        vault.fail(node.rel, "the `## Summary` table is followed by the goal line `Goal <kcal> kcal, <P> P, <F> F, <C> C.`")
-    match = SUMMARY_GOAL_RE.match(lines[index])
+        vault.fail(node.rel, "the `## Summary` table is followed by the goal line `Goal <kcal> kcal (<min>-<max>), <P> P (<min>-<max>), <F> F (<min>-<max>), <C> C (<min>-<max>).`")
+    line = lines[index]
+    match = SUMMARY_GOAL_RE.match(line)
     if not match:
-        vault.fail(node.rel, f"the `## Summary` goal line is `Goal <kcal> kcal, <P> P, <F> F, <C> C.`: {lines[index]!r}")
-    goals = {macro: _decimal(value) for macro, value in zip(SUMMARY_MACROS, match.groups())}
+        vault.fail(node.rel, f"the `## Summary` goal line is `Goal <kcal> kcal (<min>-<max>), <P> P (<min>-<max>), <F> F (<min>-<max>), <C> C (<min>-<max>).`: {lines[index]!r}")
+    numbers = [_decimal(value) for value in match.groups()]
+    goals, bounds = {}, {}
+    for macro, target, low, high in zip(SUMMARY_MACROS, numbers[::3], numbers[1::3], numbers[2::3]):
+        if not low <= target <= high:
+            vault.fail(node.rel, f"the `## Summary` goal line gives {macro} the range {_num(low)} to {_num(high)}, which is no range around its target {_num(target)}: {line!r}")
+        goals[macro], bounds[macro] = target, (low, high)
     index += 1
 
     # The four macro bullets.
-    directions: dict[str, str] = {}
     for macro in SUMMARY_MACROS:
         line = lines[index] if index < len(lines) else ""
         match = SUMMARY_BULLET_RE.match(line)
@@ -1559,18 +1572,21 @@ def _check_summary(vault: Vault, node: Node, sections: Mapping[str, list[str]], 
         direction = match.group(3)
         if f"{match.group(2)} {direction}" != want:
             vault.fail(node.rel, f"the `## Summary` {macro} bullet says {match.group(2)} {direction}, the TOTAL row against the goal line gives {want}: {line!r}")
-        directions[macro] = direction
         index += 1
 
-    # The verdict.
+    # The verdict, recomputed from the TOTAL row against the stored bounds.
     line = lines[index] if index < len(lines) else ""
-    if line == "on target":
-        pass
-    elif SUMMARY_VERDICT_RE.match(line):
-        for part in SUMMARY_VERDICT_RE.match(line).group(1).split(", "):
-            macro, side = part.split(" ")
-            if directions[macro] != ("over" if side == "high" else "under"):
-                vault.fail(node.rel, f"the verdict says {macro} {side}, but its bullet says {directions[macro]}: {line!r}")
+    off = []
+    for macro in SUMMARY_MACROS:
+        low, high = bounds[macro]
+        if totals[macro] < low:
+            off.append(f"{macro} low")
+        elif totals[macro] > high:
+            off.append(f"{macro} high")
+    want = "off target: " + ", ".join(off) if off else "on target"
+    if line == "on target" or SUMMARY_VERDICT_RE.match(line):
+        if line != want:
+            vault.fail(node.rel, f"the `## Summary` verdict says {line!r}, the TOTAL row against the goal line ranges gives {want!r}")
     elif line.startswith("off target:"):
         vault.fail(node.rel, f"an `off target:` verdict names each macro that is off, kcal, protein, fat or carbs, with `low` or `high`: {line!r}")
     else:

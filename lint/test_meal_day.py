@@ -5,7 +5,7 @@ Run: python3 -m unittest discover lint
 import os
 import unittest
 
-from test_vault_lint import VaultFixture, INDEX
+from test_vault_lint import VaultFixture, GOALS, INDEX
 from vault_lint import lint_vault
 
 # Two Foods with every nutrient, so a Meal can sum fiber, sugar and salt.
@@ -415,7 +415,7 @@ SUMMARY = """
 | dinner | ~368 | ~37 | ~1 | ~51 |
 | TOTAL | ~1307 | ~69 | ~4 | ~249 |
 
-Goal 2500 kcal, 135 P, 60 F, 355 C.
+Goal 2500 kcal (2375-2625), 135 P (128-142), 60 F (57-63), 355 C (337-373).
 
 - kcal 1193 under
 - protein 66 under
@@ -426,6 +426,28 @@ off target: kcal low, protein low, fat low, carbs low
 
 Hint: more protein at lunch.
 """
+
+# The Goals snapshot the close stores in the Summary (#26, PR #32 review round
+# 2, item 2): every target with the range it was judged against. The refresh
+# reads the line back instead of today's Goals.
+GOAL_LINE = "Goal 2500 kcal (2375-2625), 135 P (128-142), 60 F (57-63), 355 C (337-373)."
+
+# The same Day closed under a Goals node whose targets are the day itself, so
+# every macro sits inside its stored range and the verdict reads `on target`.
+ON_TARGET = SUMMARY.replace(GOAL_LINE, "Goal 1307 kcal (1242-1372), 69 P (66-72), 4 F (4-4), 249 C (237-261).") \
+    .replace("- kcal 1193 under", "- kcal 0 under").replace("- protein 66 under", "- protein 0 under") \
+    .replace("- fat 56 under", "- fat 0 under").replace("- carbs 106 under", "- carbs 0 under") \
+    .replace("off target: kcal low, protein low, fat low, carbs low", "on target")
+
+# Today's Goals, changed after the Day was closed: the node the refresh must not
+# read for an old Day. Bounds are the target plus or minus 5 %, half up.
+GOALS_B = GOALS.replace("kcal: 2500", "kcal: 1300").replace("protein_g: 135", "protein_g: 70") \
+    .replace("fat_g: 60", "fat_g: 4").replace("carbs_g: 355", "carbs_g: 250") \
+    .replace("kcal_min: 2375", "kcal_min: 1235").replace("kcal_max: 2625", "kcal_max: 1365") \
+    .replace("protein_g_min: 128", "protein_g_min: 67").replace("protein_g_max: 142", "protein_g_max: 74") \
+    .replace("fat_g_min: 57", "fat_g_min: 4").replace("fat_g_max: 63", "fat_g_max: 4") \
+    .replace("carbs_g_min: 337", "carbs_g_min: 238").replace("carbs_g_max: 373", "carbs_g_max: 263") \
+    .replace("since: 2026-09-15", "since: 2026-09-16")
 
 # The Summary of PLAIN_DAY: no line is marked, so no `~` anywhere.
 PLAIN_SUMMARY = SUMMARY.replace("~", "") \
@@ -833,11 +855,37 @@ class DayLintTest(LintCase):
         self.closed(DAY + "\n## Summary\n\nA good day, 1307 kcal.\n")
         self.assertError("TOTAL")
 
-    def test_both_verdicts_are_accepted(self):
-        for verdict in ("on target", "off target: protein low", "off target: kcal low, carbs low"):
-            with self.subTest(verdict=verdict):
-                self.closed(DAY + SUMMARY.replace("off target: kcal low, protein low, fat low, carbs low", verdict))
-                self.assertClean()
+    def test_a_verdict_names_exactly_the_macros_outside_the_stored_bounds(self):
+        """PR #32 review round 2, item 2: the Summary carries the range each
+        macro was judged against, so the lint recomputes the verdict from the
+        TOTAL row against those bounds instead of reading its words only."""
+        self.closed(DAY + ON_TARGET)
+        self.assertClean()
+        one_off = ON_TARGET.replace("69 P (66-72)", "75 P (71-79)") \
+            .replace("- protein 0 under", "- protein 6 under").replace("on target", "off target: protein low")
+        self.closed(DAY + one_off)
+        self.assertClean()
+        self.closed(DAY + SUMMARY)
+        self.assertClean()
+
+    def test_a_verdict_that_contradicts_the_stored_bounds_fails(self):
+        """PR #32 review round 2, item 2: a verdict the stored bounds do not
+        give fails, whichever way round it is wrong."""
+        self.closed(DAY + ON_TARGET.replace("on target", "off target: protein low"))
+        self.assertError("verdict")
+        self.closed(DAY + SUMMARY.replace("off target: kcal low, protein low, fat low, carbs low", "on target"))
+        self.assertError("verdict")
+        self.closed(DAY + SUMMARY.replace("off target: kcal low, protein low, fat low, carbs low",
+                                          "off target: kcal low, protein low, fat low"))
+        self.assertError("verdict")
+
+    def test_the_verdict_holds_when_todays_goals_differ_from_the_snapshot(self):
+        """PR #32 review round 2, item 2 and spec #22 story 13: the Summary keeps
+        the goal comparison it was closed with, so a later goal change leaves an
+        old Day valid. The lint judges it against the stored snapshot only."""
+        self.vault.write("nodes/goals/Goals.md", GOALS_B)
+        self.closed(DAY)
+        self.assertClean()
 
     def test_an_off_target_verdict_names_low_or_high(self):
         """Spec #22: `off target:` plus each macro that is off and `low` or `high`."""
@@ -848,12 +896,13 @@ class DayLintTest(LintCase):
         self.closed(DAY + SUMMARY.replace("off target: kcal low, protein low, fat low, carbs low", "off target: protein_g low"))
         self.assertError("verdict")
 
-    def test_the_verdict_direction_matches_the_bullet(self):
-        """`high` is a macro over its target, `low` one under it; the bullet says which."""
+    def test_a_macro_is_low_under_its_stored_min_and_high_over_its_stored_max(self):
+        """`high` is a macro over its stored max, `low` one under its stored min;
+        the bullet direction follows, because the bounds sit around the target."""
         self.closed(DAY + SUMMARY.replace("protein low", "protein high"))
         self.assertError("protein")
-        # The targets used at close were lower, so kcal and carbs sit over them.
-        over = SUMMARY.replace("Goal 2500 kcal, 135 P, 60 F, 355 C.", "Goal 1000 kcal, 135 P, 60 F, 200 C.") \
+        # The Goals used at close were lower, so kcal and carbs sit over their max.
+        over = SUMMARY.replace(GOAL_LINE, "Goal 1000 kcal (950-1050), 135 P (128-142), 60 F (57-63), 200 C (190-210).") \
             .replace("- kcal 1193 under", "- kcal 307 over").replace("- carbs 106 under", "- carbs 49 over") \
             .replace("off target: kcal low, protein low, fat low, carbs low", "off target: kcal high, protein low, fat low, carbs high")
         self.closed(DAY + over)
@@ -912,9 +961,9 @@ class DayLintTest(LintCase):
                 self.assertClean()
 
     def test_the_summary_needs_the_goal_line(self):
-        self.closed(DAY + SUMMARY.replace("Goal 2500 kcal, 135 P, 60 F, 355 C.\n", ""))
+        self.closed(DAY + SUMMARY.replace(GOAL_LINE + "\n", ""))
         self.assertError("Goal")
-        self.closed(DAY + SUMMARY.replace("Goal 2500 kcal, 135 P, 60 F, 355 C.", "Goal 2500 kcal."))
+        self.closed(DAY + SUMMARY.replace(GOAL_LINE, "Goal 2500 kcal (2375-2625)."))
         self.assertError("Goal")
 
     def test_the_goal_line_records_the_targets_used_not_todays_goals(self):
@@ -922,6 +971,26 @@ class DayLintTest(LintCase):
         used, so a later goal change leaves it valid."""
         self.closed(DAY + SUMMARY.replace("Goal 2500 kcal", "Goal 2400 kcal").replace("kcal 1193 under", "kcal 1093 under"))
         self.assertClean()
+
+    def test_every_target_of_the_goal_line_carries_its_range(self):
+        """PR #32 review round 2, item 2: the four targets alone do not carry the
+        verdict, so every target on the goal line is followed by the min and the
+        max it was judged against, and the lint requires all four."""
+        self.closed(DAY + SUMMARY.replace(GOAL_LINE, "Goal 2500 kcal, 135 P, 60 F, 355 C."))
+        self.assertError("Goal")
+        self.closed(DAY + SUMMARY.replace(GOAL_LINE, "Goal 2500 kcal (2375-2625), 135 P, 60 F, 355 C."))
+        self.assertError("Goal")
+        self.closed(DAY + SUMMARY.replace("(2375-2625)", "(2375)"))
+        self.assertError("Goal")
+
+    def test_a_stored_range_runs_from_the_min_to_the_max_around_its_target(self):
+        """The snapshot is a Goals range, so each pair holds its own target:
+        `<macro>_min` <= target <= `<macro>_max`. A swapped or drifted pair is a
+        broken snapshot, not a verdict the lint can judge."""
+        self.closed(DAY + SUMMARY.replace("(2375-2625)", "(2625-2375)"))
+        self.assertError("kcal")
+        self.closed(DAY + SUMMARY.replace("(128-142)", "(136-142)"))
+        self.assertError("protein")
 
     def test_the_summary_needs_four_macro_bullets_in_order(self):
         self.closed(DAY + SUMMARY.replace("- fat 56 under\n", ""))
@@ -942,7 +1011,7 @@ class DayLintTest(LintCase):
         are `number`, not integer, so a target such as 135.5 P is valid and its
         bullet carries the decimal gap. The bullet arithmetic is decimal, so 69
         against 135.5 is exactly 66.5."""
-        decimals = SUMMARY.replace("Goal 2500 kcal, 135 P, 60 F, 355 C.", "Goal 2500.5 kcal, 135.5 P, 60 F, 355 C.") \
+        decimals = SUMMARY.replace("Goal 2500 kcal (2375-2625), 135 P (128-142)", "Goal 2500.5 kcal (2375-2625), 135.5 P (128-142)") \
             .replace("- kcal 1193 under", "- kcal 1193.5 under").replace("- protein 66 under", "- protein 66.5 under")
         self.closed(DAY + decimals)
         self.assertClean()
@@ -956,7 +1025,8 @@ class DayLintTest(LintCase):
         """Review item 7 on PR #32: for a macro that hits its target exactly the one
         canonical bullet is `- <macro> 0 under`; `0 over` fails."""
         # kcal sits on its target, so the verdict does not name kcal either.
-        exact = SUMMARY.replace("Goal 2500 kcal", "Goal 1307 kcal").replace("- kcal 1193 under", "- kcal 0 under") \
+        exact = SUMMARY.replace("Goal 2500 kcal (2375-2625)", "Goal 1307 kcal (1242-1372)") \
+            .replace("- kcal 1193 under", "- kcal 0 under") \
             .replace("off target: kcal low, protein low", "off target: protein low")
         self.closed(DAY + exact)
         self.assertClean()
@@ -974,7 +1044,7 @@ class DayLintTest(LintCase):
         self.assertError("Summary")
 
     def test_the_summary_order_is_table_goal_bullets_verdict_hint(self):
-        moved = SUMMARY.replace("Goal 2500 kcal, 135 P, 60 F, 355 C.\n\n", "").replace("\nHint:", "\nGoal 2500 kcal, 135 P, 60 F, 355 C.\n\nHint:")
+        moved = SUMMARY.replace(GOAL_LINE + "\n\n", "").replace("\nHint:", f"\n{GOAL_LINE}\n\nHint:")
         self.closed(DAY + moved)
         self.assertError("Summary")
 
@@ -990,6 +1060,37 @@ class DayLintTest(LintCase):
             .replace("kcal 1193 under", "kcal 1369 under").replace("protein 66 under", "protein 70 under").replace("carbs 106 under", "carbs 145 under")
         self.closed(relogged + summary)
         self.assertClean()
+
+    def test_refresh_keeps_historical_goals_snapshot(self):
+        """PR #32 review round 2, item 2, the whole scenario at the seam.
+
+        The Day is closed under Goals A; the user then changes the Goals to B; a
+        later log corrects the Day, and the refresh of `routines/close-day.md`
+        rebuilds the Summary. The corrected totals are judged against the stored
+        snapshot A, which the file still carries, and never against today's B.
+
+        The lint runs no routine, so it holds the file half of the invariant: a
+        Summary whose verdict comes from today's Goals while the stored snapshot
+        is the old one fails here. That the refresh reuses the snapshot and
+        leaves the status and `open_day` alone is pinned next door, in
+        `lint/test_routine_contracts_close_review.py`.
+        """
+        relogged = DAY.replace(LUNCH, "- [[Rice]] = 100 g — 352 kcal · 7 P · 1 F · 78 C") \
+            .replace("kcal: 1307", "kcal: 1131").replace("protein_g: 69", "protein_g: 65").replace("carbs_g: 249", "carbs_g: 210")
+        corrected = SUMMARY.replace("| lunch | ~528 | ~11 | ~1 | ~117 |", "| lunch | ~352 | ~7 | ~1 | ~78 |") \
+            .replace("| TOTAL | ~1307 | ~69 | ~4 | ~249 |", "| TOTAL | ~1131 | ~65 | ~4 | ~210 |") \
+            .replace("kcal 1193 under", "kcal 1369 under").replace("protein 66 under", "protein 70 under") \
+            .replace("carbs 106 under", "carbs 145 under")
+        self.vault.write("nodes/goals/Goals.md", GOALS_B)
+        self.closed(relogged + corrected)
+        self.assertClean()
+        # The same corrected Day with the verdict taken from today's Goals B,
+        # where 4 g of fat sits inside 4 to 4: the stored snapshot A says `fat
+        # low`, so the rewritten history fails.
+        from_today = corrected.replace("off target: kcal low, protein low, fat low, carbs low",
+                                       "off target: kcal low, protein low, carbs low")
+        self.closed(relogged + from_today)
+        self.assertError("verdict")
 
     # --- State and Index -----------------------------------------------------------
 
