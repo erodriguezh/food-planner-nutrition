@@ -9,6 +9,7 @@ Run: python3 -m unittest discover lint
 """
 import re
 import unittest
+from collections import namedtuple
 from pathlib import Path
 
 from vault_lint import (
@@ -29,20 +30,26 @@ CLOSE_DAY = VAULT / "routines" / "close-day.md"
 REVIEW = VAULT / "routines" / "review.md"
 LOG = VAULT / "routines" / "log.md"
 
-def render_most_common_miss(misses, macro_order, direction_order, separator):
+# The three rules a tied `Most common miss` line follows, all read out of
+# `routines/review.md`: the macro order and the direction order of step 4, and
+# the separator of the Reply line.
+MissTieRules = namedtuple("MissTieRules", "macro_order direction_order separator")
+
+
+def render_most_common_miss(misses, rules):
     """Render the review's `Most common miss` line from `(macro, direction, days)`
     triples: the tied misses in the macro order, then in the direction order,
     joined by the separator, and `none` when no Day missed.
 
     The lint never gains a helper that runs a routine. This one lives in the test
-    file and holds no ordering of its own: the macro order, the direction order
-    and the separator all come from `routines/review.md`, so the rendered examples
-    below are the routine's own shape rather than a second definition of it.
+    file and holds no ordering of its own: every rule arrives in `rules`, read out
+    of `routines/review.md`, so the rendered examples below are the routine's own
+    shape rather than a second definition of it.
     """
     if not misses:
         return "Most common miss: none"
-    order = sorted(misses, key=lambda miss: (macro_order.index(miss[0]), direction_order.index(miss[1])))
-    return "Most common miss: " + separator.join(f"{macro} {direction}, {days} days" for macro, direction, days in order)
+    order = sorted(misses, key=lambda miss: (rules.macro_order.index(miss[0]), rules.direction_order.index(miss[1])))
+    return "Most common miss: " + rules.separator.join(f"{macro} {direction}, {days} days" for macro, direction, days in order)
 
 
 def read(path: Path) -> str:
@@ -399,8 +406,9 @@ class ReviewRoutineTest(RoutineTextTestCase):
         rule = self.one_line_with(self.steps, "4. Days on target")
         self.assertIn("verdicts reading `on target`", rule)
         self.assertIn("Most common miss", rule)
-        self.assertIn("`<macro> low|high`", rule)
-        self.assertIn("day count", rule)
+        # PR #32 review round 5: `top ... day count` is the selection rule itself.
+        # The routine states it, because the agent never reads the spec in daily use.
+        self.assertIn("top `<macro> low|high`, day count", rule)
         # PR #32 review rounds 4 and 5: both tie orders sit next to the selection rule.
         self.assertIn("ties: kcal>protein>fat>carbs, low>high", rule)
 
@@ -527,15 +535,16 @@ class OpenDayIsNotAMissingDayTest(RoutineTextTestCase):
 
 
 class MostCommonMissTieTest(RoutineTextTestCase):
-    """PR #32 review round 5: step 4 carries both tie orders of `Most common miss`.
+    """The contract: `Most common miss` is one reply line, and step 4 of
+    `routines/review.md` carries every rule that renders it: the miss with the
+    highest day count, tied misses in the macro order `kcal>protein>fat>carbs`
+    and, inside one macro, in the direction order `low>high`, the items `; `
+    apart, `none` when no Day missed.
 
-    Round 4 fixed the reply shape and the macro order, but `protein low` tied
-    with `protein high` stayed unordered in the routine: only `docs/spec/nodes.md`
-    said `low` before `high`, and the agent never reads the spec in daily use.
-    This file held that order as a constant of its own, so a contract test knew
-    an ordering the runtime routine did not. Step 4 now states both orders,
-    `ties: kcal>protein>fat>carbs, low>high`, and the tests below read both out
-    of the routine: a step that drops either order fails here. Issue #28 seeds an
+    PR #32 review round 5: the direction order lived in `docs/spec/nodes.md` and
+    in a constant of this file only, so a contract test knew an ordering the
+    routine the agent reads did not. Every rule below is parsed out of the
+    routine text, so a step that drops one fails here. Issue #28 seeds an
     acceptance run that asserts the line, so the examples are literal.
     """
 
@@ -545,8 +554,9 @@ class MostCommonMissTieTest(RoutineTextTestCase):
         self.reply = self.section(self.text, "Reply")
         self.rule = self.one_line_with(self.steps, "4. Days on target")
         self.shape = self.one_line_with(self.reply, "`Most common miss:")
-        self.macro_order, self.direction_order = self.orders_of(self.rule)
-        self.item, self.separator = self.item_and_separator_of(self.shape)
+        macro_order, direction_order = self.orders_of(self.rule)
+        self.item, separator = self.item_and_separator_of(self.shape)
+        self.rules = MissTieRules(macro_order, direction_order, separator)
 
     def orders_of(self, rule):
         """Read the macro order and the direction order out of step 4. A step
@@ -569,29 +579,32 @@ class MostCommonMissTieTest(RoutineTextTestCase):
         return item, repeat[: -len(item)]
 
     def render(self, misses):
-        return render_most_common_miss(misses, self.macro_order, self.direction_order, self.separator)
+        return render_most_common_miss(misses, self.rules)
 
     def test_the_reply_repeats_the_one_miss_item_after_the_separator(self):
         """PR #32 review round 5: the rendered examples are only worth as much as
         the three rules they read out of the routine: the `; ` separator of the
         Reply and the two orders of step 4."""
         self.assertEqual(self.item, "<macro> <low|high>, <n> days")
-        self.assertEqual(self.separator, "; ")
-        self.assertEqual(self.macro_order, SUMMARY_MACROS)
-        self.assertEqual(self.macro_order, ("kcal", "protein", "fat", "carbs"))
-        self.assertEqual(self.direction_order, ("low", "high"))
+        self.assertEqual(self.rules.separator, "; ")
+        self.assertEqual(self.rules.macro_order, SUMMARY_MACROS)
+        self.assertEqual(self.rules.macro_order, ("kcal", "protein", "fat", "carbs"))
+        self.assertEqual(self.rules.direction_order, ("low", "high"))
 
     def test_one_most_common_miss_keeps_the_single_item_shape(self):
+        """PR #32 review round 5: one miss keeps the item shape, no separator."""
         self.assertEqual(self.render([("protein", "low", 3)]), "Most common miss: protein low, 3 days")
 
     def test_a_two_way_tie_names_both_in_the_macro_order(self):
-        """The input order is the tally order, never the reply order."""
+        """PR #32 review round 5: the input order is the tally order, never the
+        reply order, so the macro order of step 4 sorts it."""
         self.assertEqual(
             self.render([("protein", "low", 2), ("kcal", "low", 2)]),
             "Most common miss: kcal low, 2 days; protein low, 2 days",
         )
 
     def test_a_four_way_tie_names_all_four_macros(self):
+        """PR #32 review round 5: four tied macros stay on the one line."""
         self.assertEqual(
             self.render([("carbs", "high", 2), ("fat", "low", 2), ("kcal", "high", 2), ("protein", "low", 2)]),
             "Most common miss: kcal high, 2 days; protein low, 2 days; fat low, 2 days; carbs high, 2 days",
@@ -609,6 +622,7 @@ class MostCommonMissTieTest(RoutineTextTestCase):
         )
 
     def test_every_day_on_target_reads_none(self):
+        """PR #32 review round 5: no miss reads `none`, never an empty line."""
         self.assertEqual(self.render([]), "Most common miss: none")
 
     def test_the_reply_holds_one_most_common_miss_line_and_stays_six_lines(self):
