@@ -219,6 +219,17 @@ class SpecMealDayTest(unittest.TestCase):
                        "`<macro> low|high`", "`~`", "under ten lines"):
             self.assertIn(needle, review)
 
+    def test_the_review_section_averages_all_seven_totals_and_fixes_the_mark(self):
+        """PR #32 review round 3, item 2: spec #22 asks for "averages of the
+        seven totals", so the Average line carries all seven while the Target
+        line keeps the four Goals targets, and the estimation mark has one
+        canonical position: `~` before every number of the Average line."""
+        review = self.day.split("### Review\n", 1)[1].split("\n### ", 1)[0]
+        for needle in ("seven totals", "four", "`~` before every number"):
+            self.assertIn(needle, review)
+        average = self.one_line_with(read(GLOSSARY), "- **Weekly average**")
+        self.assertIn("seven totals", average)
+        self.assertIn("`~` before every number", average)
 
     def test_the_review_section_states_the_eligible_dates_and_the_empty_week(self):
         """Review item 6 on PR #32: "this week" runs Monday to today, so the
