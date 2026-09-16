@@ -434,7 +434,8 @@ GOAL_LINE = "Goal 2500 kcal (2375-2625), 135 P (128-142), 60 F (57-63), 355 C (3
 
 # The same Day closed under a Goals node whose targets are the day itself, so
 # every macro sits inside its stored range and the verdict reads `on target`.
-ON_TARGET = SUMMARY.replace(GOAL_LINE, "Goal 1307 kcal (1242-1372), 69 P (66-72), 4 F (4-4), 249 C (237-261).") \
+ON_TARGET_GOAL_LINE = "Goal 1307 kcal (1242-1372), 69 P (66-72), 4 F (4-4), 249 C (237-261)."
+ON_TARGET = SUMMARY.replace(GOAL_LINE, ON_TARGET_GOAL_LINE) \
     .replace("- kcal 1193 under", "- kcal 0 under").replace("- protein 66 under", "- protein 0 under") \
     .replace("- fat 56 under", "- fat 0 under").replace("- carbs 106 under", "- carbs 0 under") \
     .replace("off target: kcal low, protein low, fat low, carbs low", "on target")
@@ -442,7 +443,7 @@ ON_TARGET = SUMMARY.replace(GOAL_LINE, "Goal 1307 kcal (1242-1372), 69 P (66-72)
 # The same Day closed under Goals that put two of its four macros outside their
 # range: the verdict then names two distinct macros, in the column order of the
 # bullets (PR #32 review round 2, item 4).
-TWO_OFF = ON_TARGET.replace("Goal 1307 kcal (1242-1372), 69 P (66-72), 4 F (4-4), 249 C (237-261).",
+TWO_OFF = ON_TARGET.replace(ON_TARGET_GOAL_LINE,
                             "Goal 1400 kcal (1330-1470), 69 P (66-72), 10 F (9-11), 249 C (237-261).") \
     .replace("- kcal 0 under", "- kcal 93 under").replace("- fat 0 under", "- fat 6 under") \
     .replace("on target", "off target: kcal low, fat low")
@@ -906,10 +907,19 @@ class DayLintTest(LintCase):
         entries carry. The weekly review counts these entries for its most
         common miss, so a repeated macro would inflate the count."""
         for verdict in ("off target: protein low, protein low",
-                        "off target: protein low, protein high"):
+                        "off target: protein low, protein high",
+                        # The repeated macro is off for real, the rest of the
+                        # verdict is right: the repeat alone fails it.
+                        "off target: kcal low, fat low, fat low"):
             with self.subTest(verdict=verdict):
                 self.closed(DAY + TWO_OFF.replace("off target: kcal low, fat low", verdict))
-                self.assertError("once")
+                self.assertError("at most once")
+
+    def test_two_off_macros_out_of_the_column_order_fail(self):
+        """PR #32 review round 2, item 4: the column order holds for a verdict of
+        two entries too, so the file has one spelling."""
+        self.closed(DAY + TWO_OFF.replace("off target: kcal low, fat low", "off target: fat low, kcal low"))
+        self.assertError("verdict")
 
     def test_the_verdict_holds_when_todays_goals_differ_from_the_snapshot(self):
         """PR #32 review round 2, item 2 and spec #22 story 13: the Summary keeps

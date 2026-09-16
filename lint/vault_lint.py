@@ -1597,16 +1597,17 @@ def _check_summary(vault: Vault, node: Node, sections: Mapping[str, list[str]], 
     # so the verdict of a Summary has one spelling.
     want = "off target: " + ", ".join(off) if off else "on target"
     match = SUMMARY_VERDICT_RE.match(line)
-    if match:
-        # One entry per off macro: the weekly review counts these entries for
-        # its most common miss, so a macro named twice would inflate the count
-        # (PR #32 review round 2, item 4). The regex reads the entry shape; the
-        # repeat is counted here, where the message can name the macro.
-        named = [entry.split(" ", 1)[0] for entry in match.group(1).split(", ")]
-        repeated = [macro for macro in SUMMARY_MACROS if named.count(macro) > 1]
-        if repeated:
-            vault.fail(node.rel, f"an `off target:` verdict names each macro at most once, in the column order; {', '.join(repeated)} is named more than once: {line!r}")
     if line == "on target" or match:
+        if match:
+            # One entry per off macro: the weekly review counts these entries
+            # for its most common miss, so a macro named twice would inflate
+            # the count (PR #32 review round 2, item 4). The regex reads the
+            # entry shape; the repeat is counted here, where the message can
+            # name the macro. The column order is the comparison below.
+            named = [entry.split(" ", 1)[0] for entry in match.group(1).split(", ")]
+            repeated = [macro for macro in SUMMARY_MACROS if named.count(macro) > 1]
+            if repeated:
+                vault.fail(node.rel, f"an `off target:` verdict names each macro at most once, {', '.join(repeated)} is named more than once: {line!r}")
         if line != want:
             vault.fail(node.rel, f"the `## Summary` verdict says {line!r}, the TOTAL row against the goal line ranges gives {want!r}")
     elif line.startswith("off target:"):
