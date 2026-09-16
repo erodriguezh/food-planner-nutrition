@@ -90,7 +90,7 @@ Glossary of the domain language for this vault. Terms are defined once here and 
 - **Days covered**: how many of the eligible dates have a closed Day, and how many of those were auto-closed. Eligible dates are Monday to today for the current week and all of a past week; a date still to come is not one. A missing day is an eligible date with no Day node at all; missing days are stated, never guessed and never counted as off target. The week's open Day is not counted and not missing; the review names its date in one line.
 - **Weekly average**: the per-day mean of each of the seven totals over the closed Days, shown against the target. `~` before every number of the line when a counted Day is estimated.
 - **Days on target**: how many counted Days carry the verdict `on target`.
-- **Most common miss**: the macro and direction that appear most often in the week's verdicts, with the day count. A tie names each.
+- **Most common miss**: the macro and direction that appear most often in the week's verdicts, with the day count. A tie names each tied miss on the one line, the items `; ` apart, in the macro order `kcal`, `protein`, `fat`, `carbs`, with `low` before `high` inside one macro.
 
 ## Units
 
