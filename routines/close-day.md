@@ -16,7 +16,7 @@ The Day, Goals, its Foods (Meals too) for `reviewed`.
 7. Name the unreviewed Foods; "ok": `reviewed: true` on all, commit `close-day: reviewed <names>`.
 
 ## Write
-`## Summary` after the slots, `updated`. Close: `status: closed`. Auto-close: the older open Day, `status: auto-closed`, before the new Day. Both: `state.md` `open_day: ""`, commit `close-day: <date> <verdict>`. Refresh: Summary only; status, `open_day` stay; no commit.
+`## Summary` after the slots. Close: `status: closed`. Auto-close: the older open Day, `status: auto-closed`, before the new Day. Both: `state.md` `open_day: ""`, `updated`, commit `close-day: <date> <verdict>`. Refresh: Summary only; status, `open_day` stay; no commit.
 
 ## Reply
 Table, verdict, hint, step 7's line (none: no line).
