@@ -7,7 +7,7 @@ Run from the repository root:
 
 Exit code 0 when the vault is clean, 1 on the first violation. The checks run
 in a fixed order (nodes load, common conventions, node locations, Goals, Foods,
-Meals, Days, Pantry, Router, State, Index, routines), files in sorted path
+Meals, Days, Pantry, Router, skill file, State, Index, routines), files in sorted path
 order, so the first violation is deterministic.
 No dependencies beyond the Python 3 standard library.
 
@@ -49,7 +49,12 @@ Checks (v3):
 - the Pantry node has `updated`, staples as `"[[Food]]"`, items as
   `"[[Food or Meal]]"` with a grams, portion or cooked-grams amount and an
   optional `until` date; every link resolves by canonical name
-- ROUTER.md is under 500 tokens
+- ROUTER.md is under 500 tokens, names the skill file in exactly one line
+  and repeats no part of the Context MCP rule
+- the skill file (SKILL.md) states the tool `build_context(question)`, the
+  five packet fields, the "may add, never remove" rule and the exact
+  fallback line; no other file outside docs/spec/ carries the fallback line
+- AGENTS.md holds the one line `Read ROUTER.md first.`
 - state.md has its fields and names the one open Day, or is empty when no Day
   is open; Open items holds no unreviewed Food lines
 - index.md has one section per node type and no line without a node; every
@@ -80,6 +85,12 @@ INDEX_SECTIONS = ("Food", "Meal", "Day", "Goals", "Pantry")
 ROUTINE_SECTIONS = ("When", "Read", "Steps", "Write", "Reply")
 ROUTER_TOKEN_LIMIT = 500
 ROUTINE_TOKEN_LIMIT = 300
+# Context MCP rule (#27): one skill file at the vault root, one Router pointer.
+SKILL_FILE = "SKILL.md"
+CONTEXT_TOOL = "build_context(question)"
+PACKET_FIELDS = ("node", "section", "linked", "status", "index_version")
+FALLBACK_LINE = "context server down or no files found, read files directly."
+AGENTS_POINTER = "Read ROUTER.md first."
 MACROS = ("kcal", "protein_g", "fat_g", "carbs_g")
 
 FOOD_CATEGORIES = ("protein", "dairy", "grain", "vegetable", "fruit", "fat", "snack", "drink")
@@ -1683,9 +1694,48 @@ def check_router(vault: Vault) -> None:
     if not path.is_file():
         vault.fail("ROUTER.md", "file is missing")
         return
-    tokens = estimate_tokens(path.read_text(encoding="utf-8"))
+    text = path.read_text(encoding="utf-8")
+    tokens = estimate_tokens(text)
     if tokens >= ROUTER_TOKEN_LIMIT:
         vault.fail("ROUTER.md", f"about {tokens} tokens, limit is under {ROUTER_TOKEN_LIMIT} (estimate: characters / 4)")
+    pointers = [line for line in text.split("\n") if f"`{SKILL_FILE}`" in line]
+    if len(pointers) != 1:
+        vault.fail("ROUTER.md", f"needs exactly one line that points to `{SKILL_FILE}`, found {len(pointers)}")
+    if "build_context" in text or FALLBACK_LINE in text:
+        vault.fail("ROUTER.md", f"repeats the Context MCP rule; only `{SKILL_FILE}` holds it (build_context, fallback line)")
+
+
+def check_skill(vault: Vault) -> None:
+    """The Context MCP rule lives in the skill file and nowhere else (#27).
+
+    docs/spec/ states the contract for a rebuild and is never read in daily
+    use, so it may carry the fallback line too. AGENTS.md (and CLAUDE.md, its
+    symlink) is the app project instruction and holds the one pointer line.
+    """
+    path = vault.root / SKILL_FILE
+    if not path.is_file():
+        vault.fail(SKILL_FILE, "file is missing")
+        return
+    text = path.read_text(encoding="utf-8")
+    if f"`{CONTEXT_TOOL}`" not in text:
+        vault.fail(SKILL_FILE, f"does not name the tool `{CONTEXT_TOOL}`")
+    for name in PACKET_FIELDS:
+        if f"`{name}`" not in text:
+            vault.fail(SKILL_FILE, f"does not name the packet field `{name}`")
+    lowered = text.lower()
+    if "may add" not in lowered or "never remove" not in lowered:
+        vault.fail(SKILL_FILE, 'does not state the "may add, never remove" rule')
+    if f'"{FALLBACK_LINE}"' not in text:
+        vault.fail(SKILL_FILE, f'does not state the exact fallback line "{FALLBACK_LINE}"')
+    for other in sorted(vault.root.rglob("*.md")):
+        rel = other.relative_to(vault.root).as_posix()
+        if rel == SKILL_FILE or rel.startswith("docs/spec/") or any(part.startswith(".") for part in rel.split("/")):
+            continue
+        if FALLBACK_LINE in other.read_text(encoding="utf-8"):
+            vault.fail(rel, f"repeats the fallback line; only `{SKILL_FILE}` holds the rule")
+    agents = vault.root / "AGENTS.md"
+    if agents.is_file() and agents.read_text(encoding="utf-8").strip() != AGENTS_POINTER:
+        vault.fail("AGENTS.md", f"must hold the one line `{AGENTS_POINTER}`")
 
 
 def check_state(vault: Vault) -> None:
@@ -1898,6 +1948,7 @@ CHECKS = (
     check_days,
     check_pantry,
     check_router,
+    check_skill,
     check_state,
     check_index,
     check_routines,

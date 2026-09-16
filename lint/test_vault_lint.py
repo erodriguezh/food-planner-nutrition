@@ -5,7 +5,15 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from vault_lint import lint_vault, round_bound, estimate_tokens, apply_goal_change, compute_bounds
+from vault_lint import (
+    FALLBACK_LINE,
+    SKILL_FILE,
+    apply_goal_change,
+    compute_bounds,
+    estimate_tokens,
+    lint_vault,
+    round_bound,
+)
 
 GOALS = """---
 type: goals
@@ -56,7 +64,9 @@ updated: 2026-09-15
 ## Open items
 """
 
-ROUTER = "# Router\n\nShort router.\n"
+ROUTER = f"# Router\n\n1. Context MCP rule: `{SKILL_FILE}`. Without it read `index.md`.\n2. Read `state.md`.\n"
+
+SKILL = f"""# Context MCP\n\nOne tool: `build_context(question)`.\n\n`node`, `section`, `linked`, `status`, `index_version`. May add, never remove.\n\nConnected: call it first. Down or `not_found`: say "{FALLBACK_LINE}"\n"""
 
 CROISSANT = """---
 type: food
@@ -86,6 +96,7 @@ class VaultFixture:
         (self.root / "nodes" / "day").mkdir(parents=True)
         (self.root / "routines").mkdir()
         self.write("ROUTER.md", ROUTER)
+        self.write(SKILL_FILE, SKILL)
         self.write("index.md", INDEX)
         self.write("state.md", STATE)
         self.write("nodes/goals/Goals.md", GOALS)
@@ -286,6 +297,60 @@ class LintTest(unittest.TestCase):
     def test_missing_router_fails(self):
         os.remove(self.vault.root / "ROUTER.md")
         self.assertError("ROUTER.md")
+
+    def test_router_without_the_skill_pointer_fails(self):
+        # #27: "The Router has one pointer line to the skill file."
+        self.vault.write("ROUTER.md", "# Router\n\n1. Read `index.md`.\n2. Read `state.md`.\n")
+        self.assertError(SKILL_FILE)
+
+    def test_router_with_two_skill_pointers_fails(self):
+        self.vault.write("ROUTER.md", ROUTER + f"\nSee `{SKILL_FILE}` again.\n")
+        self.assertError("one line")
+
+    def test_router_that_repeats_the_call_rule_fails(self):
+        # #27: no file besides the skill file holds the rule; the Router points only.
+        self.vault.write("ROUTER.md", ROUTER.replace("Context MCP rule", "Call `build_context(question)` first, rule"))
+        self.assertError("build_context")
+
+    # --- Skill file -----------------------------------------------------
+
+    def test_missing_skill_file_fails(self):
+        os.remove(self.vault.root / SKILL_FILE)
+        self.assertError(SKILL_FILE)
+
+    def test_skill_file_without_the_tool_name_fails(self):
+        self.vault.write(SKILL_FILE, SKILL.replace("build_context(question)", "get_context(question)"))
+        self.assertError("build_context(question)")
+
+    def test_skill_file_missing_a_packet_field_fails(self):
+        self.vault.write(SKILL_FILE, SKILL.replace("`index_version`", "`version`"))
+        self.assertError("index_version")
+
+    def test_skill_file_without_the_never_remove_rule_fails(self):
+        self.vault.write(SKILL_FILE, SKILL.replace("May add, never remove.", "Fields may change."))
+        self.assertError("never remove")
+
+    def test_skill_file_without_the_exact_fallback_line_fails(self):
+        self.vault.write(SKILL_FILE, SKILL.replace(FALLBACK_LINE, "context server down, read files directly."))
+        self.assertError("fallback line")
+
+    def test_another_file_that_repeats_the_fallback_line_fails(self):
+        # #27: "No other file in the repo and no app project instruction repeats the rule."
+        self.vault.write("AGENTS.md", f"Read ROUTER.md first. If the MCP is down say \"{FALLBACK_LINE}\"\n")
+        self.assertError("AGENTS.md")
+
+    def test_the_spec_document_may_state_the_fallback_line(self):
+        self.vault.write("docs/spec/context-mcp.md", f"# Spec: Context MCP\n\nFallback: \"{FALLBACK_LINE}\"\n")
+        self.assertEqual(self.errors(), [])
+
+    def test_agents_file_with_more_than_the_pointer_line_fails(self):
+        # #22 story 3: AGENTS.md holds one line, "Read ROUTER.md first."
+        self.vault.write("AGENTS.md", "Read ROUTER.md first.\nCall the Context MCP first.\n")
+        self.assertError("AGENTS.md")
+
+    def test_agents_file_with_the_one_pointer_line_passes(self):
+        self.vault.write("AGENTS.md", "Read ROUTER.md first.\n")
+        self.assertEqual(self.errors(), [])
 
     # --- State ----------------------------------------------------------
 
