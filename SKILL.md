@@ -23,14 +23,16 @@ Later versions may add fields. They may never remove one of the five.
 
 ## Order
 
-1. Connected: call `build_context(question)` first, before you read `index.md`. Then read `state.md`.
-2. Not connected: read `index.md`, then `state.md`, as the Router says.
+Two paths. A session takes one of them, never both.
+
+1. Connected and the call returns `status: ok`: call `build_context(question)` first and use its evidence packet, then read `state.md`. Do not read `index.md`.
+2. Not connected, or the fallback below: read `index.md`, then `state.md`, as the Router says.
 
 The service is read-only. Every write goes through the routines.
 
 ## Fallback
 
-When the server is down, the call fails, or it returns `not_found`, read the files directly and say one short line:
+When the server is down, the call fails, or it returns `not_found`, take path 2 — read `index.md`, then `state.md` — and say one short line:
 
 "context server down or no files found, read files directly."
 

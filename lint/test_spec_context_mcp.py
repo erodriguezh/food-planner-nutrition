@@ -6,6 +6,7 @@ the internals to the internals map (#19). No other file repeats the rule.
 
 Run: python3 -m unittest discover lint
 """
+import re
 import unittest
 from pathlib import Path
 
@@ -33,6 +34,12 @@ def read(path: Path) -> str:
 
 def lines_with(text: str, needle: str) -> list[str]:
     return [line for line in text.split("\n") if needle in line]
+
+
+def order_steps(text: str) -> list[str]:
+    """The numbered paths of the "## Order" section of the skill file."""
+    body = text.split("## Order", 1)[1].split("\n## ", 1)[0]
+    return [line.strip() for line in body.split("\n") if re.match(r"^\d+\.", line.strip())]
 
 
 class SkillFileTest(unittest.TestCase):
@@ -69,11 +76,17 @@ class SkillFileTest(unittest.TestCase):
         self.assertIn("may add", self.text.lower())
         self.assertIn("never remove", self.text.lower())
 
-    def test_states_the_call_order(self):
-        text = self.text.lower()
-        self.assertIn("first", text)
-        self.assertIn("`index.md`", self.text)
-        self.assertIn("`state.md`", self.text)
+    def test_the_two_retrieval_paths_are_mutually_exclusive(self):
+        # Round 2 review: the successful MCP path replaces the Index read.
+        steps = order_steps(self.text)
+        self.assertEqual(len(steps), 2, steps)
+        connected, fallback = steps
+        self.assertIn("`build_context(question)`", connected)
+        self.assertIn("`state.md`", connected)
+        self.assertRegex(connected.lower(), r"do not read `index\.md`")
+        self.assertNotIn("build_context", fallback)
+        self.assertIn("not connected", fallback.lower())
+        self.assertLess(fallback.index("`index.md`"), fallback.index("`state.md`"))
 
     def test_states_the_exact_fallback_line_once_in_quotes(self):
         self.assertEqual(self.text.count(f'"{FALLBACK_LINE}"'), 1)
