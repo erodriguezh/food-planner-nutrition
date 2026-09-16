@@ -368,7 +368,41 @@ All properties are required; no other property is allowed.
 
 Slot sections `## Breakfast`, `## Lunch`, `## Snack`, `## Dinner` in this fixed order, each present only when it has at least one entry line and holding entry lines only. Then `## Summary`, written when the Day is closed, then optional `## Notes`. The lint fails any other heading, a slot twice, a slot out of order, an empty slot section, text before the first heading and a non-entry line under a slot.
 
-An open Day has no `## Summary`; a closed or auto-closed Day has one, and the lint fails either way round. The Summary holds one table row per slot with an entry plus a TOTAL row, one line with the goal numbers used, one bullet per macro over or under with the amount, the verdict, and one hint for tomorrow when useful. A `~` sits before each total when the Day is estimated. The verdict uses fixed words: `on target` when all four macros sit inside min and max, else `off target:` and each macro that is off with `low` or `high`. The lint fails a Summary without those words. `routines/close-day.md` (ticket #26) writes the text.
+An open Day has no `## Summary`; a closed or auto-closed Day has one, and the lint fails either way round. Its shape is the next section.
+
+### Summary
+
+Written by `routines/close-day.md` (ticket #26) when the user closes the day, or by the auto-close when a log for a later date arrives; rewritten by a log into a closed Day. The non-empty lines of `## Summary` come in this fixed order:
+
+1. The slot table, header `| slot | kcal | P | F | C |`, then one row per slot that has an entry, in the slot order, then the `| TOTAL | <kcal> | <P> | <F> | <C> |` row. A slot row is the sum of that slot's entry lines; the TOTAL row equals the Day totals. Every table number carries the `~` exactly when the Day is estimated (`| TOTAL | ~1307 | ~69 | ~4 | ~249 |`); a plain Day carries none.
+2. The goal line `Goal <kcal> kcal, <P> P, <F> F, <C> C.` with the four targets used at close. It records the targets, so a later goal change leaves the Day valid; the lint does not compare it with today's Goals.
+3. Four bullets `- <macro> <n> over|under`, in the order `kcal`, `protein`, `fat`, `carbs`, with `<n>` the TOTAL row against the goal line. A macro that hits its target writes `0` with either word.
+4. The verdict in fixed words: `on target` when all four macros sit inside min and max, else `off target:` and each macro that is off with `low` or `high`, comma separated (`off target: kcal low, protein low`). A `high` macro is `over` in its bullet, a `low` one `under`. The bounds are not on the file, so the lint checks the words and the directions, not the bounds.
+5. At most one line `Hint: <one line for tomorrow>`, only when useful.
+
+The lint fails a closed or auto-closed Day whose Summary misses the TOTAL row, the goal line, one of the four bullets or the verdict, holds a free-text verdict, a `protein_g`-style macro word, a table number that differs from the lines, a `~` that does not match `estimated`, or any other line. The macro words `kcal`, `protein`, `fat`, `carbs` are the column order; the Day properties they report on are `kcal`, `protein_g`, `fat_g`, `carbs_g`.
+
+```
+## Summary
+
+| slot | kcal | P | F | C |
+| --- | --- | --- | --- | --- |
+| breakfast | ~784 | ~51 | ~20 | ~95 |
+| TOTAL | ~784 | ~51 | ~20 | ~95 |
+
+Goal 2500 kcal, 135 P, 60 F, 355 C.
+
+- kcal 1716 under
+- protein 84 under
+- fat 40 under
+- carbs 260 under
+
+off target: kcal low, protein low, fat low, carbs low
+
+Hint: three more slots tomorrow.
+```
+
+The reply of the close repeats the table, the verdict and the hint, with the `~` on every total of an estimated Day, and ends with one line naming the Foods eaten today that are still unreviewed; "ok" sets `reviewed: true` on all of them. The lint does not see the reply.
 
 ### Entry line
 
@@ -402,9 +436,13 @@ Alias resolution at log time uses the shared table with one exception: a slot wo
 ### Lifecycle, State and Index
 
 - The first log of a date creates the Day with `status: open`, sets the State `open_day` to its link and, on the first log of a month, adds the Index month line `- <YYYY-MM> | nodes/day/<YYYY-MM>/`, all in one commit `log: <date> <slot> <name> <amount>`. An unknown Food inside a log is created first in its own `create-food: <name>` commit.
-- A log for a past date writes into that Day. A log into a closed Day rewrites totals and Summary, keeps the status, and the agent says so. A log for a later date auto-closes the older open Day first; the auto-close and the Summary text belong to `routines/close-day.md` (ticket #26), which does not exist yet, so the lint holds the invariant in the meantime.
-- The State names the one open Day; the lint fails two open Days and an `open_day` that points elsewhere. Every existing `nodes/day/<YYYY-MM>/` folder has exactly one Index month line.
+- A log for a past date writes into that Day. A log into a closed Day rewrites totals and Summary, keeps the status, and the agent says so. A log for a later date auto-closes the older open Day first, with `status: auto-closed` and the same Summary; the auto-close belongs to `routines/close-day.md` (ticket #26), and the lint holds the invariant.
+- The State names the one open Day; the lint fails two open Days, an `open_day` that points elsewhere and an `open_day` that still names a closed or auto-closed Day: the close clears it in the same commit, `close-day: <date> <verdict>`. Every existing `nodes/day/<YYYY-MM>/` folder has exactly one Index month line.
 - Logging never changes the Pantry. When the logged amount of a Food is more than the Pantry records for that Food, the agent asks "was that the last of X?" and still writes nothing to the Pantry; with no amount recorded the question does not come up (story 59).
+
+### Review
+
+The weekly review (`routines/review.md`, ticket #26) is computed in chat from the Day files of one calendar week, Monday to Sunday, and the Goals node. It writes nothing, so the lint has nothing to check; the routine text is the contract. It counts `closed` and `auto-closed` Days only, states the missing days and the auto-closed count, leaves an open Day out with one line, gives the average per day against the target on two lines, the days whose verdict reads `on target`, and the most common `<macro> low|high` of the verdicts with its day count. The average carries the `~` when any counted Day is estimated. The whole reply is under ten lines.
 
 ### Example
 

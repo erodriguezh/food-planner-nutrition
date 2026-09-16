@@ -5,7 +5,16 @@ Run: python3 -m unittest discover lint
 import unittest
 from pathlib import Path
 
-from vault_lint import DAY_REQUIRED, MEAL_REQUIRED
+from vault_lint import (
+    DAY_REQUIRED,
+    MEAL_REQUIRED,
+    SUMMARY_BULLET_RE,
+    SUMMARY_GOAL_RE,
+    SUMMARY_HINT_PREFIX,
+    SUMMARY_MACROS,
+    SUMMARY_TABLE_HEADER,
+    SUMMARY_VERDICT_RE,
+)
 
 VAULT = Path(__file__).resolve().parent.parent
 NODES_SPEC = VAULT / "docs" / "spec" / "nodes.md"
@@ -109,12 +118,86 @@ class SpecMealDayTest(unittest.TestCase):
         self.assertIn("next slot in order", self.day)
         self.assertIn("`- <YYYY-MM> | nodes/day/<YYYY-MM>/`", self.day)
 
+    # --- #26: the Summary, the verdict and the review ---------------------------------
+
+    def test_close_day_exists_and_the_spec_no_longer_says_otherwise(self):
+        self.assertTrue((VAULT / "routines" / "close-day.md").is_file())
+        self.assertTrue((VAULT / "routines" / "review.md").is_file())
+        self.assertNotIn("does not exist yet", self.text)
+
+    def test_the_summary_section_states_the_fixed_order(self):
+        summary = self.day.split("### Summary\n", 1)[1].split("\n### ", 1)[0]
+        self.assertIn(f"`{SUMMARY_TABLE_HEADER}`", summary)
+        self.assertIn("`| TOTAL | <kcal> | <P> | <F> | <C> |`", summary)
+        self.assertIn("`Goal <kcal> kcal, <P> P, <F> F, <C> C.`", summary)
+        self.assertIn("`- <macro> <n> over|under`", summary)
+        self.assertIn("`Hint: <one line for tomorrow>`", summary)
+        order = [summary.index(word) for word in ("slot table", "goal line", "Four bullets", "verdict in fixed words", "At most one line")]
+        self.assertEqual(order, sorted(order))
+        for macro in SUMMARY_MACROS:
+            self.assertIn(f"`{macro}`", summary)
+
+    def test_the_summary_example_has_the_lint_shape(self):
+        """The example is what close-day writes, so its lines pass the lint regexes."""
+        summary = self.day.split("### Summary\n", 1)[1].split("\n### ", 1)[0]
+        example = summary.split("```\n", 2)[1]
+        lines = [line for line in example.split("\n") if line.strip() and not line.startswith("## ")]
+        self.assertEqual(lines[0], SUMMARY_TABLE_HEADER)
+        total = [i for i, line in enumerate(lines) if line.startswith("| TOTAL | ~")]
+        self.assertEqual(len(total), 1, lines)
+        goal, bullets, verdict, hint = lines[total[0] + 1], lines[total[0] + 2:total[0] + 6], lines[total[0] + 6], lines[total[0] + 7:]
+        self.assertIsNotNone(SUMMARY_GOAL_RE.match(goal), goal)
+        for macro, line in zip(SUMMARY_MACROS, bullets):
+            self.assertRegex(line, SUMMARY_BULLET_RE)
+            self.assertTrue(line.startswith(f"- {macro} "), line)
+        self.assertIsNotNone(SUMMARY_VERDICT_RE.match(verdict), verdict)
+        self.assertEqual(len(hint), 1, hint)
+        self.assertTrue(hint[0].startswith(SUMMARY_HINT_PREFIX), hint)
+
+    def test_the_mark_and_the_goal_change_rules_are_stated_for_the_summary(self):
+        rule = self.one_line_with(self.day, "a plain Day carries none")
+        self.assertIn("exactly when the Day is estimated", rule)
+        rule = self.one_line_with(self.day, "It records the targets")
+        self.assertIn("goal change", rule)
+        self.assertIn("today's Goals", rule)
+
+    def test_the_verdict_directions_and_the_bounds_are_stated(self):
+        rule = self.one_line_with(self.day, "A `high` macro is `over` in its bullet")
+        self.assertIn("`on target`", rule)
+        self.assertIn("`off target:`", rule)
+        self.assertIn("not the bounds", rule)
+
+    def test_the_state_is_cleared_at_close(self):
+        rule = self.one_line_with(self.day, "still names a closed or auto-closed Day")
+        self.assertIn("`close-day: <date> <verdict>`", rule)
+
+    def test_the_review_section_matches_the_routine(self):
+        review = self.day.split("### Review\n", 1)[1].split("\n### ", 1)[0]
+        for needle in ("`routines/review.md`", "Monday to Sunday", "writes nothing", "`closed` and `auto-closed` Days only",
+                       "missing days", "auto-closed count", "open Day out with one line", "two lines", "`on target`",
+                       "`<macro> low|high`", "`~`", "under ten lines"):
+            self.assertIn(needle, review)
+
 
 class GlossaryTest(unittest.TestCase):
     def test_the_new_terms_are_defined_once(self):
         glossary = read(GLOSSARY)
-        for term in ("**Slot word**", "**Guessed amount**", "**Estimation mark**", "**Entry line**", "**Month line**"):
+        for term in ("**Slot word**", "**Guessed amount**", "**Estimation mark**", "**Entry line**", "**Month line**",
+                     "**Macro bullet**", "**Hint**", "**Days on target**"):
             self.assertEqual(glossary.count(term), 1, term)
+
+    def test_the_summary_and_verdict_terms_match_the_lint_words(self):
+        """#26: the glossary is the ubiquitous language, so its Summary and Verdict
+        lines carry the same fixed order and macro words the lint checks."""
+        glossary = read(GLOSSARY)
+        summary = [line for line in glossary.split("\n") if line.startswith("- **Summary**")][0]
+        for part in ("slot table", "TOTAL row", "goal line", "one bullet per macro", "verdict", "at most one hint", "rewrites it"):
+            self.assertIn(part, summary)
+        verdict = [line for line in glossary.split("\n") if line.startswith("- **Verdict**")][0]
+        for macro in SUMMARY_MACROS:
+            self.assertIn(f"`{macro}`", verdict)
+        self.assertIn("`- <macro> <n> over|under`", glossary)
+        self.assertIn("`Hint: ...`", glossary)
 
     def test_the_pantry_amount_states_the_one_log_question(self):
         """Story 59 lives in one glossary line: a log leaves the amount alone and

@@ -54,8 +54,10 @@ Glossary of the domain language for this vault. Terms are defined once here and 
 - **Status**: the state of a Day. `open` (logs still come), `closed` (the user closed the day), `auto-closed` (a log for a later date closed it).
 - **Close the day**: the user's request that ends a Day. Writes the status and the summary.
 - **Auto-close**: a log whose date is later than the last open Day closes that Day and opens a new one.
-- **Summary**: the text written at close: totals per slot, the goal used, over or under per macro, and the verdict.
-- **Verdict**: fixed words at close. `on target` when all four macros are inside their range; otherwise `off target:` followed by each macro that is off and its direction (`low` or `high`).
+- **Summary**: the `## Summary` section written at close, in a fixed order: the slot table with one row per slot with an entry and a TOTAL row, the goal line with the targets used, one bullet per macro with its amount over or under the target, the verdict, and at most one hint. Every table number carries the estimation mark when the Day is estimated. A log into a closed Day rewrites it.
+- **Verdict**: fixed words at close, one line of the Summary. `on target` when all four macros are inside their range; otherwise `off target:` followed by each macro that is off and its direction (`low` or `high`), comma separated. The macro words are `kcal`, `protein`, `fat`, `carbs`.
+- **Macro bullet**: one Summary line per macro, `- <macro> <n> over|under`, the day's total against the target used. Four per Summary, in the column order.
+- **Hint**: the one optional last line of the Summary, `Hint: ...`, a pointer for tomorrow. Written only when useful; never an open item.
 - **Open slot**: a slot with no entry on the Day. Open slots are counted in the fixed slot order. The user can remove one in chat ("no snack today").
 - **Next slot**: the first open slot in order. The one slot a suggestion covers in full.
 - **Rebalance**: the act of computing what is left today and, on request, suggesting the next slot. Works from numbers only; there is no stored plan.
@@ -87,7 +89,8 @@ Glossary of the domain language for this vault. Terms are defined once here and 
 - **Week**: Monday to Sunday. "This week" is the current week so far; "last week" is the previous full week. There is no rolling window.
 - **Days covered**: how many of the seven days have a closed Day, and how many of those were auto-closed. Missing days are skipped and stated, never guessed and never counted as off target. An open Day is not counted; the review says so in one line.
 - **Weekly average**: the per-day mean of each of the seven totals over the closed Days, shown against the target.
-- **Most common miss**: the macro and direction that appear most often in the week's verdicts, with the day count.
+- **Days on target**: how many counted Days carry the verdict `on target`.
+- **Most common miss**: the macro and direction that appear most often in the week's verdicts, with the day count. A tie names each.
 
 ## Units
 
