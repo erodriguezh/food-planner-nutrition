@@ -94,6 +94,20 @@ class SpecMealDayTest(unittest.TestCase):
         self.assertIn("closed or auto-closed Day", rule)
         self.assertIn("`check_entry_shape()`", self.day)
 
+    def test_a_missing_changed_link_fails_on_every_day(self):
+        """Decided with #26 after the PR #31 review: a deleted node is a broken link,
+        not history. The spec names the missing node next to the wrong type in both
+        closed-Day sentences, as the lint does, and ties it to the entry's own link,
+        which a closed Day already fails when the node is gone."""
+        for needle in ("a changed link that is missing or not a Food", "changed link that is missing or not a Food"):
+            self.assertIn(needle, self.day)
+        rule = self.one_line_with(self.day, "The lint fails a change on a Food entry")
+        self.assertIn("a changed link that is missing or not a Food, on every Day", rule)
+        history = self.one_line_with(self.day, "never makes a malformed line valid")
+        self.assertIn("a changed link that is missing or not a Food", history)
+        self.assertIn("as its own link does", history)
+        self.assertIn("#26", history)
+
     def test_the_slot_rule_and_the_index_month_line_are_stated(self):
         self.assertIn("next slot in order", self.day)
         self.assertIn("`- <YYYY-MM> | nodes/day/<YYYY-MM>/`", self.day)
