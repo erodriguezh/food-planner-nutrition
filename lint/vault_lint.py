@@ -1480,7 +1480,8 @@ def _check_summary(vault: Vault, node: Node, sections: Mapping[str, list[str]], 
     <C> C (<min>-<max>).`, four bullets
     `- <macro> <n> over|under` in the column order, the verdict, and at most one
     `Hint: ...` line. The verdict is `on target`, or `off target:` followed by
-    each macro that is off with `low` or `high`.
+    each macro that is off with `low` or `high`, each macro at most once and in
+    the column order.
 
     A target on the goal line and the gap of a bullet take the canonical number
     of the vault, `UNSIGNED_NUMBER_PATTERN`, so a Goals target of 135.5 P closes into a
@@ -1595,7 +1596,17 @@ def _check_summary(vault: Vault, node: Node, sections: Mapping[str, list[str]], 
     # The off macros come in the column order, the order this loop found them,
     # so the verdict of a Summary has one spelling.
     want = "off target: " + ", ".join(off) if off else "on target"
-    if line == "on target" or SUMMARY_VERDICT_RE.match(line):
+    match = SUMMARY_VERDICT_RE.match(line)
+    if match:
+        # One entry per off macro: the weekly review counts these entries for
+        # its most common miss, so a macro named twice would inflate the count
+        # (PR #32 review round 2, item 4). The regex reads the entry shape; the
+        # repeat is counted here, where the message can name the macro.
+        named = [entry.split(" ", 1)[0] for entry in match.group(1).split(", ")]
+        repeated = [macro for macro in SUMMARY_MACROS if named.count(macro) > 1]
+        if repeated:
+            vault.fail(node.rel, f"an `off target:` verdict names each macro at most once, in the column order; {', '.join(repeated)} is named more than once: {line!r}")
+    if line == "on target" or match:
         if line != want:
             vault.fail(node.rel, f"the `## Summary` verdict says {line!r}, the TOTAL row against the goal line ranges gives {want!r}")
     elif line.startswith("off target:"):

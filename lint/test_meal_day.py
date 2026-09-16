@@ -439,6 +439,14 @@ ON_TARGET = SUMMARY.replace(GOAL_LINE, "Goal 1307 kcal (1242-1372), 69 P (66-72)
     .replace("- fat 56 under", "- fat 0 under").replace("- carbs 106 under", "- carbs 0 under") \
     .replace("off target: kcal low, protein low, fat low, carbs low", "on target")
 
+# The same Day closed under Goals that put two of its four macros outside their
+# range: the verdict then names two distinct macros, in the column order of the
+# bullets (PR #32 review round 2, item 4).
+TWO_OFF = ON_TARGET.replace("Goal 1307 kcal (1242-1372), 69 P (66-72), 4 F (4-4), 249 C (237-261).",
+                            "Goal 1400 kcal (1330-1470), 69 P (66-72), 10 F (9-11), 249 C (237-261).") \
+    .replace("- kcal 0 under", "- kcal 93 under").replace("- fat 0 under", "- fat 6 under") \
+    .replace("on target", "off target: kcal low, fat low")
+
 # Today's Goals, changed after the Day was closed: the node the refresh must not
 # read for an old Day. Bounds are the target plus or minus 5 %, half up.
 GOALS_B = GOALS.replace("kcal: 2500", "kcal: 1300").replace("protein_g: 135", "protein_g: 70") \
@@ -885,6 +893,23 @@ class DayLintTest(LintCase):
         self.closed(DAY + SUMMARY.replace("off target: kcal low, protein low, fat low, carbs low",
                                           "off target: protein low, kcal low, fat low, carbs low"))
         self.assertError("verdict")
+
+    def test_a_verdict_names_two_off_macros_in_the_column_order(self):
+        """PR #32 review round 2, item 4: two macros off give one entry each, in
+        the column order of the bullets, and that Summary is clean."""
+        self.closed(DAY + TWO_OFF)
+        self.assertClean()
+
+    def test_a_verdict_names_each_macro_at_most_once(self):
+        """PR #32 review round 2, item 4: the verdict holds one entry per off
+        macro, so a macro named twice fails, whichever directions the two
+        entries carry. The weekly review counts these entries for its most
+        common miss, so a repeated macro would inflate the count."""
+        for verdict in ("off target: protein low, protein low",
+                        "off target: protein low, protein high"):
+            with self.subTest(verdict=verdict):
+                self.closed(DAY + TWO_OFF.replace("off target: kcal low, fat low", verdict))
+                self.assertError("once")
 
     def test_the_verdict_holds_when_todays_goals_differ_from_the_snapshot(self):
         """PR #32 review round 2, item 2 and spec #22 story 13: the Summary keeps
