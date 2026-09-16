@@ -124,12 +124,14 @@ class LogRoutineTest(RoutineTextTestCase):
         for phrase in ('"it was 200 g"', '"remove the snack"', '"yesterday I had'):
             self.assertIn(phrase, when)
 
-    def test_a_past_date_writes_into_its_day_and_a_closed_day_keeps_its_status(self):
-        """A log into a closed Day rewrites the Summary that close-day wrote and
-        leaves `status: closed` alone (story 54, owner feedback 6 on PR #31)."""
+    def test_a_past_date_writes_into_its_day_and_a_closed_day_is_refreshed(self):
+        """A log into a closed Day rebuilds the Summary that close-day wrote and
+        leaves the status alone (story 54, owner feedback 6 on PR #31). PR #32
+        review 2: the Summary algorithm is not repeated here, so step 1 names
+        the refresh mode of `routines/close-day.md` and the agent follows it."""
         rule = self.step(self.text, 1)
         self.assertIn("past date: its Day", rule)
-        self.assertIn("closed Day: rewrite Summary, keep status, say so", rule)
+        self.assertIn("closed Day: `routines/close-day.md` refresh, say so", rule)
 
     def test_one_fuzzy_hit_is_used_and_named(self):
         rule = self.step(self.text, 2)

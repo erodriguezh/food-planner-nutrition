@@ -80,25 +80,60 @@ class CloseDayRoutineTest(RoutineTextTestCase):
         self.assertIn('"close the day"', when)
         self.assertIn("auto-close", when)
 
-    def test_the_auto_close_path_sets_its_status_before_the_new_day(self):
-        """Acceptance #26: a log dated after the open Day writes that Day's
-        Summary with `status: auto-closed` before it creates the new Day."""
+    def test_the_step_that_picks_the_day_stops_when_there_is_none(self):
         rule = self.step(self.steps, 1)
-        self.assertIn("`status: auto-closed`", rule)
-        self.assertIn("before the new Day exists", rule)
         self.assertIn("none: say so, stop", rule)
+
+    def test_the_write_names_one_status_per_close_mode_and_none_on_its_own(self):
+        """PR #32 review 1: step 1 wrote `status: auto-closed` while `## Write`
+        said `status: closed` for every close, so the file contradicted itself.
+        The statuses live in `## Write`, each in the clause of its own mode, and
+        no clause anywhere in the file names a status without its mode."""
+        write = self.section(self.text, "Write")
+        clauses = [clause.strip() for clause in re.split(r"[.;]", write) if "`status:" in clause]
+        by_status = {re.search(r"`status: (auto-closed|closed)`", clause).group(1): clause for clause in clauses}
+        self.assertEqual(set(by_status), {"closed", "auto-closed"}, write)
+        self.assertTrue(by_status["closed"].startswith("Close:"), by_status["closed"])
+        self.assertTrue(by_status["auto-closed"].startswith("Auto-close:"), by_status["auto-closed"])
+        self.assertIn("before the new Day", by_status["auto-closed"])
+        for clause in re.split(r"[.;]", self.text):
+            if "`status:" in clause:
+                self.assertRegex(clause.strip(), r"^(Close|Auto-close):", clause)
+
+    def test_both_close_modes_clear_the_open_day(self):
+        """Acceptance #26: the close clears `state.md` `open_day` in the same
+        commit, whichever mode wrote the status."""
+        write = self.section(self.text, "Write")
+        both = self.one_line_with(write, "Both:").split("Both:", 1)[1]
+        self.assertIn("`state.md`", both)
+        self.assertIn('`open_day: ""`', both)
+        self.assertIn("`close-day: <date> <verdict>`", both)
+
+    def test_the_refresh_mode_keeps_the_status_the_state_and_the_log_commit(self):
+        """PR #32 review 2: a log into a closed Day rebuilds the Summary through
+        this routine's `Refresh` mode, so the Summary algorithm is stated once.
+        Refresh keeps the `closed` or `auto-closed` status, leaves `state.md`
+        `open_day` as it is and writes no `close-day:` commit of its own."""
+        write = self.section(self.text, "Write")
+        refresh = write.split("Refresh:", 1)[1]
+        self.assertIn("Summary only", refresh)
+        self.assertIn("status", refresh)
+        self.assertIn("`open_day` stay", refresh)
+        self.assertIn("no commit", refresh)
+        self.assertNotIn("`status:", refresh)
+        self.assertNotIn("close-day:", refresh)
 
     def test_the_table_step_matches_the_lint_header_and_the_total_row(self):
         rule = self.step(self.steps, 2)
         self.assertIn(f"`{SUMMARY_TABLE_HEADER}`", rule)
         self.assertIn("`| TOTAL | ... |`", rule)
-        self.assertIn("one row per slot with an entry, in order", rule)
+        self.assertIn("a row per filled slot in order", rule)
         self.assertIn("Day totals", rule)
 
     def test_the_mark_goes_on_every_table_number_of_an_estimated_day(self):
         rule = self.step(self.steps, 2)
         self.assertIn("`estimated: true`", rule)
-        self.assertIn("`~` before every table number", rule)
+        self.assertIn("`~` before every number", rule)
 
     def test_the_goal_line_shape_parses(self):
         rule = self.step(self.steps, 3)
@@ -128,7 +163,7 @@ class CloseDayRoutineTest(RoutineTextTestCase):
 
     def test_the_hint_is_one_optional_last_line(self):
         rule = self.step(self.steps, 6)
-        self.assertIn(f"`{SUMMARY_HINT_PREFIX}<one line for tomorrow>`", rule)
+        self.assertIn(f"`{SUMMARY_HINT_PREFIX}<one line>`", rule)
         self.assertIn("Last line", rule)
         self.assertIn("only when useful", rule)
 
@@ -136,28 +171,34 @@ class CloseDayRoutineTest(RoutineTextTestCase):
         """Acceptance #26: the reply ends with one line naming unreviewed Foods
         eaten today; "ok" reviews them all."""
         rule = self.step(self.steps, 7)
-        self.assertIn("unreviewed Foods eaten today", rule)
+        self.assertIn("Name the unreviewed Foods", rule)
         self.assertIn('"ok": `reviewed: true` on all', rule)
         self.assertIn("commit `close-day: reviewed <names>`", rule)
 
     def test_the_write_closes_clears_and_commits_in_one_step(self):
-        """Acceptance #26: the Summary, `status: closed`, the cleared State and
-        the commit are one step."""
+        """Acceptance #26: the Summary, the status, the cleared State and the
+        commit are one step. The one `close-day:` commit message is named once;
+        the second "commit" is the refresh saying it writes none."""
         write = self.section(self.text, "Write")
         for needle in ("`## Summary`", "`status: closed`", "`state.md`", '`open_day: ""`', "`updated`", "`close-day: <date> <verdict>`"):
             self.assertIn(needle, write)
-        self.assertEqual(write.count("commit"), 1)
+        self.assertEqual(write.count("`close-day: <date> <verdict>`"), 1)
 
     def test_the_reply_has_the_table_the_verdict_the_hint_and_the_unreviewed_line(self):
+        """The reply repeats what the steps built, so it names them instead of
+        restating their shape; the `~` of an estimated Day rides on the table of
+        step 2."""
         reply = self.section(self.text, "Reply")
-        for needle in ("Table", "verdict", "hint", "one line naming the unreviewed Foods", "none: no line", "`~` on every total when estimated"):
+        for needle in ("Table", "verdict", "hint", "step 7's line", "none: no line"):
             self.assertIn(needle, reply)
 
-    def test_a_log_into_a_closed_day_is_the_log_routines_job(self):
-        """The rewrite of a closed Day's Summary is stated once, in `routines/log.md`
-        step 1; close-day does not repeat it."""
-        self.assertIn("closed Day: rewrite Summary, keep status, say so", read(LOG))
-        self.assertNotIn("keep status", self.text)
+    def test_a_log_into_a_closed_day_points_at_the_close_day_refresh(self):
+        """PR #32 review 2: `routines/log.md` step 1 names the refresh path of
+        this file, so the Summary algorithm lives here only."""
+        log = read(LOG)
+        self.assertIn("closed Day: `routines/close-day.md` refresh", log)
+        for shape in ("| slot |", "over|under", "on target"):
+            self.assertNotIn(shape, log)
 
 
 class ReviewRoutineTest(RoutineTextTestCase):
