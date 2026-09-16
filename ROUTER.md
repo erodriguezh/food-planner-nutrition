@@ -18,7 +18,7 @@ Personal food planner and nutrition tracker for one person. Markdown vault, agen
 
 - When the user ate something, changed or removed an entry: read `routines/log.md`
 - When the user asks what is left or what to eat: read `routines/rebalance.md`
-- When the user closes the day: read `routines/close-day.md`
+- When the user closes the day, or a log auto-closes one: read `routines/close-day.md`
 - When a food is new or a label photo arrives: read `routines/create-food.md`
 - When the user names a meal: read `routines/create-meal.md`
 - When the user bought, ran out of, or lists food: read `routines/pantry.md`
