@@ -1557,9 +1557,11 @@ def _check_summary(vault: Vault, node: Node, sections: Mapping[str, list[str]], 
     match = SUMMARY_GOAL_RE.match(line)
     if not match:
         vault.fail(node.rel, f"the `## Summary` goal line is `Goal <kcal> kcal (<min>-<max>), <P> P (<min>-<max>), <F> F (<min>-<max>), <C> C (<min>-<max>).`: {lines[index]!r}")
+    # Three groups per macro, in the column order: the target and its range.
     numbers = [_decimal(value) for value in match.groups()]
+    triples = [numbers[start:start + 3] for start in range(0, len(numbers), 3)]
     goals, bounds = {}, {}
-    for macro, target, low, high in zip(SUMMARY_MACROS, numbers[::3], numbers[1::3], numbers[2::3]):
+    for macro, (target, low, high) in zip(SUMMARY_MACROS, triples):
         if not low <= target <= high:
             vault.fail(node.rel, f"the `## Summary` goal line gives {macro} the range {_num(low)} to {_num(high)}, which is no range around its target {_num(target)}: {line!r}")
         goals[macro], bounds[macro] = target, (low, high)
@@ -1590,6 +1592,8 @@ def _check_summary(vault: Vault, node: Node, sections: Mapping[str, list[str]], 
             off.append(f"{macro} low")
         elif totals[macro] > high:
             off.append(f"{macro} high")
+    # The off macros come in the column order, the order this loop found them,
+    # so the verdict of a Summary has one spelling.
     want = "off target: " + ", ".join(off) if off else "on target"
     if line == "on target" or SUMMARY_VERDICT_RE.match(line):
         if line != want:

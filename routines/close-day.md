@@ -1,7 +1,7 @@
 # close-day
 
 ## When
-"close the day", "done for today", a log into another Day: auto-close, refresh.
+"close the day", "day done", a log into another Day: auto-close, refresh.
 
 ## Read
 The Day, Goals (not refresh), its Foods (Meals too) for `reviewed`.
@@ -9,7 +9,7 @@ The Day, Goals (not refresh), its Foods (Meals too) for `reviewed`.
 ## Steps
 1. Day: the open one; refresh: the logged Day; none: say so, stop.
 2. `| slot | kcal | P | F | C |`: a row per filled slot in order, then `| TOTAL | ... |` = Day totals; `estimated: true`: `~` before every number.
-3. `Goal <kcal> kcal, <P> P, <F> F, <C> C.`, each with ` (<min>-<max>)`.
+3. `Goal <kcal> kcal, <P> P, <F> F, <C> C.`, ` (<min>-<max>)` after each unit.
 4. Four bullets in order `- <kcal|protein|fat|carbs> <n> over|under`; n: the gap, no sign, the target's decimals only; exact hit `0 under`.
 5. Verdict: all inside the stored min-max: `on target`, else `off target: <macro> low|high`, one per off macro.
 6. Last line `Hint: <one line>` when useful.

@@ -189,6 +189,7 @@ class SpecMealDayTest(unittest.TestCase):
         self.assertIn("`on target`", rule)
         self.assertIn("`off target:`", rule)
         self.assertIn("range", rule)
+        self.assertIn("column order", rule)
         self.assertNotIn("not the bounds", self.day)
 
     def test_the_goal_line_is_the_goals_snapshot_a_refresh_reuses(self):

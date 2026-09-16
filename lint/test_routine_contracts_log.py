@@ -107,6 +107,15 @@ class LogRoutineTest(RoutineTextTestCase):
         self.assertEqual(order, sorted(order), rule)
         self.assertIn("filled earlier: next in order", rule)
 
+    def test_the_meal_amount_forms_are_stated_once(self):
+        """A Meal is logged by portion or by grams, a Food by grams only
+        (`docs/spec/nodes.md`, entry line). `routines/log.md` step 4 carried the
+        rule until the refresh step of PR #32 review round 2 took its tokens, so
+        it now sits in hard rule 1 of `ROUTER.md`, which every session reads."""
+        rule = self.one_line_with(read(VAULT / "ROUTER.md"), "Grams only")
+        self.assertIn("portion", rule)
+        self.assertIn("Meal", rule)
+
     def test_a_slot_word_makes_the_meal_win(self):
         rule = self.one_line_with(self.text, "slot word")
         self.assertIn("Meal wins", rule)

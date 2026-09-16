@@ -879,6 +879,13 @@ class DayLintTest(LintCase):
                                           "off target: kcal low, protein low, fat low"))
         self.assertError("verdict")
 
+    def test_an_off_target_verdict_names_the_macros_in_the_column_order(self):
+        """The lint recomputes the verdict, so it has one spelling: the off
+        macros in the column order of the bullets (PR #32 review round 2)."""
+        self.closed(DAY + SUMMARY.replace("off target: kcal low, protein low, fat low, carbs low",
+                                          "off target: protein low, kcal low, fat low, carbs low"))
+        self.assertError("verdict")
+
     def test_the_verdict_holds_when_todays_goals_differ_from_the_snapshot(self):
         """PR #32 review round 2, item 2 and spec #22 story 13: the Summary keeps
         the goal comparison it was closed with, so a later goal change leaves an
@@ -1082,8 +1089,14 @@ class DayLintTest(LintCase):
             .replace("kcal 1193 under", "kcal 1369 under").replace("protein 66 under", "protein 70 under") \
             .replace("carbs 106 under", "carbs 145 under")
         self.vault.write("nodes/goals/Goals.md", GOALS_B)
-        self.closed(relogged + corrected)
-        self.assertClean()
+        for status in ("closed", "auto-closed"):
+            with self.subTest(status=status):
+                self.closed(relogged + corrected, status=status)
+                self.assertClean()
+                # The refresh rewrites the Summary only: the status the close
+                # wrote and the cleared `open_day` of the State stand.
+                self.assertIn(f"status: {status}", (self.vault.root / "nodes/day/2026-09/2026-09-15.md").read_text())
+                self.assertIn('open_day: ""', (self.vault.root / "state.md").read_text())
         # The same corrected Day with the verdict taken from today's Goals B,
         # where 4 g of fat sits inside 4 to 4: the stored snapshot A says `fat
         # low`, so the rewritten history fails.

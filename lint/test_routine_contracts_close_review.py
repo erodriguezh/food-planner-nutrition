@@ -189,10 +189,11 @@ class CloseDayRoutineTest(RoutineTextTestCase):
         describes is the line the lint takes."""
         rule = self.step(self.steps, 3)
         shape = re.search(r"`(Goal .*?C\.)`", rule).group(1)
-        self.assertIn("each with ` (<min>-<max>)`", rule)
+        self.assertIn("` (<min>-<max>)` after each unit", rule)
         line = shape.replace("<kcal>", "2500").replace("<P>", "135").replace("<F>", "60").replace("<C>", "355")
-        for macro, span in (("kcal", "2375-2625"), ("P", "128-142"), ("F", "57-63"), ("C", "337-373")):
-            line = line.replace(f" {macro}", f" {macro} ({span})", 1)
+        # the step puts the range after each unit, so the test builds it there
+        for unit, span in (("kcal", "2375-2625"), ("P", "128-142"), ("F", "57-63"), ("C", "337-373")):
+            line = line.replace(f" {unit}", f" {unit} ({span})", 1)
         self.assertIsNotNone(SUMMARY_GOAL_RE.match(line), line)
 
     def test_refresh_keeps_historical_goals_snapshot(self):

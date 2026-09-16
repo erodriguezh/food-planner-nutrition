@@ -27,7 +27,7 @@ Personal food planner and nutrition tracker for one person. Markdown vault, agen
 
 ## Hard rules
 
-1. Grams only. Convert servings and ml before you write.
+1. Grams only, a Meal also by portion. Convert servings and ml before you write.
 2. Links use the canonical name. Aliases are never link targets.
 3. Plans are never stored. They live in the chat.
 4. A new Food is written at once with `reviewed: false`. Ask nothing.
