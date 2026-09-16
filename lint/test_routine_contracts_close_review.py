@@ -107,9 +107,17 @@ class CloseDayRoutineTest(RoutineTextTestCase):
         # One short line: the vault opens as few files as it can.
         self.assertEqual(len(read_section.split("\n")), 1, read_section)
 
-    def test_the_step_that_picks_the_day_stops_when_there_is_none(self):
+    def test_the_step_that_picks_the_day_reaches_every_mode(self):
+        """Code review of PR #32 item 2: a refresh runs on a closed Day with no
+        open Day, so step 1 has to name the Day of that mode as well, or the
+        agent stops at step 1 and never rebuilds the Summary. The When line
+        carries the trigger of every mode the Write section writes."""
         rule = self.step(self.steps, 1)
         self.assertIn("none: say so, stop", rule)
+        self.assertIn("refresh", rule)
+        when = self.section(self.text, "When")
+        for mode in ("auto-close", "refresh"):
+            self.assertIn(mode, when)
 
     def test_the_write_names_one_status_per_close_mode_and_none_on_its_own(self):
         """PR #32 review 1: step 1 wrote `status: auto-closed` while `## Write`
@@ -146,7 +154,7 @@ class CloseDayRoutineTest(RoutineTextTestCase):
         self.assertIn("Summary only", refresh)
         self.assertIn("status", refresh)
         self.assertIn("`open_day` stay", refresh)
-        self.assertIn("no commit", refresh)
+        self.assertIn("no own commit", refresh)
         self.assertNotIn("`status:", refresh)
         self.assertNotIn("close-day:", refresh)
 
@@ -197,19 +205,22 @@ class CloseDayRoutineTest(RoutineTextTestCase):
         self.assertIn("inside min and max", rule)
         self.assertIn("`off target: <macro> low|high`", rule)
         self.assertIn("one per off macro", rule)
+        # The comma between two off macros is the lint regex and the glossary
+        # Verdict term; the routine budget paid for the refresh mode with it.
         self.assertIsNotNone(SUMMARY_VERDICT_RE.match("off target: protein low, fat high"))
+        self.assertIn("comma separated", read(VAULT / "CONTEXT.md"))
 
     def test_the_hint_is_one_optional_last_line(self):
         rule = self.step(self.steps, 6)
         self.assertIn(f"`{SUMMARY_HINT_PREFIX}<one line>`", rule)
         self.assertIn("Last line", rule)
-        self.assertIn("only when useful", rule)
+        self.assertIn("when useful", rule)
 
     def test_unreviewed_foods_are_named_and_one_ok_reviews_them_all(self):
         """Acceptance #26: the reply ends with one line naming unreviewed Foods
         eaten today; "ok" reviews them all."""
         rule = self.step(self.steps, 7)
-        self.assertIn("Name the unreviewed Foods", rule)
+        self.assertIn("Name the Day's unreviewed Foods", rule)  # the Day of step 1, which an auto-close or a refresh closes for a past date
         self.assertIn('"ok": `reviewed: true` on all', rule)
         self.assertIn("commit `close-day: reviewed <names>`", rule)
 
@@ -227,7 +238,7 @@ class CloseDayRoutineTest(RoutineTextTestCase):
         restating their shape; the `~` of an estimated Day rides on the table of
         step 2."""
         reply = self.section(self.text, "Reply")
-        for needle in ("Table", "verdict", "hint", "step 7's line", "none: no line"):
+        for needle in ("Steps 2, 5-7", "none: no line"):
             self.assertIn(needle, reply)
 
     def test_a_log_into_a_closed_day_points_at_the_close_day_refresh(self):
@@ -288,7 +299,7 @@ class ReviewRoutineTest(RoutineTextTestCase):
         # The rounding rule is stated once, in log.md step 4; this routine points there.
         self.assertIn("`routines/log.md` step 4", rule)
         self.assertNotIn("half up", self.text)
-        self.assertIn("`~` when a counted Day is `estimated: true`", rule)
+        self.assertIn("`~` on the average when a counted Day is `estimated: true`", rule)
 
     def test_days_on_target_and_the_most_common_miss_come_from_the_verdicts(self):
         rule = self.one_line_with(self.steps, "4. Days on target")
