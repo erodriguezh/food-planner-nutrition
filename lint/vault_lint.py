@@ -86,13 +86,13 @@ INDEX_SECTIONS = ("Food", "Meal", "Day", "Goals", "Pantry")
 ROUTINE_SECTIONS = ("When", "Read", "Steps", "Write", "Reply")
 ROUTER_TOKEN_LIMIT = 500
 ROUTINE_TOKEN_LIMIT = 300
-# Context MCP rule (#27): one skill file at the vault root, one Router pointer.
+# Context MCP wiring (#27): one skill file at the vault root, one Router
+# pointer. The contract itself is not written here. It lives in the skill file
+# (the rule the agent reads) and in the spec document (the rebuild copy); its
+# test seam is the tool call and belongs to the internals map (#19).
 SKILL_FILE = "SKILL.md"
-CONTEXT_TOOL = "build_context(question)"
-PACKET_FIELDS = ("node", "section", "linked", "status", "index_version")
-FALLBACK_LINE = "context server down or no files found, read files directly."
 AGENTS_POINTER = "Read ROUTER.md first."
-# The one file besides the skill file that may state the fallback line: the
+# The one file besides the skill file that may state the quoted rule line: the
 # spec document, written for a rebuild and never read in daily use.
 CONTEXT_SPEC = "docs/spec/context-mcp.md"
 MACROS = ("kcal", "protein_g", "fat_g", "carbs_g")
@@ -1717,36 +1717,44 @@ def check_router(vault: Vault) -> None:
     pointers = [line for line in text.split("\n") if f"`{SKILL_FILE}`" in line]
     if len(pointers) != 1:
         vault.fail("ROUTER.md", f"needs exactly one line that points to `{SKILL_FILE}`, found {len(pointers)}")
-    if FALLBACK_LINE in text or all(f"`{name}`" in text for name in PACKET_FIELDS):
-        vault.fail("ROUTER.md", f"repeats the Context MCP rule (packet fields or fallback line); only `{SKILL_FILE}` holds it")
+
+
+def skill_rule_line(text: str) -> str | None:
+    """The one line the skill file quotes: what the agent says when it falls back.
+
+    The lint derives it from the skill file instead of holding a copy, so the
+    Context MCP contract lives in two documents only: `SKILL.md`, the rule the
+    agent reads, and the spec document, the copy for a rebuild (#27 round 2).
+    None when the file quotes no line, or more than one, because then the lint
+    cannot tell which line is the rule.
+    """
+    quoted = sorted(set(re.findall(r'"([^"\n]+)"', text)))
+    return quoted[0] if len(quoted) == 1 else None
 
 
 def check_skill(vault: Vault) -> None:
     """The Context MCP rule lives in the skill file and nowhere else (#27).
 
-    The spec document states the contract for a rebuild and is never read in
-    daily use, so it may carry the fallback line too.
+    A structural check. What the rule says is the business of `SKILL.md` and of
+    the spec document; the contract has its test seam in the tool call and that
+    seam belongs to the internals map (#19). This check reads the one line the
+    skill file quotes and fails every other daily-use file that repeats it. The
+    spec document states the contract for a rebuild and is never read in daily
+    use, so it may carry that line too.
     """
     path = vault.root / SKILL_FILE
     if not path.is_file():
         vault.fail(SKILL_FILE, "file is missing")
         return
-    text = path.read_text(encoding="utf-8")
-    if f"`{CONTEXT_TOOL}`" not in text:
-        vault.fail(SKILL_FILE, f"does not name the tool `{CONTEXT_TOOL}`")
-    for name in PACKET_FIELDS:
-        if f"`{name}`" not in text:
-            vault.fail(SKILL_FILE, f"does not name the packet field `{name}`")
-    lowered = text.lower()
-    if "may add" not in lowered or "never remove" not in lowered:
-        vault.fail(SKILL_FILE, 'does not state the "may add, never remove" rule')
-    if f'"{FALLBACK_LINE}"' not in text:
-        vault.fail(SKILL_FILE, f'does not state the exact fallback line "{FALLBACK_LINE}"')
+    rule = skill_rule_line(path.read_text(encoding="utf-8"))
+    if rule is None:
+        vault.fail(SKILL_FILE, "must quote exactly one line, the one the agent says when the service is not there")
+        return
     for rel, other in vault_markdown_files(vault.root):
         if rel in (SKILL_FILE, CONTEXT_SPEC):
             continue
-        if FALLBACK_LINE in other.read_text(encoding="utf-8"):
-            vault.fail(rel, f"repeats the fallback line; only `{SKILL_FILE}` holds the rule")
+        if rule in other.read_text(encoding="utf-8"):
+            vault.fail(rel, f"repeats the line that `{SKILL_FILE}` quotes; only the skill file and `{CONTEXT_SPEC}` hold the rule")
 
 
 def check_agents(vault: Vault) -> None:

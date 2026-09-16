@@ -6,14 +6,13 @@ import unittest
 from pathlib import Path
 
 from vault_lint import (
-    FALLBACK_LINE,
-    PACKET_FIELDS,
     SKILL_FILE,
     apply_goal_change,
     compute_bounds,
     estimate_tokens,
     lint_vault,
     round_bound,
+    skill_rule_line,
 )
 
 GOALS = """---
@@ -67,7 +66,9 @@ updated: 2026-09-15
 
 ROUTER = f"# Router\n\n1. Context MCP connected? Call `build_context` first, see `{SKILL_FILE}`. Otherwise read `index.md`.\n2. Read `state.md`.\n"
 
-SKILL = f"""# Context MCP\n\nOne tool: `build_context(question)`.\n\n`node`, `section`, `linked`, `status`, `index_version`. May add, never remove.\n\nConnected: call it first. Down or `not_found`: say "{FALLBACK_LINE}"\n"""
+RULE_LINE = "the one line the skill file quotes."
+
+SKILL = f"""# Context MCP\n\nThe rule for the retrieval service. Connected: call the tool first.\nNot connected: read `index.md`, then `state.md`.\n\n"{RULE_LINE}"\n"""
 
 CROISSANT = """---
 type: food
@@ -309,15 +310,10 @@ class LintTest(unittest.TestCase):
         self.vault.write("ROUTER.md", ROUTER + f"\nSee `{SKILL_FILE}` again.\n")
         self.assertError("one line")
 
-    def test_router_that_repeats_the_fallback_line_fails(self):
-        # #27: the Router names the tool (#22 start rule) but holds no copy of the rule.
-        self.vault.write("ROUTER.md", ROUTER + f'\nWhen it is down say "{FALLBACK_LINE}"\n')
-        self.assertError("repeats the Context MCP rule")
-
-    def test_router_that_lists_the_packet_fields_fails(self):
-        fields = ", ".join(f"`{name}`" for name in PACKET_FIELDS)
-        self.vault.write("ROUTER.md", ROUTER + f"\nThe packet has {fields}.\n")
-        self.assertError("repeats the Context MCP rule")
+    def test_router_that_repeats_the_rule_line_fails(self):
+        # #27: the Router points to the skill file and holds no copy of the rule.
+        self.vault.write("ROUTER.md", ROUTER + f'\nWhen it is down say "{RULE_LINE}"\n')
+        self.assertError("ROUTER.md")
 
     # --- Skill file -----------------------------------------------------
 
@@ -325,33 +321,31 @@ class LintTest(unittest.TestCase):
         os.remove(self.vault.root / SKILL_FILE)
         self.assertError(SKILL_FILE)
 
-    def test_skill_file_without_the_tool_name_fails(self):
-        self.vault.write(SKILL_FILE, SKILL.replace("build_context(question)", "get_context(question)"))
-        self.assertError("build_context(question)")
+    def test_skill_file_without_a_quoted_rule_line_fails(self):
+        # #27 round 2: the contract is not written in this script. The lint
+        # derives the line it must not find elsewhere from the skill file.
+        self.vault.write(SKILL_FILE, SKILL.replace(f'"{RULE_LINE}"', RULE_LINE))
+        self.assertError("exactly one line")
 
-    def test_skill_file_missing_a_packet_field_fails(self):
-        self.vault.write(SKILL_FILE, SKILL.replace("`index_version`", "`version`"))
-        self.assertError("index_version")
+    def test_skill_file_with_two_quoted_lines_fails(self):
+        self.vault.write(SKILL_FILE, SKILL + '\n"a second quoted line."\n')
+        self.assertError("exactly one line")
 
-    def test_skill_file_without_the_never_remove_rule_fails(self):
-        self.vault.write(SKILL_FILE, SKILL.replace("May add, never remove.", "Fields may change."))
-        self.assertError("never remove")
+    def test_the_lint_reads_the_rule_line_out_of_the_skill_file(self):
+        self.assertEqual(skill_rule_line(SKILL), RULE_LINE)
+        self.assertIsNone(skill_rule_line("# Context MCP\n\nNo quoted line here.\n"))
 
-    def test_skill_file_without_the_exact_fallback_line_fails(self):
-        self.vault.write(SKILL_FILE, SKILL.replace(FALLBACK_LINE, "context server down, read files directly."))
-        self.assertError("fallback line")
-
-    def test_another_file_that_repeats_the_fallback_line_fails(self):
+    def test_another_file_that_repeats_the_rule_line_fails(self):
         # #27: "No other file in the repo and no app project instruction repeats the rule."
-        self.vault.write("AGENTS.md", f"Read ROUTER.md first. If the MCP is down say \"{FALLBACK_LINE}\"\n")
+        self.vault.write("AGENTS.md", f"Read ROUTER.md first. If the MCP is down say \"{RULE_LINE}\"\n")
         self.assertError("AGENTS.md")
 
-    def test_the_spec_document_may_state_the_fallback_line(self):
-        self.vault.write("docs/spec/context-mcp.md", f"# Spec: Context MCP\n\nFallback: \"{FALLBACK_LINE}\"\n")
+    def test_the_spec_document_may_state_the_rule_line(self):
+        self.vault.write("docs/spec/context-mcp.md", f"# Spec: Context MCP\n\nFallback: \"{RULE_LINE}\"\n")
         self.assertEqual(self.errors(), [])
 
-    def test_another_spec_document_that_repeats_the_fallback_line_fails(self):
-        self.vault.write("docs/spec/nodes.md", f"# Spec: nodes\n\nFallback: \"{FALLBACK_LINE}\"\n")
+    def test_another_spec_document_that_repeats_the_rule_line_fails(self):
+        self.vault.write("docs/spec/nodes.md", f"# Spec: nodes\n\nFallback: \"{RULE_LINE}\"\n")
         self.assertError("docs/spec/nodes.md")
 
     def test_missing_agents_file_fails(self):
