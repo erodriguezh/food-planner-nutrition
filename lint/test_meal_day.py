@@ -400,21 +400,39 @@ PLAIN_DAY = DAY.replace(SNACK, "- [[Rice]] = 50 g — 176 kcal · 4 P · 0 F · 
     .replace("fat_g: 4", "fat_g: 3").replace("carbs_g: 249", "carbs_g: 250") \
     .replace("fiber_g: 8.8", "fiber_g: 3").replace("sugar_g: 16.7", "sugar_g: 16.6")
 
-# The Summary a closed Day carries: the table, the goal line, one bullet per
-# macro that is off, and the verdict in the fixed words of spec #22.
+# The Summary a closed Day carries (#26): the slot table with its TOTAL row, the
+# goal line, one bullet per macro against its target, the verdict in the fixed
+# words of spec #22 and an optional hint. DAY is estimated, so every table
+# number carries the `~`.
 SUMMARY = """
 ## Summary
 
 | slot | kcal | P | F | C |
 | --- | --- | --- | --- | --- |
-| TOTAL | 1307 | 69 | 4 | 249 |
+| breakfast | ~240 | ~15 | ~1 | ~43 |
+| lunch | ~528 | ~11 | ~1 | ~117 |
+| snack | ~171 | ~6 | ~1 | ~38 |
+| dinner | ~368 | ~37 | ~1 | ~51 |
+| TOTAL | ~1307 | ~69 | ~4 | ~249 |
 
 Goal 2500 kcal, 135 P, 60 F, 355 C.
 
 - kcal 1193 under
+- protein 66 under
+- fat 56 under
+- carbs 106 under
 
-off target: kcal low, protein_g low
+off target: kcal low, protein low, fat low, carbs low
+
+Hint: more protein at lunch.
 """
+
+# The Summary of PLAIN_DAY: no line is marked, so no `~` anywhere.
+PLAIN_SUMMARY = SUMMARY.replace("~", "") \
+    .replace("| snack | 171 | 6 | 1 | 38 |", "| snack | 176 | 4 | 0 | 39 |") \
+    .replace("| TOTAL | 1307 | 69 | 4 | 249 |", "| TOTAL | 1312 | 67 | 3 | 250 |") \
+    .replace("kcal 1193 under", "kcal 1188 under").replace("protein 66 under", "protein 68 under") \
+    .replace("fat 56 under", "fat 57 under").replace("carbs 106 under", "carbs 105 under")
 
 DAY_INDEX = INDEX_WITH_MEAL.replace("## Day\n", "## Day\n- 2026-09 | nodes/day/2026-09/\n")
 OPEN_STATE = """---
@@ -442,9 +460,12 @@ class DayLintTest(LintCase):
         self.vault.write("nodes/day/2026-09/2026-09-15.md", text)
 
     def closed(self, text=DAY, status="closed"):
-        """The same Day, closed or auto-closed, with its Summary and the State cleared."""
+        """The same Day, closed or auto-closed, with its Summary and the State cleared.
+
+        A Day without a Summary gets the one that fits its `estimated` value.
+        """
         if "## Summary" not in text:
-            text += SUMMARY
+            text += SUMMARY if "estimated: true" in text else PLAIN_SUMMARY
         self.day(text.replace("status: open", f"status: {status}"))
         self.vault.write("state.md", OPEN_STATE.replace('open_day: "[[2026-09-15]]"', 'open_day: ""'))
 
@@ -706,12 +727,12 @@ class DayLintTest(LintCase):
         """The invariant that stays on a closed Day: `estimated` is true exactly when a
         line carries the mark, whatever the nodes say today.
         """
-        self.closed(DAY.replace("estimated: true", "estimated: false"))
+        self.closed(DAY.replace("estimated: true", "estimated: false") + SUMMARY.replace("~", ""))
         self.assertError("estimated")
-        plain = PLAIN_DAY + SUMMARY.replace("| 1307 |", "| 1312 |")
+        plain = PLAIN_DAY + SUMMARY
         self.closed(plain)
         self.assertError("estimated")
-        self.closed(plain.replace("estimated: true", "estimated: false"))
+        self.closed(plain.replace("estimated: true", "estimated: false").replace(SUMMARY, PLAIN_SUMMARY))
         self.assertClean()
 
     # --- the shape rules every Day keeps --------------------------------------------
@@ -804,25 +825,158 @@ class DayLintTest(LintCase):
         self.assertError("Summary")
 
     def test_a_summary_without_the_verdict_words_fails(self):
-        self.closed(DAY + "\n## Summary\n\nA good day, 1307 kcal.\n")
+        """Acceptance #26: a free-text verdict fails."""
+        self.closed(DAY + SUMMARY.replace("off target: kcal low, protein low, fat low, carbs low", "A good day, a bit low."))
         self.assertError("verdict")
 
+    def test_a_free_text_summary_fails(self):
+        self.closed(DAY + "\n## Summary\n\nA good day, 1307 kcal.\n")
+        self.assertError("TOTAL")
+
     def test_both_verdicts_are_accepted(self):
-        for verdict in ("on target", "off target: protein_g low, fat_g high"):
+        for verdict in ("on target", "off target: protein low", "off target: kcal low, carbs low"):
             with self.subTest(verdict=verdict):
-                self.closed(DAY + f"\n## Summary\n\nGoal 2500 kcal.\n\n{verdict}\n")
+                self.closed(DAY + SUMMARY.replace("off target: kcal low, protein low, fat low, carbs low", verdict))
                 self.assertClean()
 
     def test_an_off_target_verdict_names_low_or_high(self):
         """Spec #22: `off target:` plus each macro that is off and `low` or `high`."""
-        self.closed(DAY + "\n## Summary\n\nGoal 2500 kcal.\n\noff target: protein_g\n")
+        self.closed(DAY + SUMMARY.replace("off target: kcal low, protein low, fat low, carbs low", "off target: protein"))
         self.assertError("low")
+
+    def test_the_verdict_names_the_four_macro_words_only(self):
+        self.closed(DAY + SUMMARY.replace("off target: kcal low, protein low, fat low, carbs low", "off target: protein_g low"))
+        self.assertError("verdict")
+
+    def test_the_verdict_direction_matches_the_bullet(self):
+        """`high` is a macro over its target, `low` one under it; the bullet says which."""
+        self.closed(DAY + SUMMARY.replace("protein low", "protein high"))
+        self.assertError("protein")
+        # The targets used at close were lower, so kcal and carbs sit over them.
+        over = SUMMARY.replace("Goal 2500 kcal, 135 P, 60 F, 355 C.", "Goal 1000 kcal, 135 P, 60 F, 200 C.") \
+            .replace("- kcal 1193 under", "- kcal 307 over").replace("- carbs 106 under", "- carbs 49 over") \
+            .replace("off target: kcal low, protein low, fat low, carbs low", "off target: kcal high, protein low, fat low, carbs high")
+        self.closed(DAY + over)
+        self.assertClean()
+
+    # --- the Summary shape (#26) -----------------------------------------------------
+
+    def test_the_summary_needs_the_total_row(self):
+        self.closed(DAY + SUMMARY.replace("| TOTAL | ~1307 | ~69 | ~4 | ~249 |\n", ""))
+        self.assertError("TOTAL")
+
+    def test_the_total_row_equals_the_day_totals(self):
+        self.closed(DAY + SUMMARY.replace("| TOTAL | ~1307 |", "| TOTAL | ~1300 |"))
+        self.assertError("TOTAL")
+        self.closed(DAY + SUMMARY.replace("| ~69 | ~4 | ~249 |", "| ~69 | ~5 | ~249 |"))
+        self.assertError("TOTAL")
+
+    def test_a_slot_row_equals_the_slot_lines(self):
+        self.closed(DAY + SUMMARY.replace("| lunch | ~528 |", "| lunch | ~500 |"))
+        self.assertError("lunch")
+
+    def test_slot_rows_are_the_present_slots_in_order(self):
+        no_snack = DAY.replace("## Snack\n\n" + SNACK + "\n\n", "").replace("kcal: 1307", "kcal: 1136") \
+            .replace("protein_g: 69", "protein_g: 63").replace("fat_g: 4", "fat_g: 3").replace("carbs_g: 249", "carbs_g: 211") \
+            .replace("fiber_g: 8.8", "fiber_g: 2.5").replace("sugar_g: 16.7", "sugar_g: 16.5").replace("estimated: true", "estimated: false")
+        summary = PLAIN_SUMMARY.replace("| snack | 176 | 4 | 0 | 39 |\n", "") \
+            .replace("| TOTAL | 1312 | 67 | 3 | 250 |", "| TOTAL | 1136 | 63 | 3 | 211 |") \
+            .replace("kcal 1188 under", "kcal 1364 under").replace("protein 68 under", "protein 72 under") \
+            .replace("carbs 105 under", "carbs 144 under")
+        self.closed(no_snack + summary)
+        self.assertClean()
+        self.closed(no_snack + summary.replace("| lunch |", "| snack |"))
+        self.assertError("snack")
+        swapped = summary.replace("| breakfast | 240 | 15 | 1 | 43 |\n| lunch | 528 | 11 | 1 | 117 |", "| lunch | 528 | 11 | 1 | 117 |\n| breakfast | 240 | 15 | 1 | 43 |")
+        self.closed(no_snack + swapped)
+        self.assertError("order")
+
+    def test_the_table_header_and_its_separator_row_are_fixed(self):
+        self.closed(DAY + SUMMARY.replace("| --- | --- | --- | --- | --- |\n", ""))
+        self.assertError("---")
+        self.closed(DAY + SUMMARY.replace("| slot | kcal | P | F | C |", "| Slot | kcal | protein | fat | carbs |"))
+        self.assertError("| slot | kcal | P | F | C |")
+
+    def test_the_mark_sits_on_every_total_exactly_when_the_day_is_estimated(self):
+        """Acceptance #26: `~` before every Summary total of an estimated Day, and
+        nowhere on a plain one."""
+        self.closed(DAY + SUMMARY.replace("| TOTAL | ~1307 |", "| TOTAL | 1307 |"))
+        self.assertError("~")
+        self.closed(DAY + SUMMARY.replace("| lunch | ~528 |", "| lunch | 528 |"))
+        self.assertError("~")
+        self.closed(PLAIN_DAY.replace("estimated: true", "estimated: false") + PLAIN_SUMMARY.replace("| TOTAL | 1312 |", "| TOTAL | ~1312 |"))
+        self.assertError("~")
+        for status in ("closed", "auto-closed"):
+            with self.subTest(status=status):
+                self.closed(PLAIN_DAY.replace("estimated: true", "estimated: false"), status=status)
+                self.assertClean()
+
+    def test_the_summary_needs_the_goal_line(self):
+        self.closed(DAY + SUMMARY.replace("Goal 2500 kcal, 135 P, 60 F, 355 C.\n", ""))
+        self.assertError("Goal")
+        self.closed(DAY + SUMMARY.replace("Goal 2500 kcal, 135 P, 60 F, 355 C.", "Goal 2500 kcal."))
+        self.assertError("Goal")
+
+    def test_the_goal_line_records_the_targets_used_not_todays_goals(self):
+        """Glossary, goal change: each closed Day Summary records the targets it
+        used, so a later goal change leaves it valid."""
+        self.closed(DAY + SUMMARY.replace("Goal 2500 kcal", "Goal 2400 kcal").replace("kcal 1193 under", "kcal 1093 under"))
+        self.assertClean()
+
+    def test_the_summary_needs_four_macro_bullets_in_order(self):
+        self.closed(DAY + SUMMARY.replace("- fat 56 under\n", ""))
+        self.assertError("bullet")
+        self.closed(DAY + SUMMARY.replace("- protein 66 under\n- fat 56 under", "- fat 56 under\n- protein 66 under"))
+        self.assertError("bullet")
+        self.closed(DAY + SUMMARY.replace("- protein 66 under", "- protein_g 66 under"))
+        self.assertError("bullet")
+
+    def test_a_macro_bullet_is_the_total_against_the_goal_line(self):
+        self.closed(DAY + SUMMARY.replace("- kcal 1193 under", "- kcal 1200 under"))
+        self.assertError("kcal")
+        self.closed(DAY + SUMMARY.replace("- kcal 1193 under", "- kcal 1193 over"))
+        self.assertError("kcal")
+
+    def test_the_hint_is_optional_and_one_line(self):
+        self.closed(DAY + SUMMARY.replace("Hint: more protein at lunch.\n", ""))
+        self.assertClean()
+        self.closed(DAY + SUMMARY + "Hint: and less rice.\n")
+        self.assertError("Hint")
+        self.closed(DAY + SUMMARY.replace("Hint: more protein at lunch.", "Eat more protein at lunch."))
+        self.assertError("Summary")
+
+    def test_the_summary_order_is_table_goal_bullets_verdict_hint(self):
+        moved = SUMMARY.replace("Goal 2500 kcal, 135 P, 60 F, 355 C.\n\n", "").replace("\nHint:", "\nGoal 2500 kcal, 135 P, 60 F, 355 C.\n\nHint:")
+        self.closed(DAY + moved)
+        self.assertError("Summary")
+
+    def test_a_log_into_a_closed_day_keeps_the_summary_consistent(self):
+        """Acceptance #26: a log into a closed Day rewrites totals and Summary and
+        keeps the status; a rewritten Day whose Summary was not rewritten fails."""
+        relogged = DAY.replace(LUNCH, "- [[Rice]] = 100 g — 352 kcal · 7 P · 1 F · 78 C") \
+            .replace("kcal: 1307", "kcal: 1131").replace("protein_g: 69", "protein_g: 65").replace("carbs_g: 249", "carbs_g: 210")
+        self.closed(relogged + SUMMARY)
+        self.assertError("lunch")
+        summary = SUMMARY.replace("| lunch | ~528 | ~11 | ~1 | ~117 |", "| lunch | ~352 | ~7 | ~1 | ~78 |") \
+            .replace("| TOTAL | ~1307 | ~69 | ~4 | ~249 |", "| TOTAL | ~1131 | ~65 | ~4 | ~210 |") \
+            .replace("kcal 1193 under", "kcal 1369 under").replace("protein 66 under", "protein 70 under").replace("carbs 106 under", "carbs 145 under")
+        self.closed(relogged + summary)
+        self.assertClean()
 
     # --- State and Index -----------------------------------------------------------
 
     def test_state_must_point_to_the_open_day(self):
         self.vault.write("state.md", OPEN_STATE.replace('open_day: "[[2026-09-15]]"', 'open_day: ""'))
         self.assertError("open_day")
+
+    def test_the_state_open_day_is_empty_when_no_day_is_open(self):
+        """Acceptance #26: close-day clears the State in the same step; a closed
+        or auto-closed Day the State still names fails."""
+        for status in ("closed", "auto-closed"):
+            with self.subTest(status=status):
+                self.closed(status=status)
+                self.vault.write("state.md", OPEN_STATE)
+                self.assertError("open_day")
 
     def test_two_open_days_fail(self):
         second = DAY.replace("2026-09-15", "2026-09-16")
