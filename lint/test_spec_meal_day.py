@@ -87,6 +87,13 @@ class SpecMealDayTest(unittest.TestCase):
         self.assertIn("never changes the Pantry", rule)
         self.assertIn(rule, self.day)
 
+    def test_history_freezes_the_recorded_numbers_and_not_the_entry_shape(self):
+        """PR #31 review: the closed-Day sentences say what history frees, so a
+        reader cannot take them for "a closed Day is unchecked"."""
+        rule = self.one_line_with(self.day, "never makes a malformed line valid")
+        self.assertIn("closed or auto-closed Day", rule)
+        self.assertIn("`check_entry_shape()`", self.day)
+
     def test_the_slot_rule_and_the_index_month_line_are_stated(self):
         self.assertIn("next slot in order", self.day)
         self.assertIn("`- <YYYY-MM> | nodes/day/<YYYY-MM>/`", self.day)
