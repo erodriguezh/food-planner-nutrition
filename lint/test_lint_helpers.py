@@ -146,6 +146,17 @@ class EntryShapeTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             check_entry_shape("meal", "Rice bowl", "g", ("Skyr", 300), "food")
 
+    def test_an_unresolved_changed_link_is_left_to_the_vault_path(self):
+        """PR #31 review: `entry_totals()` does not look the changed link up, because
+        its `foods` holds Food nodes only and a Meal link would look missing there.
+        The type of an unresolved link is left unjudged, so no caller of
+        `entry_totals()` ever hears that the link "does not exist"; the Day check
+        resolves it against every node and judges it.
+        """
+        check_entry_shape("meal", "Rice bowl", "portion", ("Quark", 300))
+        with self.assertRaisesRegex(ValueError, "is not an ingredient of"):
+            entry_totals(MEAL, 1, "portion", FOODS, ("Quark", 300))
+
     def test_the_changed_link_is_a_food(self):
         with self.assertRaises(ValueError):
             check_entry_shape("meal", "Rice bowl", "portion", ("Quark", 300), None)

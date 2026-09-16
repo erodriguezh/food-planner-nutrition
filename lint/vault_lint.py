@@ -35,9 +35,11 @@ Checks (v3):
   the bullet, the ingredient change by portion), the four totals equal to the
   sum of the lines, `estimated` true exactly when a line is marked; an open
   Day also carries the mark on every estimated Food or Meal, matches its nodes
-  and carries no `## Summary`; a closed or auto-closed Day is history: its
-  lines stand as written, whatever its nodes say today, and it carries a
-  `## Summary` with the verdict words
+  and carries no `## Summary`; a closed or auto-closed Day is history: the
+  numbers and the mark of its lines stand as written, whatever its nodes say
+  today, while the canonical shape of every line is still checked and a
+  malformed line still fails, and it carries a `## Summary` with the verdict
+  words
 - exactly one Pantry node sits at nodes/pantry/Pantry.md
 - the Pantry node has `updated`, staples as `"[[Food]]"`, items as
   `"[[Food or Meal]]"` with a grams, portion or cooked-grams amount and an
@@ -832,18 +834,25 @@ def _num(value: Number) -> str:
     return str(int(number)) if number == int(number) else str(number)
 
 
-def check_entry_shape(node_type: str | None, node_name: object, unit: str,
-                      change: tuple[str, Number] | None = None, changed_type: str | None = None) -> None:
+UNRESOLVED_LINK = "unresolved"
+"""The `changed_type` of a caller that did not look the changed link up. It is not
+a node type, so it can never be mistaken for one."""
+
+
+def check_entry_shape(node_type: str | None, node_name: str, unit: str,
+                      change: tuple[str, Number] | None = None, changed_type: str | None = UNRESOLVED_LINK) -> None:
     """The canonical entry shape of routines/log.md step 5, free of any node numbers.
 
     These rules hold for the life of the line, so every Day is checked: a Food
     is logged in grams, a Food carries no ingredient change, and an ingredient
     change is a Meal by portion whose changed link is a Food. `node_type` is
     the `type` of the linked node and `changed_type` the `type` of the changed
-    link, `None` when that link resolves to nothing. ValueError names the shape the routine
-    forbids. What the recorded numbers say, and whether the Meal still lists
-    the changed Food today, is not shape: entry_totals() judges that, and only
-    on an open Day.
+    link, `None` when the caller looked that link up and found nothing, and
+    `UNRESOLVED_LINK` when the caller did not look it up, which leaves the type
+    of the changed link unjudged. ValueError names the shape the routine forbids.
+    What the recorded numbers say, and whether the Meal still lists the changed
+    Food today, is not shape: entry_totals() judges that, and only on an open
+    Day.
     """
     if node_type == "food":
         if unit != "g":
@@ -855,6 +864,8 @@ def check_entry_shape(node_type: str | None, node_name: object, unit: str,
         return
     if unit != "portion":
         raise ValueError(f"an ingredient change is logged by portion, not `{unit}`")
+    if changed_type == UNRESOLVED_LINK:
+        return
     if changed_type is None:
         raise ValueError(f"ingredient change names [[{change[0]}]], which does not exist")
     if changed_type != "food":
@@ -873,9 +884,12 @@ def entry_totals(node: Mapping[str, object], amount: Number, unit: str,
     of skyr on the plate whatever the Meal's portion count. The node-side
     estimate is `number_source: estimate` on a Food or `estimated: true` on a
     Meal; a guessed amount is the caller's flag. The shape rules come first,
-    from check_entry_shape(); on top of them a ValueError also names an
-    ingredient change the Meal does not list today. So this is current-node
-    arithmetic and belongs to an open Day only.
+    from check_entry_shape(), which is called here with the changed link
+    unresolved: `foods` holds Food nodes only, so the type of that link is
+    judged on the vault path, where _check_entry_line() resolves it against
+    every node. On top of the shape a ValueError also names an ingredient
+    change the Meal does not list today. So this is current-node arithmetic
+    and belongs to an open Day only.
 
     Decimal throughout, the portions and weight division included, so a total
     that lands exactly on a half rounds up. Each total is multiplied before it
@@ -883,11 +897,7 @@ def entry_totals(node: Mapping[str, object], amount: Number, unit: str,
     but a factor computed first is 1/22 rounded to 28 digits and gives
     5.499999999999999999999999999, which would store 5.
     """
-    # `foods` holds Food nodes only, so a changed link that names a Meal looks
-    # missing here. _check_entry_line() resolves it against the whole vault
-    # first and names the node type; this is the fallback for a direct caller.
-    changed_type = (foods or {}).get(change[0], {}).get("type") if change else None
-    check_entry_shape(node.get("type"), node.get("name"), unit, change, changed_type)
+    check_entry_shape(node.get("type"), str(node.get("name")), unit, change)
     if node.get("type") == "food":
         return Totals(scale_food(node, amount), node.get("number_source") == "estimate")
     eaten = _decimal(amount)
@@ -1361,10 +1371,11 @@ def check_days(vault: Vault) -> None:
     totals must also match the nodes within the rounding rule, and every line
     of an estimated Food or Meal must carry the mark.
 
-    A closed or auto-closed Day is history: it keeps its totals and its lines
-    stand as written. A Food re-sourced as an estimate, or a Meal that lost an
-    ingredient, after the Day was closed never fails an old line; the nodes are
-    consulted on `status: open` only.
+    A closed or auto-closed Day is history: its recorded numbers, its `~` and
+    the Meal composition it was written against are frozen; the canonical shape
+    of every line is still checked. A Food re-sourced as an estimate, or a Meal
+    that lost an ingredient, after the Day was closed never fails an old line,
+    but a malformed line fails wherever it sits.
     """
     foods = {n.base_name: n.data for n in vault.nodes if n.type == "food"}
     for node in vault.nodes:
@@ -1456,10 +1467,11 @@ def _check_entry_line(vault: Vault, node: Node, heading: str, line: str, foods: 
     estimated Food or Meal must carry the `~`, and the changed Food must still
     be an ingredient of the Meal. A closed or auto-closed Day is history, which
     freezes what the line recorded: its numbers, its `~` and the Meal
-    composition it was written against. History does not excuse the shape, so a
-    Food that became an estimate or a Meal that lost an ingredient after the
-    Day was closed does not fail it, while a malformed line still does. The
-    exact totals are returned for an open Day and are empty for a closed one.
+    composition it was written against. So a Food that became an estimate, or a
+    Meal that lost an ingredient, after the Day was closed never fails an old
+    line. History does not excuse the shape: a malformed line fails on a closed
+    Day as it does on an open one. The exact totals are returned for an open
+    Day and are empty for a closed one.
     """
     try:
         entry = parse_entry_line(line)

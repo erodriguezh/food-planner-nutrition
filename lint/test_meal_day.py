@@ -572,10 +572,23 @@ class DayLintTest(LintCase):
         self.assertError("entry line")
 
     def test_entry_must_link_a_food_or_meal(self):
-        self.day(DAY.replace("[[Rice]] = 150 g", "[[Quark]] = 150 g"))
+        """The primary link is checked on every Day. PR #31 review: history freezes
+        the numbers the line recorded, not the canonical shape of the line, so a
+        closed and an auto-closed Day fail a link to a node that is neither a
+        Food nor a Meal in the same way an open Day does.
+        """
+        missing = DAY.replace("[[Rice]] = 150 g", "[[Quark]] = 150 g")
+        other = DAY.replace("[[Rice]] = 150 g", "[[Goals]] = 150 g")
+        self.day(missing)
         self.assertError("Quark")
-        self.day(DAY.replace("[[Rice]] = 150 g", "[[Goals]] = 150 g"))
+        self.day(other)
         self.assertError("Goals")
+        for status in ("closed", "auto-closed"):
+            with self.subTest(status=status):
+                self.closed(missing, status=status)
+                self.assertError("Quark")
+                self.closed(other, status=status)
+                self.assertError("Goals")
 
     def test_a_food_is_logged_in_grams_only(self):
         self.day(DAY.replace("[[Rice]] = 150 g", "[[Rice]] = 1 portion"))
