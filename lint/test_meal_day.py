@@ -6,7 +6,7 @@ import os
 import unittest
 
 from test_vault_lint import VaultFixture, GOALS, INDEX
-from vault_lint import lint_vault
+from vault_lint import SUMMARY_SEPARATOR, lint_vault
 
 # Two Foods with every nutrient, so a Meal can sum fiber, sugar and salt.
 SKYR = """---
@@ -987,6 +987,22 @@ class DayLintTest(LintCase):
         self.assertError("---")
         self.closed(DAY + SUMMARY.replace("| slot | kcal | P | F | C |", "| Slot | kcal | protein | fat | carbs |"))
         self.assertError("| slot | kcal | P | F | C |")
+
+    def test_the_separator_row_is_the_one_fixed_five_cell_row(self):
+        """PR #32 review round 3, item 4: the lint error and the spec name one
+        separator row, `| --- | --- | --- | --- | --- |`, so only that row passes.
+        A row with four or six cells, or with dashes of another length, fails,
+        because the table has five columns and one spelling."""
+        for row in ("| --- | --- | --- | --- |",
+                    "| --- | --- | --- | --- | --- | --- |",
+                    "| - | - | - | - | - |",
+                    "| ---- | ---- | ---- | ---- | ---- |",
+                    "|---|---|---|---|---|"):
+            with self.subTest(row=row):
+                self.closed(DAY + SUMMARY.replace(SUMMARY_SEPARATOR, row))
+                self.assertError("---")
+        self.closed(DAY + SUMMARY)
+        self.assertClean()
 
     def test_the_mark_sits_on_every_total_exactly_when_the_day_is_estimated(self):
         """Acceptance #26: `~` before every Summary total of an estimated Day, and

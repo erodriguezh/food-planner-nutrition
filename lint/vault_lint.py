@@ -109,6 +109,10 @@ DAY_BODY_SECTIONS = SLOT_HEADINGS + ("Summary", "Notes")
 SUMMARY_MACROS = ("kcal", "protein", "fat", "carbs")
 SUMMARY_TABLE_HEADER = "| slot | kcal | P | F | C |"
 SUMMARY_TOTAL_ROW = "TOTAL"
+# The table has five columns, so its separator row has one spelling (PR #32
+# review round 3, item 4). The lint error names this row, and only this row
+# passes: another cell count or another dash length is a different table.
+SUMMARY_SEPARATOR = "| --- | --- | --- | --- | --- |"
 
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 UNSIGNED_NUMBER_PATTERN = r"\d+(?:\.\d+)?"
@@ -127,7 +131,6 @@ MEAL_AMOUNT_RE = re.compile(r"^\d+(\.\d+)? (portion|g cooked)$")
 HEADING_RE = re.compile(r"^(#{1,6})\s+(.*)$")
 INGREDIENT_RE = re.compile(rf"^\[\[([^\]|#]+)\]\] = ({UNSIGNED_NUMBER_PATTERN}) g$")
 SUMMARY_ROW_RE = re.compile(r"^\| (\S+) \| (~?\d+) \| (~?\d+) \| (~?\d+) \| (~?\d+) \|$")
-SUMMARY_SEPARATOR_RE = re.compile(r"^\|( -+ \|)+$")
 # The goal line carries the four targets of the Goals node, and those are
 # `number`, not integer, so a target may have a decimal (review item 5 of
 # PR #32). The gap of a bullet follows the targets, so it takes the same
@@ -1523,8 +1526,8 @@ def _check_summary(vault: Vault, node: Node, sections: Mapping[str, list[str]], 
         vault.fail(node.rel, f"the `## Summary` table header must be `{SUMMARY_TABLE_HEADER}`, got {lines[0]!r}")
     rows = []
     index = 1
-    if index >= len(lines) or not SUMMARY_SEPARATOR_RE.match(lines[index]):
-        vault.fail(node.rel, "the `## Summary` table header is followed by its `| --- | --- | --- | --- | --- |` row")
+    if index >= len(lines) or lines[index] != SUMMARY_SEPARATOR:
+        vault.fail(node.rel, f"the `## Summary` table header is followed by its `{SUMMARY_SEPARATOR}` row")
     index += 1
     while index < len(lines) and lines[index].startswith("|"):
         match = SUMMARY_ROW_RE.match(lines[index])

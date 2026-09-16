@@ -12,6 +12,7 @@ from vault_lint import (
     SUMMARY_GOAL_RE,
     SUMMARY_HINT_PREFIX,
     SUMMARY_MACROS,
+    SUMMARY_SEPARATOR,
     SUMMARY_TABLE_HEADER,
     SUMMARY_VERDICT_RE,
 )
@@ -136,6 +137,17 @@ class SpecMealDayTest(unittest.TestCase):
         self.assertEqual(order, sorted(order))
         for macro in SUMMARY_MACROS:
             self.assertIn(f"`{macro}`", summary)
+
+    def test_the_separator_row_of_the_summary_table_is_fixed(self):
+        """PR #32 review round 3, item 4: the lint takes one separator row, so the
+        spec names it and says it is the only one, instead of leaving the row to
+        the reader."""
+        rule = self.one_line_with(self.day, "separator row")
+        self.assertIn(f"`{SUMMARY_SEPARATOR}`", rule)
+        self.assertIn("five", rule)
+        summary = self.day.split("### Summary\n", 1)[1].split("\n### ", 1)[0]
+        example = summary.split("```\n", 2)[1]
+        self.assertIn(f"{SUMMARY_TABLE_HEADER}\n{SUMMARY_SEPARATOR}\n", example)
 
     def test_the_summary_example_has_the_lint_shape(self):
         """The example is what close-day writes, so its lines pass the lint regexes."""
