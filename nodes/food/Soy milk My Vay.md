@@ -5,6 +5,7 @@ aliases:
   - MY VAY Bio-Soja Drink Natur
   - My Vay Soja Drink
   - Bio-Soja Drink
+  - Hofer soy milk
 label_name: MY VAY Bio-Soja Drink Natur
 brand: My Vay
 category: drink

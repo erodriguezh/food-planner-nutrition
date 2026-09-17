@@ -8,7 +8,7 @@
 - [[Blueberries]] | fruit | Heidelbeeren, Blaubeeren
 - [[Soy milk Alpro]] | drink | Soya Original, Sojadrink, soja milk, soy milk
 - [[Soy milk Milsani]] | drink | Sojadrink Milsani, Milsani soja
-- [[Soy milk My Vay]] | drink | MY VAY Bio-Soja Drink Natur, My Vay Soja Drink, Bio-Soja Drink
+- [[Soy milk My Vay]] | drink | MY VAY Bio-Soja Drink Natur, My Vay Soja Drink, Bio-Soja Drink, Hofer soy milk
 - [[Chicken breast]] | protein | Hühnerbrust, Hühnerbrustfilet, chicken
 - [[Eggs]] | protein | Eier, Ei, egg
 
