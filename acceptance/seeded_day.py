@@ -17,8 +17,14 @@ writes the files the routines say to write, one commit per routine step named
 The seam is the files. After every turn the script asserts what is on disk:
 the Day lines and totals, the `~` on the guessed line and on the Day, the new
 Food unreviewed with its Index line, the State open day, the Summary verdict
-words, the commit subjects, and the fixed lines of the review reply. The vault
-lint runs after every commit. Reads per turn stay under ten files.
+words, the commit subjects, and the fixed lines of the review reply.
+
+The vault lint runs inside `Session.commit()`, the one commit wrapper: every
+routine step commits, then the real `vault_lint.lint_vault()` reads that exact
+committed tree, and a lint error stops the run before the next routine step.
+Chained steps inside one turn, `create-food` and `log` in turn 3, are each
+gated on their own commit. The report prints the result per commit. After
+every turn the worktree must be clean. Reads per turn stay under ten files.
 
 Read budget model: a turn is one message inside a chat session. A file the
 agent opened earlier in the same session is in its context and is not read
@@ -240,12 +246,21 @@ def git(root: Path, *args: str) -> str:
     return result.stdout.strip()
 
 
+@dataclass(frozen=True)
+class CommitRecord:
+    """One routine-step commit and the lint result of the tree it committed."""
+    subject: str
+    sha: str
+    lint: str
+
+
 class Session:
     """The agent's file access inside one chat session, with the read budget.
 
     `reads` are the files opened from disk in the current turn; `used` are the
     files the turn worked with, cached ones included. A written file leaves the
     context, so the rule "read fresh before you write" costs a read next time.
+    `commits` are the commits of the current turn with their lint result.
     """
 
     def __init__(self, root: Path):
@@ -254,6 +269,7 @@ class Session:
         self.reads: set[str] = set()
         self.used: set[str] = set()
         self.writes: list[str] = []
+        self.commits: list[CommitRecord] = []
 
     def begin_session(self) -> None:
         self.context = {}
@@ -262,6 +278,7 @@ class Session:
         self.reads = set()
         self.used = set()
         self.writes = []
+        self.commits = []
 
     def exists(self, rel: str) -> bool:
         return (self.root / rel).is_file()
@@ -284,11 +301,33 @@ class Session:
         self.writes.append(rel)
 
     def commit(self, subject: str) -> str:
+        """One routine step as one commit, with the lint gate on the committed tree.
+
+        Issue #28 asks for a green lint after every commit, not after every
+        turn: turn 3 chains `create-food` and `log` inside one turn, so a
+        commit that breaks the vault contract and a later commit that repairs
+        it would both hide inside the turn. The gate sits here, on the single
+        commit wrapper, so it holds for every commit of the run.
+
+        The subject must read `<routine>: <one line>`. After the commit the
+        worktree is clean, which is asserted first, so the worktree path is
+        the committed tree and the lint reads that exact tree. A lint error
+        raises before the next routine step runs.
+        """
         if not COMMIT_SUBJECT_RE.match(subject):
-            raise AssertionError(f"commit subject is not `<routine>: <one line>`: {subject!r}")
+            raise Failed(f"commit subject is not `<routine>: <one line>`: {subject!r}")
         git(self.root, "add", "-A")
         git(self.root, "commit", "-q", "--no-verify", "-m", subject)
-        return git(self.root, "rev-parse", "--short", "HEAD")
+        sha = git(self.root, "rev-parse", "--short", "HEAD")
+        status = git(self.root, "status", "--porcelain")
+        if status:
+            raise Failed(f"the commit {subject!r} left the worktree dirty, so the lint cannot read the committed tree: "
+                         f"{status.splitlines()[0]}")
+        errors = lint_vault(self.root)
+        if errors:
+            raise Failed(f"vault lint after the commit {subject!r} ({sha}): {errors[0]}")
+        self.commits.append(CommitRecord(subject, sha, "lint ok"))
+        return sha
 
 
 # --------------------------------------------------------------------------
@@ -614,7 +653,7 @@ class TurnReport:
     reads: int
     used: int
     wrote: list[str]
-    commits: list[str]
+    commits: list[CommitRecord]
     reply: list[str]
 
 
@@ -696,6 +735,7 @@ class Run:
         expect(git(self.vault, "status", "--porcelain") == "", "the worktree has uncommitted changes")
 
     def check_lint(self) -> None:
+        """The lint of the vault as it stands. `Session.commit()` holds the gate during the run; this checks the start state."""
         errors = lint_vault(self.vault)
         expect(not errors, f"vault lint: {errors[0] if errors else ''}")
 
@@ -837,24 +877,26 @@ class Run:
             result = action()
             reply = result[0] if isinstance(result, tuple) else result
             commits = self.new_commits()
+            records = list(self.session.commits)
+            expect([record.subject for record in records] == commits,
+                   f"turn {number} recorded {[r.subject for r in records]} but git holds {commits}")
             expect(len(self.session.reads) < READ_BUDGET, f"turn {number} read {len(self.session.reads)} files")
             self.check_clean()
-            self.check_lint()
             for subject in commits:
                 expect(bool(COMMIT_SUBJECT_RE.match(subject)), f"commit subject {subject!r} is not `<routine>: <one line>`")
             check(reply, commits)
             report.commits.extend(commits)
-            turn = TurnReport(number, said, len(self.session.reads), len(self.session.used), list(self.session.writes), commits, reply.lines)
+            turn = TurnReport(number, said, len(self.session.reads), len(self.session.used), list(self.session.writes), records, reply.lines)
             report.turns.append(turn)
             self.out(f"\n## Turn {number} · {clock} · \"{said}\"")
             self.out(f"Read: {turn.reads} files from disk ({turn.used} in use): {', '.join(sorted(self.session.reads)) or 'nothing'}")
             self.out(f"Wrote: {', '.join(dict.fromkeys(turn.wrote)) or 'nothing'}")
-            for subject in commits:
-                self.out(f"Commit: {subject}")
+            for record in records:
+                self.out(f"Commit: {record.subject} — {record.lint}")
             self.out("Said:")
             for line in reply.lines:
                 self.out(f"> {line}")
-            self.out("Asserted: files, lint ok, reads under budget")
+            self.out("Asserted: files, a clean worktree, the lint after every commit, reads under budget")
 
 
 def run(repo: Path, monday: datetime.date, keep: bool = False, out: Callable[[str], None] = print) -> Report:

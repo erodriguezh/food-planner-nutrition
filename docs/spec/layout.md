@@ -168,10 +168,13 @@ with a changed amount, dinner in servings, close the day, the next day's
 breakfast, the weekly review. After every turn the script asserts the files
 (Day lines and totals, the `~` on the guessed line and on the Day, the new Food
 unreviewed with its Index line, the State open day, the Summary verdict words,
-the commit subjects, the fixed review lines), runs the lint, and checks that
-the turn read fewer than ten files. The branch and worktree are removed at the
-end unless `--keep` is given; nothing is pushed and `main` never moves. The
-turn-to-routine map is in [routines](routines.md).
+the commit subjects, the fixed review lines) and checks that the turn read
+fewer than ten files. The lint gate sits in the one commit wrapper
+`Session.commit()`: every routine step commits, the lint reads that committed
+tree, and a lint error stops the run before the next step, so the lint is green
+after every commit and not only after every turn. The branch and worktree are
+removed at the end unless `--keep` is given; nothing is pushed and `main` never
+moves. The turn-to-routine map is in [routines](routines.md).
 
 ## Repository
 

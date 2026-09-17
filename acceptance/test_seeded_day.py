@@ -208,6 +208,128 @@ def working_tree_files() -> list[str]:
     return [line for line in listed.split("\n") if line]
 
 
+def clone_with_working_tree(parent: Path) -> Path:
+    """A clone of this repository with the working tree as one commit on top of HEAD.
+
+    The clone stands in for the owner's checkout, so a run from the pre-commit
+    hook tests the files about to be committed and not the previous commit.
+    """
+    clone = parent / "vault"
+    sd.git(parent, "clone", "-q", str(REPO), str(clone))
+    sd.git(clone, "config", "user.email", "run@example.invalid")
+    sd.git(clone, "config", "user.name", "Acceptance run")
+    sd.git(clone, "rm", "-rq", "--cached", ".")
+    for rel in working_tree_files():
+        source, target = REPO / rel, clone / rel
+        if source.is_symlink():
+            target.unlink(missing_ok=True)
+            target.symlink_to(os.readlink(source))
+        elif source.is_file():
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(source, target)
+    sd.git(clone, "add", "-A")
+    sd.git(clone, "commit", "-q", "--allow-empty", "-m", "acceptance: the working tree of the checkout")
+    return clone
+
+
+BROKEN_FOOD = """---
+type: food
+name: Broken
+category: grain
+kcal_per_100g: 100
+protein_g_per_100g: 1
+fat_g_per_100g: 1
+carbs_g_per_100g: 1
+fiber_g_per_100g: 0
+sugar_g_per_100g: 0
+salt_g_per_100g: 0
+label_basis: 100g
+number_source: database
+source_ref: test
+source_date: 2026-09-14
+reviewed: false
+---
+"""
+"""A Food node the lint rejects: nothing in index.md points at it."""
+
+BROKEN_INDEX_LINE = "- [[Broken]] | grain"
+
+
+class CommitLintGateTest(unittest.TestCase):
+    """The lint gate sits on every commit, not on the turn (#28).
+
+    Turn 3 of the run chains `create-food` and `log` inside one call, so a
+    commit that breaks the vault contract and a later commit that repairs it
+    would both hide inside one turn. These tests drive a two-commit turn on a
+    real clone and lint the real committed tree.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.clone = clone_with_working_tree(Path(self.tmp.name))
+        self.head_before = sd.git(self.clone, "rev-parse", "HEAD")
+        self.session = sd.Session(self.clone)
+        self.session.begin_turn()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def add_index_line(self) -> None:
+        self.session.write("index.md", sd._insert_index_line(self.session.read("index.md"), "Food", BROKEN_INDEX_LINE))
+
+    def new_subjects(self) -> list[str]:
+        listed = sd.git(self.clone, "log", "--format=%s", f"{self.head_before}..HEAD")
+        return [line for line in listed.split("\n") if line]
+
+    def test_the_first_commit_of_a_turn_fails_the_run_before_the_repairing_commit(self):
+        def two_commit_turn():
+            self.session.write("nodes/food/Broken.md", BROKEN_FOOD)
+            self.session.commit("create-food: Broken")
+            self.add_index_line()
+            self.session.commit("log: 2026-09-14 breakfast Broken 60 g")
+
+        with self.assertRaises(sd.Failed) as caught:
+            two_commit_turn()
+        message = str(caught.exception)
+        self.assertIn("vault lint", message)
+        self.assertIn("create-food: Broken", message)
+        self.assertIn("nodes/food/Broken.md", message, "the message must name the file of the committed tree")
+        self.assertEqual(self.new_subjects(), ["create-food: Broken"], "commit A landed, commit B never ran")
+        self.assertEqual(sd.git(self.clone, "log", "--format=%s", "-1"), "create-food: Broken")
+        self.assertNotEqual(sd.git(self.clone, "rev-parse", "HEAD"), self.head_before)
+        self.assertEqual(self.session.commits, [], "a commit the lint rejects is not recorded green")
+
+    def test_the_lint_reads_the_committed_tree_and_not_the_working_tree(self):
+        self.session.write("nodes/food/Broken.md", BROKEN_FOOD)
+        with self.assertRaises(sd.Failed):
+            self.session.commit("create-food: Broken")
+        self.assertEqual(sd.git(self.clone, "status", "--porcelain"), "",
+                         "the committed tree is the working tree, so linting the path lints the commit")
+        self.assertEqual(sd.git(self.clone, "show", "--name-only", "--format=", "HEAD").strip(), "nodes/food/Broken.md")
+
+    def test_a_valid_commit_passes_and_records_its_lint_result(self):
+        self.session.write("nodes/food/Broken.md", BROKEN_FOOD)
+        self.add_index_line()
+        sha = self.session.commit("create-food: Broken")
+        self.assertEqual(self.new_subjects(), ["create-food: Broken"])
+        self.assertEqual(self.session.commits, [sd.CommitRecord("create-food: Broken", sha, "lint ok")])
+        self.assertEqual(sd.git(self.clone, "status", "--porcelain"), "")
+
+    def test_a_subject_that_is_not_routine_colon_one_line_fails_before_the_commit(self):
+        self.session.write("nodes/food/Broken.md", BROKEN_FOOD)
+        self.add_index_line()
+        with self.assertRaises(sd.Failed):
+            self.session.commit("Created a food")
+        self.assertEqual(self.new_subjects(), [], "a bad subject makes no commit")
+
+    def test_the_records_of_a_turn_start_empty(self):
+        self.session.write("nodes/food/Broken.md", BROKEN_FOOD)
+        self.add_index_line()
+        self.session.commit("create-food: Broken")
+        self.session.begin_turn()
+        self.assertEqual(self.session.commits, [])
+
+
 class FullRunTest(unittest.TestCase):
     """One full run on a throwaway clone that carries this repository's working tree.
 
@@ -220,21 +342,7 @@ class FullRunTest(unittest.TestCase):
 
     def test_the_run_passes_and_leaves_no_trace(self):
         with tempfile.TemporaryDirectory() as tmp:
-            clone = Path(tmp) / "vault"
-            sd.git(Path(tmp), "clone", "-q", str(REPO), str(clone))
-            sd.git(clone, "config", "user.email", "run@example.invalid")
-            sd.git(clone, "config", "user.name", "Acceptance run")
-            sd.git(clone, "rm", "-rq", "--cached", ".")
-            for rel in working_tree_files():
-                source, target = REPO / rel, clone / rel
-                if source.is_symlink():
-                    target.unlink(missing_ok=True)
-                    target.symlink_to(os.readlink(source))
-                elif source.is_file():
-                    target.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.copyfile(source, target)
-            sd.git(clone, "add", "-A")
-            sd.git(clone, "commit", "-q", "--allow-empty", "-m", "acceptance: the working tree of the checkout")
+            clone = clone_with_working_tree(Path(tmp))
             head_before = sd.git(clone, "rev-parse", "HEAD")
             branches_before = sd.git(clone, "branch", "--list")
             lines: list[str] = []
@@ -250,6 +358,9 @@ class FullRunTest(unittest.TestCase):
             self.assertEqual(sd.git(clone, "branch", "--list"), branches_before)
             self.assertEqual(sd.git(clone, "status", "--porcelain"), "")
             self.assertFalse((clone / "nodes" / "day").exists())
+            for turn in report.turns:
+                self.assertEqual([record.lint for record in turn.commits], ["lint ok"] * len(turn.commits))
+            self.assertEqual(sum(len(turn.commits) for turn in report.turns), len(report.commits))
 
 
 if __name__ == "__main__":
