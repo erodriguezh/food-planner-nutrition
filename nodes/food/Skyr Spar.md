@@ -21,7 +21,7 @@ servings:
 label_basis: 100g
 number_source: label
 source_date: 2026-09-17
-reviewed: false
+reviewed: true
 ---
 
 ## Notes

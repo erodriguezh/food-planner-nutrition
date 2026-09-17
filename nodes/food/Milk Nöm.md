@@ -25,7 +25,7 @@ density_g_per_ml: 1.03
 density_source: database
 number_source: label
 source_date: 2026-09-17
-reviewed: false
+reviewed: true
 ---
 
 ## Notes
