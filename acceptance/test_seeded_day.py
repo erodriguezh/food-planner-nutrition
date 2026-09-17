@@ -549,7 +549,7 @@ class HermeticRunTest(unittest.TestCase):
     """The seeded run builds its own mutable data, so valid live vault state cannot stop it (#28).
 
     `Run.preconditions()` no longer asks the live vault to be pristine. The
-    run makes the canonical fixture on the throwaway branch first, as one
+    run makes the seed fixture on the throwaway branch first, as one
     setup commit outside the ten turns. These tests start from clones whose
     live data conflicts with every value the fixed lines assume, prove with
     the real `lint_vault()` that the start state is valid, run the whole

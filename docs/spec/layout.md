@@ -152,10 +152,11 @@ there too; that one full run happens on a temporary clone inside the job, so
 no acceptance branch reaches the repository.
 
 The three commands do not depend on the live mutable data of the vault. The
-acceptance run builds its own canonical fixture on its throwaway branch, so a
-real open Day, a Goals change or a new Food in the working tree the hook is
-about to commit cannot fail the checks. Only the vault lint judges the live
-data, and it judges it against the schemas.
+acceptance run builds its own seed fixture on its throwaway branch, so a real
+open Day, a Goals change or a new Food in the working tree the hook is about
+to commit cannot fail the checks. The run still asks the committed HEAD tree
+it starts from to be lint-green, which is the vault lint's own judgment. Only
+the vault lint judges the live data, and it judges it against the schemas.
 
 ## Acceptance run
 
@@ -181,9 +182,9 @@ fewer than ten files. The lint gate sits in the commit wrapper
 tree, and a lint error stops the run before the next step, so the lint is green
 after every commit and not only after every turn. Its sibling
 `Session.commit_setup()` carries the same gate for the one setup commit of the
-seed fixture below, and no other code path of the run commits. The branch and worktree are
-removed at the end unless `--keep` is given; nothing is pushed and `main` never
-moves. The turn-to-routine map is in [routines](routines.md).
+seed fixture below, and no other code path of the run commits. The branch and
+worktree are removed at the end unless `--keep` is given; nothing is pushed
+and `main` never moves. The turn-to-routine map is in [routines](routines.md).
 
 The seed fixture against the mutable live vault: the run tests the
 implementation on HEAD, the Router, the routines, the lint, the spec and the
