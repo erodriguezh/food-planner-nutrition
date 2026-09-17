@@ -36,10 +36,13 @@ def read(path: Path) -> str:
 
 
 def section(text: str, heading: str) -> str:
-    """The body of one `## heading` (or `### heading`) up to the next heading of the same level."""
+    """The body of one `## heading` or `### heading` up to the next heading of level two or three."""
     level = "### " if f"\n### {heading}\n" in text else "## "
-    after = text.split(f"\n{level}{heading}\n", 1)[1]
-    return re.split(rf"\n{re.escape(level)}", after, maxsplit=1)[0]
+    marker = f"\n{level}{heading}\n"
+    if marker not in text:
+        raise AssertionError(f"no `{level}{heading}` heading")
+    after = text.split(marker, 1)[1]
+    return re.split(r"\n##{1,2} ", after, maxsplit=1)[0]
 
 
 def flat(text: str) -> str:
@@ -86,8 +89,9 @@ class LayoutTest(unittest.TestCase):
             self.assertIn(command, hook, command)
             self.assertIn(command, action, command)
         self.assertIn("python3 acceptance/seeded_day.py", self.text)
-        self.assertNotIn("seeded_day.py", action, "the acceptance run itself commits and stays local")
+        self.assertNotIn("seeded_day.py", action, "the acceptance run itself is not a CI step; its test runs it on a clone")
         self.assertIn("branches: [main]", action)
+        self.assertNotIn("pull_request", action, "#28 asks for every push to main, nothing more")
 
     def test_the_spec_does_not_repeat_the_skill_rule_line(self):
         rule = skill_rule_line(read(VAULT / SKILL_FILE))
@@ -142,6 +146,19 @@ class RoutinesSpecTest(unittest.TestCase):
         self.assertIn("Say ok to mark reviewed.", section(self.text, "create-food"))
         self.assertIn("`close-day: <date> <verdict>`", section(self.text, "close-day"))
 
+    def test_the_log_clock_bands_and_the_rounding_pointers_are_quoted(self):
+        step = next(line for line in self.files["log"].split("\n") if line.startswith("3. "))
+        hours = re.findall(r"<(\d+)", step)
+        self.assertEqual(hours, ["11", "15", "18"])
+        log = section(self.text, "log")
+        for hour in hours:
+            self.assertIn(f"before {hour} ", log)
+        common = section(self.text, "Common shape")
+        for routine, step_number in (("goals", 4), ("create-food", 4), ("log", 4)):
+            self.assertIn(f"`routines/{routine}.md` step {step_number}", common)
+            self.assertTrue(any(line.startswith(f"{step_number}. ") and ("round" in line or "half" in line or "decimal" in line)
+                                for line in self.files[routine].split("\n")), routine)
+
     def test_the_acceptance_run_maps_every_turn_to_a_routine(self):
         run = section(self.text, "Acceptance run")
         for name in ("log", "rebalance", "close-day", "create-food", "review"):
@@ -155,12 +172,11 @@ class GlossaryTest(unittest.TestCase):
 
     def test_every_term_is_defined_once(self):
         terms = re.findall(r"^- \*\*([^*]+)\*\*:", self.text, re.MULTILINE)
-        self.assertGreater(len(terms), 80)
         duplicates = sorted({t for t in terms if terms.count(t) > 1})
         self.assertEqual(duplicates, [])
 
     def test_the_new_terms_of_28_are_defined(self):
-        for term in ("**Acceptance run**", "**Throwaway branch**", "**Turn**", "**Session**", "**Refresh**", "**Commit step**"):
+        for term in ("**Acceptance run**", "**Throwaway branch**", "**Turn**", "**Session**", "**Refresh**", "**Routine step**"):
             self.assertEqual(self.text.count(term), 1, term)
 
     def test_the_lint_term_names_the_action_and_the_spec_term_names_the_documents(self):

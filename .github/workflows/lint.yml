@@ -1,12 +1,10 @@
-# Vault lint on every push to main (#28). The same checks as the pre-commit
-# hook in .githooks/: the lint's tests, the acceptance script's tests, then the
-# vault lint itself. A violation fails the push check.
+# Vault lint on every push to main (#28). The same three steps as the
+# pre-commit hook in .githooks/: the lint's tests, the acceptance script's
+# tests, then the vault lint itself. A violation fails the push check.
 name: vault lint
 
 on:
   push:
-    branches: [main]
-  pull_request:
     branches: [main]
 
 jobs:
@@ -21,9 +19,6 @@ jobs:
       - name: Lint tests
         run: python3 -m unittest discover lint -q
       - name: Acceptance script tests
-        run: |
-          git config user.email "ci@example.invalid"
-          git config user.name "vault lint"
-          python3 -m unittest discover acceptance -q
+        run: python3 -m unittest discover acceptance -q
       - name: Vault lint
         run: python3 lint/vault_lint.py

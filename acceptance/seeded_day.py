@@ -75,7 +75,15 @@ COMMIT_SUBJECT_RE = re.compile(rf"^(?:{'|'.join(re.escape(r) for r in ROUTINES)}
 READ_BUDGET = 10
 """Reads per turn stay under ten files (spec #22 story 6)."""
 BRANCH_PREFIX = "acceptance/seeded-day-"
-SERVING_RE = re.compile(r"^(\d+(?:\.\d+)?) ([A-Za-z][A-Za-z ]*) = (\d+(?:\.\d+)?) g$")
+SERVING_PARTS_RE = re.compile(r"^(\d+(?:\.\d+)?) ([A-Za-z][A-Za-z ]*) = (\d+(?:\.\d+)?) g$")
+"""A serving alias split into count, unit and grams; `vault_lint.SERVING_RE` only validates the shape."""
+UNITS = dict(zip(SUMMARY_MACROS, ("kcal", "P", "F", "C")))
+"""The chat and Summary unit word per macro, in the column order."""
+
+
+def macro_line(values: Mapping[str, object], marked: bool = False) -> str:
+    """`<kcal> kcal · <P> P · <F> F · <C> C` from a mapping keyed by the Day properties, `~` before every number when marked."""
+    return " · ".join(f"{'~' if marked else ''}{_num(values[key])} {UNITS[macro]}" for macro, key in zip(SUMMARY_MACROS, MACROS))
 
 
 class Failed(AssertionError):
@@ -104,8 +112,7 @@ def entry_line(name: str, amount: str | int, unit: str, macros: Mapping[str, int
     """The canonical entry line of routines/log.md step 5."""
     mark = "~ " if marked else ""
     changed = f", [[{change[0]}]] = {change[1]} g" if change else ""
-    return (f"- {mark}[[{name}]] = {amount} {unit}{changed} — {macros['kcal']} kcal · {macros['protein_g']} P · "
-            f"{macros['fat_g']} F · {macros['carbs_g']} C")
+    return f"- {mark}[[{name}]] = {amount} {unit}{changed} — {macro_line(macros)}"
 
 
 def pick_slot(word: str | None, clock: datetime.time, filled: set[str]) -> str:
@@ -147,8 +154,7 @@ def render_summary(slot_sums: Mapping[str, Mapping[str, object]], totals: Mappin
             lines.append("| " + " | ".join([slot] + [_mark(slot_sums[slot][key], marked) for key in MACROS]) + " |")
     lines.append("| " + " | ".join(["TOTAL"] + [_mark(totals[key], marked) for key in MACROS]) + " |")
     lines.append("")
-    units = dict(zip(SUMMARY_MACROS, ("kcal", "P", "F", "C")))
-    goal_parts = [f"{_num(goals[m])} {units[m]} ({_num(bounds[m][0])}-{_num(bounds[m][1])})" for m in SUMMARY_MACROS]
+    goal_parts = [f"{_num(goals[m])} {UNITS[m]} ({_num(bounds[m][0])}-{_num(bounds[m][1])})" for m in SUMMARY_MACROS]
     lines.append("Goal " + ", ".join(goal_parts) + ".")
     lines.append("")
     plain = {macro: _decimal(totals[key]) for macro, key in zip(SUMMARY_MACROS, MACROS)}
@@ -183,7 +189,7 @@ def review_reply(days: Iterable[DaySummary], goals: Mapping[str, Decimal], today
     missing = [d for d in eligible if d not in by_date]
     auto = sum(1 for day in counted if day.status == "auto-closed")
     lines = [f"Days: {len(counted)} of {len(eligible)} closed, {auto} auto-closed, missing {', '.join(missing) or 'none'}"]
-    labels = dict(zip(TOTALS, ("kcal", "P", "F", "C", "fiber", "sugar", "salt")))
+    labels = dict(zip(TOTALS, tuple(UNITS.values()) + ("fiber", "sugar", "salt")))
     if counted:
         marked = any(day.estimated for day in counted)
         parts = []
@@ -321,12 +327,12 @@ class Agent:
     """The stand-in for the model: one method per routine the run needs."""
 
     def __init__(self, session: Session):
-        self.s = session
+        self.session = session
 
     # -- helpers -----------------------------------------------------------
 
     def goals(self) -> tuple[dict[str, Decimal], dict[str, tuple[Decimal, Decimal]]]:
-        data, _ = self.s.read_node("nodes/goals/Goals.md")
+        data, _ = self.session.read_node("nodes/goals/Goals.md")
         goals = {macro: _decimal(data[key]) for macro, key in zip(SUMMARY_MACROS, MACROS)}
         bounds = {macro: (_decimal(data[f"{key}_min"]), _decimal(data[f"{key}_max"])) for macro, key in zip(SUMMARY_MACROS, MACROS)}
         return goals, bounds
@@ -336,28 +342,28 @@ class Agent:
 
     def resolve(self, said: str, slot_word: bool = False):
         """The shared alias table of the Index; no name of this run is ambiguous, so the Pantry preference is not needed."""
-        return resolve_name(said, parse_alias_table(self.s.read("index.md")), slot_word=slot_word)
+        return resolve_name(said, parse_alias_table(self.session.read("index.md")), slot_word=slot_word)
 
     def foods_for(self, rels: Iterable[str]) -> dict[str, dict]:
         foods = {}
         for rel in rels:
-            data, _ = self.s.read_node(rel)
+            data, _ = self.session.read_node(rel)
             foods[data["name"]] = data
         return foods
 
     def grams_from_serving(self, food: Mapping[str, object], count: Decimal, unit: str) -> Decimal:
         """Router hard rule 1: convert a serving to grams before the write."""
         for serving in food.get("servings") or []:
-            match = SERVING_RE.match(serving)
+            match = SERVING_PARTS_RE.match(serving)
             if match and match.group(2).rstrip("s") == unit.rstrip("s"):
                 return count * _decimal(match.group(3)) / _decimal(match.group(1))
         raise AssertionError(f"[[{food['name']}]] has no serving `{unit}`")
 
     def read_day(self, date: str) -> tuple[dict, dict[str, list[str]]] | None:
         rel = _day_rel(date)
-        if not self.s.exists(rel):
+        if not self.session.exists(rel):
             return None
-        data, body = self.s.read_node(rel)
+        data, body = self.session.read_node(rel)
         sections = _sections(body)
         entries = {slot: [line for line in sections.get(slot.capitalize(), []) if line.strip()] for slot in SLOTS
                    if slot.capitalize() in sections}
@@ -378,8 +384,8 @@ class Agent:
             sums = {key: 0 for key in MACROS}
             for line in lines:
                 entry = parse_entry_line(line)
-                kind = "food" if self.s.exists(self.node_rel(entry.name, "food")) else "meal"
-                node, _ = self.s.read_node(self.node_rel(entry.name, kind))
+                kind = "food" if self.session.exists(self.node_rel(entry.name, "food")) else "meal"
+                node, _ = self.session.read_node(self.node_rel(entry.name, kind))
                 if entry.change:
                     meal_foods.update(self.foods_for([self.node_rel(entry.change[0], "food")]))
                 totals = entry_totals(node, entry.amount, entry.unit, meal_foods, entry.change)
@@ -408,43 +414,45 @@ class Agent:
             parts.append("\n## Summary\n\n" + "\n".join(summary) + "\n")
         return "".join(parts)
 
-    def write_state(self, open_day: str, today: str) -> None:
-        self.s.read("state.md")
+    def write_state(self, today: str, open_day: str | None = None) -> None:
+        """Router hard rule 5: `state.md` after every change, read fresh first. `open_day` None keeps the stored one."""
+        data, _ = self.session.read_node("state.md")
+        if open_day is None:
+            open_day = data.get("open_day") or ""
+            open_day = open_day[2:-2] if open_day.startswith("[[") else open_day
         text = render_frontmatter([("type", "state"), ("open_day", f'"[[{open_day}]]"' if open_day else '""'), ("updated", today)])
-        self.s.write("state.md", text + "\n## Open items\n")
+        self.session.write("state.md", text + "\n## Open items\n")
 
     def remaining_line(self, macros: Mapping[str, int], marked: bool) -> str:
         goals, _ = self.goals()
-        self.s.read("routines/rebalance.md")
-        units = dict(zip(SUMMARY_MACROS, ("kcal", "P", "F", "C")))
+        self.session.read("routines/rebalance.md")
         parts = []
         for macro, key in zip(SUMMARY_MACROS, MACROS):
             left = goals[macro] - macros[key]
-            parts.append(f"{'~' if marked else ''}{_num(abs(left))} {units[macro]}{' over' if left < 0 else ''}")
+            parts.append(f"{'~' if marked else ''}{_num(abs(left))} {UNITS[macro]}{' over' if left < 0 else ''}")
         return "Left today: " + " · ".join(parts)
 
     # -- routines ------------------------------------------------------------
 
     def start_session(self) -> None:
         """ROUTER.md: read the Router, then the Index (no Context MCP here), then the State."""
-        self.s.begin_session()
-        self.s.read("ROUTER.md")
-        self.s.read("index.md")
-        self.s.read("state.md")
+        self.session.begin_session()
+        self.session.read("ROUTER.md")
+        self.session.read("index.md")
+        self.session.read("state.md")
 
     def plan_today(self) -> Reply:
         """routines/rebalance.md step 3: before the first log, every open slot in full. Writes nothing."""
-        self.s.read("routines/rebalance.md")
+        self.session.read("routines/rebalance.md")
         goals, _ = self.goals()
-        self.s.read("nodes/pantry/Pantry.md")
-        meal, _ = self.s.read_node("nodes/meal/Usual breakfast.md")
+        self.session.read("nodes/pantry/Pantry.md")
+        meal, _ = self.session.read_node("nodes/meal/Usual breakfast.md")
         totals = entry_totals(meal, 1, "portion")
         macros = {key: round_total(totals.exact[key]) for key in MACROS}
-        units = dict(zip(SUMMARY_MACROS, ("kcal", "P", "F", "C")))
-        left = " · ".join(f"{_num(goals[m])} {units[m]}" for m in SUMMARY_MACROS)
+        left = macro_line(dict(zip(MACROS, (goals[m] for m in SUMMARY_MACROS))))
         return Reply([
             f"Nothing logged yet, so all of today is left: {left}.",
-            f"Breakfast: [[Usual breakfast]] = 1 portion — {macros['kcal']} kcal · {macros['protein_g']} P · {macros['fat_g']} F · {macros['carbs_g']} C. All in the pantry.",
+            f"Breakfast: [[Usual breakfast]] = 1 portion — {macro_line(macros)}. All in the pantry.",
             "Lunch: [[Chicken breast]] 1 fillet (150 g) with [[Rice]] 2 portion (150 g), about 690 kcal · 48 P.",
             "Snack: [[Skyr]] 1 portion (200 g), about 130 kcal · 22 P.",
             "Dinner: [[Eggs]] 4 egg (240 g) with [[Rice]] 1 portion (75 g), about 600 kcal · 36 P.",
@@ -452,15 +460,16 @@ class Agent:
 
     def create_food(self, name: str, today: str, food: Mapping[str, str | list[str]]) -> tuple[Reply, str]:
         """routines/create-food.md: the Food at once, `reviewed: false`, its Index line, one commit."""
-        self.s.read("routines/create-food.md")
+        self.session.read("routines/create-food.md")
         items: list[tuple[str, str | list[str]]] = [("type", "food"), ("name", name)]
         items.extend(food.items())
         items.extend([("source_date", today), ("reviewed", "false")])
-        self.s.write(self.node_rel(name, "food"), render_frontmatter(items))
+        self.session.write(self.node_rel(name, "food"), render_frontmatter(items))
         aliases = ", ".join(food.get("aliases") or [])
         line = f"- [[{name}]] | {food['category']}" + (f" | {aliases}" if aliases else "")
-        self.s.write("index.md", _insert_index_line(self.s.read("index.md"), "Food", line))
-        sha = self.s.commit(f"create-food: {name}")
+        self.session.write("index.md", _insert_index_line(self.session.read("index.md"), "Food", line))
+        self.write_state(today)
+        sha = self.session.commit(f"create-food: {name}")
         reply = Reply([f"Created {name}: {food['kcal_per_100g']} kcal · {food['protein_g_per_100g']} P · {food['fat_g_per_100g']} F · "
                        f"{food['carbs_g_per_100g']} C /100 g ({food['number_source']}). Say ok to mark reviewed."])
         return reply, sha
@@ -468,8 +477,8 @@ class Agent:
     def log(self, date: str, clock: datetime.time, said: list[tuple], slot_word: str | None = None,
             new_foods: Mapping[str, Mapping] | None = None) -> tuple[Reply, list[str]]:
         """routines/log.md. `said` items are (name as said, amount, unit, guessed); unit `g`, `portion` or a serving unit."""
-        self.s.read("state.md")
-        self.s.read("routines/log.md")
+        self.session.read("state.md")
+        self.session.read("routines/log.md")
         replies: list[str] = []
         shas: list[str] = []
         loaded = self.read_day(date)
@@ -488,7 +497,7 @@ class Agent:
                 kind = "food"
             else:
                 name, kind = resolution.name, resolution.kind
-            node, _ = self.s.read_node(self.node_rel(name, kind))
+            node, _ = self.session.read_node(self.node_rel(name, kind))
             amount = _decimal(amount)
             if unit not in ("g", "portion"):
                 amount, unit = self.grams_from_serving(node, amount, unit), "g"
@@ -497,25 +506,24 @@ class Agent:
             marked = totals.estimated or guessed
             entries.setdefault(slot, []).append(entry_line(name, _num(amount), unit, macros, marked))
             named.append(f"{name} {_num(amount)} {unit}")
-            replies.append(f"Logged {slot}: {'~ ' if marked else ''}{name} {_num(amount)} {unit} — "
-                           f"{macros['kcal']} kcal · {macros['protein_g']} P · {macros['fat_g']} F · {macros['carbs_g']} C.")
+            replies.append(f"Logged {slot}: {'~ ' if marked else ''}{name} {_num(amount)} {unit} — {macro_line(macros)}.")
         exact, day_marked, _, day_macros = self.day_totals(entries)
         if not is_new:
-            self.s.read(_day_rel(date))
-        self.s.write(_day_rel(date), self.render_day(date, "open", entries, None, exact, day_macros, day_marked))
+            self.session.read(_day_rel(date))
+        self.session.write(_day_rel(date), self.render_day(date, "open", entries, None, exact, day_macros, day_marked))
         if is_new:
-            self.write_state(date, date)
-            index = self.s.read("index.md")
+            self.write_state(date, open_day=date)
+            index = self.session.read("index.md")
             month_line = f"- {date[:7]} | nodes/day/{date[:7]}/"
             if month_line not in index.split("\n"):
-                self.s.write("index.md", _insert_index_line(index, "Day", month_line))
-        shas.append(self.s.commit(f"log: {date} {slot} {', '.join(named)}"))
+                self.session.write("index.md", _insert_index_line(index, "Day", month_line))
+        shas.append(self.session.commit(f"log: {date} {slot} {', '.join(named)}"))
         replies.append(self.remaining_line(day_macros, day_marked))
         return Reply(replies), shas
 
     def no_snack(self, date: str) -> Reply:
         """routines/rebalance.md step 2: a removed slot lives in the chat. Writes nothing."""
-        self.s.read("routines/rebalance.md")
+        self.session.read("routines/rebalance.md")
         loaded = self.read_day(date)
         entries = loaded[1] if loaded else {}
         _, marked, _, macros = self.day_totals(entries)
@@ -524,51 +532,60 @@ class Agent:
 
     def suggest_lunch(self, date: str) -> Reply:
         """routines/rebalance.md steps 3 to 5: the next slot in full from the Pantry, protein first."""
-        self.s.read("routines/rebalance.md")
+        self.session.read("routines/rebalance.md")
         self.read_day(date)
         self.goals()
-        self.s.read("nodes/pantry/Pantry.md")
+        self.session.read("nodes/pantry/Pantry.md")
         lines = ["Lunch (pantry only):"]
         total = {key: 0 for key in MACROS}
         for name, count, unit in (("Chicken breast", Decimal(1), "fillet"), ("Rice", Decimal(2), "portion")):
-            food, _ = self.s.read_node(self.node_rel(name, "food"))
+            food, _ = self.session.read_node(self.node_rel(name, "food"))
             grams = self.grams_from_serving(food, count, unit)
             macros = {key: round_total(value) for key, value in entry_totals(food, grams, "g").exact.items() if key in MACROS}
             for key in MACROS:
                 total[key] += macros[key]
-            lines.append(f"- [[{name}]] = {_num(count)} {unit} ({_num(grams)} g) — {macros['kcal']} kcal · {macros['protein_g']} P · "
-                         f"{macros['fat_g']} F · {macros['carbs_g']} C")
-        lines.append(f"Lunch total: {total['kcal']} kcal · {total['protein_g']} P · {total['fat_g']} F · {total['carbs_g']} C.")
+            lines.append(f"- [[{name}]] = {_num(count)} {unit} ({_num(grams)} g) — {macro_line(macros)}")
+        lines.append(f"Lunch total: {macro_line(total)}.")
         lines.append("Dinner then needs about 45 P and 1000 kcal.")
         return Reply(lines)
 
     def close_day(self, date: str, hint: str | None) -> tuple[Reply, str]:
         """routines/close-day.md: the Summary, `status: closed`, the State cleared, one commit."""
-        self.s.read("state.md")
-        self.s.read("routines/close-day.md")
+        self.session.read("state.md")
+        self.session.read("routines/close-day.md")
         data, entries = self.read_day(date)
         goals, bounds = self.goals()
         exact, marked, slot_sums, totals = self.day_totals(entries)
         summary = render_summary(slot_sums, totals, goals, bounds, marked, hint)
         words = verdict({m: _decimal(totals[k]) for m, k in zip(SUMMARY_MACROS, MACROS)}, bounds)
-        self.s.read(_day_rel(date))
-        self.s.write(_day_rel(date), self.render_day(date, "closed", entries, summary, exact, totals, marked))
-        self.write_state("", date)
-        sha = self.s.commit(f"close-day: {date} {words}")
-        unreviewed = []
+        self.session.read(_day_rel(date))
+        self.session.write(_day_rel(date), self.render_day(date, "closed", entries, summary, exact, totals, marked))
+        self.write_state(date, open_day="")
+        sha = self.session.commit(f"close-day: {date} {words}")
+        reply = [line for line in summary if line]
+        reply.append(f"Unreviewed today: {', '.join(self.unreviewed_today(entries))}. Say ok to mark reviewed.")
+        return Reply(reply), sha
+
+    def unreviewed_today(self, entries: Mapping[str, list[str]]) -> list[str]:
+        """routines/close-day.md step 7: the Day's Foods, the ingredient Foods of its Meals included, and its Meals, with `reviewed: false`, in the order eaten."""
+        names: list[str] = []
         for lines in entries.values():
             for line in lines:
                 name = parse_entry_line(line).name
-                rel = self.node_rel(name, "food")
-                if self.s.exists(rel) and self.s.read_node(rel)[0].get("reviewed") == "false" and name not in unreviewed:
-                    unreviewed.append(name)
-        reply = [line for line in summary if line]
-        reply.append(f"Unreviewed today: {', '.join(unreviewed)}. Say ok to mark reviewed.")
-        return Reply(reply), sha
+                kind = "food" if self.session.exists(self.node_rel(name, "food")) else "meal"
+                node, _ = self.session.read_node(self.node_rel(name, kind))
+                candidates = [(name, node)]
+                if kind == "meal":
+                    candidates = [(food, self.session.read_node(self.node_rel(food, "food"))[0])
+                                  for food in (re.match(r"\[\[([^\]]+)\]\]", item).group(1) for item in node["ingredients"])] + candidates
+                for candidate, data in candidates:
+                    if data.get("reviewed") == "false" and candidate not in names:
+                        names.append(candidate)
+        return names
 
     def review(self, today: datetime.date) -> Reply:
         """routines/review.md: this week from the Day files and Goals. Writes nothing."""
-        self.s.read("routines/review.md")
+        self.session.read("routines/review.md")
         goals, _ = self.goals()
         monday = today - datetime.timedelta(days=today.weekday())
         days = []
@@ -580,7 +597,7 @@ class Agent:
             data, entries = loaded
             words = None
             if data["status"] != "open":
-                lines = [line.strip() for line in _sections(self.s.read_node(_day_rel(date))[1])["Summary"] if line.strip()]
+                lines = [line.strip() for line in _sections(self.session.read_node(_day_rel(date))[1])["Summary"] if line.strip()]
                 words = next(line for line in lines if line == "on target" or line.startswith("off target:"))
             days.append(DaySummary(date, data["status"], data["estimated"] == "true", {key: _decimal(data[key]) for key in TOTALS}, words))
         return Reply(review_reply(days, goals, today))
@@ -754,7 +771,8 @@ class Run:
                 f"Hint: {HINT}",
             ], "Summary:\n" + "\n".join(sections["Summary"]))
             expect(self.frontmatter("state.md")["open_day"] == "", "state.md still names an open Day")
-            expect(reply.lines[-1] == "Unreviewed today: Croissant, Chicken breast, Rice, Eggs. Say ok to mark reviewed.", reply.lines[-1])
+            expect(reply.lines[-1] == "Unreviewed today: Skyr, Blueberries, Oats, Soy milk Milsani, Croissant, Chicken breast, Rice, Eggs. "
+                   "Say ok to mark reviewed.", reply.lines[-1])
             self.day1_closed_text = self.text(_day_rel(d1))
 
         def check_next_day(reply, commits):
@@ -792,7 +810,7 @@ class Run:
             ("12:45", "What should I eat for lunch?", lambda: a.suggest_lunch(d1), check_suggestion),
             ("13:30", "Had that, but 200 g of chicken.", lambda: a.log(d1, t(13, 30), [("chicken", 200, "g", False), ("rice", 150, "g", False)]),
              check_lunch),
-            ("19:30", "Dinner: 4 eggs.", lambda: a.log(d1, t(19, 30), [("eggs", 4, "egg", False)]), check_dinner),
+            ("19:30", "Dinner: 4 eggs.", lambda: a.log(d1, t(19, 30), [("eggs", 4, "egg", False)], slot_word="dinner"), check_dinner),
             ("21:00", "Close the day.", lambda: a.close_day(d1, HINT), check_close),
             (f"{d2} 08:20", "breakfast: the usual",
              new_session_then(lambda: a.log(d2, t(8, 20), [("the usual", 1, "portion", False)], slot_word="breakfast")), check_next_day),
@@ -852,19 +870,21 @@ def run(repo: Path, monday: datetime.date, keep: bool = False, out: Callable[[st
     try:
         Run(worktree, monday, out).execute(report)
         report.ok = True
-        out(f"\nPASS: {len(report.turns)} turns, {len(report.commits)} commits, lint green after every commit.")
     except AssertionError as exc:
         report.error = str(exc)
-        out(f"\nFAIL: {exc}")
     finally:
-        if main_before is not None:
-            expect(git(repo, "rev-parse", "main") == main_before, "main moved during the run")
         if keep:
-            out(f"Kept: worktree {worktree} on branch {branch}. Remove with `git worktree remove {worktree}` and `git branch -D {branch}`.")
+            out(f"\nKept: worktree {worktree} on branch {branch}. Remove with `git worktree remove {worktree}` and `git branch -D {branch}`.")
         else:
             git(repo, "worktree", "remove", "--force", str(worktree))
             git(repo, "branch", "-D", "-q", branch)
-            out(f"Removed: the worktree and branch {branch}. Nothing was pushed.")
+            out(f"\nRemoved: the worktree and branch {branch}. Nothing was pushed.")
+    if main_before is not None and git(repo, "rev-parse", "main") != main_before:
+        report.ok, report.error = False, "main moved during the run"
+    if report.ok:
+        out(f"PASS: {len(report.turns)} turns, {len(report.commits)} commits, lint green after every commit.")
+    else:
+        out(f"FAIL: {report.error}")
     return report
 
 
@@ -877,11 +897,10 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--date", type=datetime.date.fromisoformat, default=None,
                         help="the Monday of the seeded week (default: Monday of the current week)")
     parser.add_argument("--keep", action="store_true", help="keep the worktree and branch for inspection")
-    parser.add_argument("--repo", type=Path, default=Path(__file__).resolve().parent.parent, help="repository root")
     args = parser.parse_args(argv[1:])
-    monday = args.date or (datetime.date.today() - datetime.timedelta(days=datetime.date.today().weekday()))
-    monday -= datetime.timedelta(days=monday.weekday())
-    report = run(args.repo, monday, keep=args.keep)
+    date = args.date or datetime.date.today()
+    monday = date - datetime.timedelta(days=date.weekday())
+    report = run(Path(__file__).resolve().parent.parent, monday, keep=args.keep)
     return 0 if report.ok else 1
 
 

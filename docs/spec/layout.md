@@ -147,8 +147,9 @@ against the schemas, no model involved, exit code 1 on the first violation.
 The hook `.githooks/pre-commit` runs them before every local commit once
 installed with `git config core.hooksPath .githooks`. The GitHub Action
 `.github/workflows/lint.yml` runs the same three steps on every push to
-`main` and on every pull request into `main`, and fails the check on a
-violation.
+`main` and fails the check on a violation. The acceptance script's tests run
+there too; that one full run happens on a temporary clone inside the job, so
+no acceptance branch reaches the repository.
 
 ## Acceptance run
 

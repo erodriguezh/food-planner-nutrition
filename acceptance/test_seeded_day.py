@@ -8,6 +8,8 @@ and one full run on a throwaway clone leaves `main` and the working tree alone.
 Run: python3 -m unittest discover acceptance
 """
 import datetime
+import os
+import shutil
 import sys
 import tempfile
 import unittest
@@ -200,12 +202,20 @@ class ReadBudgetTest(unittest.TestCase):
         self.assertEqual(sorted(self.session.reads), ["a.md"])
 
 
-class FullRunTest(unittest.TestCase):
-    """One full run on a throwaway clone of this repository's HEAD.
+def working_tree_files() -> list[str]:
+    """Every tracked or new file of the repository's working tree, ignored files left out."""
+    listed = sd.git(REPO, "ls-files", "--cached", "--others", "--exclude-standard")
+    return [line for line in listed.split("\n") if line]
 
-    The clone stands in for the owner's checkout; the run itself makes its
-    branch and worktree and removes both. `main` and the working tree of the
-    clone stay as they were.
+
+class FullRunTest(unittest.TestCase):
+    """One full run on a throwaway clone that carries this repository's working tree.
+
+    The clone gets the working tree as one commit on top of HEAD, so a run
+    from the pre-commit hook tests the files about to be committed and not the
+    previous commit. The clone stands in for the owner's checkout; the run
+    itself makes its branch and worktree and removes both. `main` and the
+    working tree of the clone stay as they were.
     """
 
     def test_the_run_passes_and_leaves_no_trace(self):
@@ -214,6 +224,17 @@ class FullRunTest(unittest.TestCase):
             sd.git(Path(tmp), "clone", "-q", str(REPO), str(clone))
             sd.git(clone, "config", "user.email", "run@example.invalid")
             sd.git(clone, "config", "user.name", "Acceptance run")
+            sd.git(clone, "rm", "-rq", "--cached", ".")
+            for rel in working_tree_files():
+                source, target = REPO / rel, clone / rel
+                if source.is_symlink():
+                    target.unlink(missing_ok=True)
+                    target.symlink_to(os.readlink(source))
+                elif source.is_file():
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copyfile(source, target)
+            sd.git(clone, "add", "-A")
+            sd.git(clone, "commit", "-q", "--allow-empty", "-m", "acceptance: the working tree of the checkout")
             head_before = sd.git(clone, "rev-parse", "HEAD")
             branches_before = sd.git(clone, "branch", "--list")
             lines: list[str] = []
