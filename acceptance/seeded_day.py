@@ -318,6 +318,15 @@ class Session:
         clean, and no markdown file may be one git ignores, because such a
         file is in the worktree the lint reads and not in the commit. A lint
         error raises before the next routine step runs.
+
+        The guard asks git for ignored markdown files only, `*.md`, because
+        markdown is all `lint/vault_lint.py` reads: it walks the vault with
+        `rglob("*.md")`. A lint check on a file of another kind would widen
+        what the lint reads, and the guard has to be widened with it. The
+        question goes to `git ls-files --others --ignored`, which names the
+        ignored files themselves; `git status --ignored` answers with the
+        ignored folder instead and would report a folder of no markdown at
+        all, such as a `__pycache__`, as a markdown file the lint reads.
         """
         if not COMMIT_SUBJECT_RE.match(subject):
             raise Failed(f"commit subject is not `<routine>: <one line>`: {subject!r}")
@@ -328,7 +337,7 @@ class Session:
         if status:
             raise Failed(f"the commit {subject!r} left the worktree dirty, so the lint cannot read the committed tree: "
                          f"{status.splitlines()[0]}")
-        ignored = git(self.root, "status", "--porcelain", "--ignored=matching", "--", "*.md")
+        ignored = git(self.root, "ls-files", "--others", "--ignored", "--exclude-standard", "--", "*.md")
         if ignored:
             raise Failed(f"the commit {subject!r} left a markdown file git ignores, so the lint would read a file the "
                          f"commit does not hold: {ignored.splitlines()[0]}")

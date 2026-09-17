@@ -296,10 +296,19 @@ class CommitLintGateTest(unittest.TestCase):
 
     def tearDown(self):
         sd.git(self.clone, "reset", "-q", "--hard", self.start)
-        sd.git(self.clone, "clean", "-qfd")
+        sd.git(self.clone, "clean", "-qfdx")
 
-    def add_index_line(self) -> None:
-        repair_broken_food(self.session)
+    def write_and_prove_ignored(self, rel: str, text: str) -> None:
+        """Write a file git ignores, and prove git really ignores it.
+
+        The guard is only about ignored files, so a test that writes a
+        tracked path by mistake would pass for the wrong reason. The
+        `check-ignore` call makes the premise of the test explicit.
+        """
+        path = self.clone / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+        self.assertEqual(sd.git(self.clone, "check-ignore", rel), rel, f"{rel} is not ignored in this clone")
 
     def new_subjects(self) -> list[str]:
         return subjects_since(self.clone, self.head_before)
@@ -308,7 +317,7 @@ class CommitLintGateTest(unittest.TestCase):
         def two_commit_turn():
             write_broken_food(self.session)
             self.session.commit("create-food: Broken")
-            self.add_index_line()
+            repair_broken_food(self.session)
             self.session.commit("log: 2026-09-14 breakfast Broken 60 g")
 
         with self.assertRaises(sd.Failed) as caught:
@@ -332,22 +341,41 @@ class CommitLintGateTest(unittest.TestCase):
 
     def test_a_valid_commit_passes_and_records_its_lint_result(self):
         write_broken_food(self.session)
-        self.add_index_line()
+        repair_broken_food(self.session)
         sha = self.session.commit("create-food: Broken")
         self.assertEqual(self.new_subjects(), ["create-food: Broken"])
         self.assertEqual(self.session.commits, [sd.CommitRecord("create-food: Broken", sha)])
         self.assertEqual(sd.git(self.clone, "status", "--porcelain"), "")
 
+    def test_a_valid_commit_passes_although_an_ignored_folder_holds_no_markdown(self):
+        self.write_and_prove_ignored("lint/__pycache__/x.pyc", "not markdown\n")
+        write_broken_food(self.session)
+        repair_broken_food(self.session)
+        sha = self.session.commit("create-food: Broken")
+        self.assertEqual(self.session.commits, [sd.CommitRecord("create-food: Broken", sha)],
+                         "an ignored folder with no markdown inside says nothing about what the lint reads")
+
+    def test_an_ignored_markdown_file_in_the_vault_fails_the_commit(self):
+        self.write_and_prove_ignored(".obsidian/hidden.md", "# hidden\n")
+        write_broken_food(self.session)
+        repair_broken_food(self.session)
+        with self.assertRaises(sd.Failed) as caught:
+            self.session.commit("create-food: Broken")
+        message = str(caught.exception)
+        self.assertIn("markdown file git ignores", message)
+        self.assertIn(".obsidian/hidden.md", message, "the message must name the file the lint would read")
+        self.assertEqual(self.session.commits, [], "a commit the guard rejects is not recorded green")
+
     def test_a_subject_that_is_not_routine_colon_one_line_fails_before_the_commit(self):
         write_broken_food(self.session)
-        self.add_index_line()
+        repair_broken_food(self.session)
         with self.assertRaises(sd.Failed):
             self.session.commit("Created a food")
         self.assertEqual(self.new_subjects(), [], "a bad subject makes no commit")
 
     def test_the_records_of_a_turn_start_empty(self):
         write_broken_food(self.session)
-        self.add_index_line()
+        repair_broken_food(self.session)
         self.session.commit("create-food: Broken")
         self.session.begin_turn()
         self.assertEqual(self.session.commits, [])
@@ -411,7 +439,7 @@ class RunGateTest(unittest.TestCase):
             self.assertEqual(runner.reached, [], "the run went on after the commit the lint rejects")
             self.assertEqual(report.turns, [], "a turn with a rejected commit is not reported")
             self.assertEqual(subjects_since(clone, head_before), ["create-food: Broken"])
-            self.assertNotIn("Broken", sd.git(clone, "show", "HEAD:index.md"), "the repairing commit landed")
+            self.assertNotIn("Broken", sd.git(clone, "show", "HEAD:index.md"), "the repairing commit must not have landed")
 
 
 class FullRunTest(unittest.TestCase):
