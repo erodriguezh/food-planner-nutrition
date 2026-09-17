@@ -1,5 +1,6 @@
 ## Food
 - [[Oats]] | grain | Haferflocken, oatmeal, rolled oats
+- [[Oats Happy Harvest]] | grain | HAPPY HARVEST Haferflocken Zart, Happy Harvest Haferflocken, Haferflocken zart
 - [[Rice]] | grain | Reis, white rice
 - [[Olive oil]] | fat | Olivenöl
 - [[Skyr]] | dairy | skyr natur
