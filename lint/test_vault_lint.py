@@ -5,7 +5,15 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from vault_lint import lint_vault, round_bound, estimate_tokens, apply_goal_change, compute_bounds
+from vault_lint import (
+    SKILL_FILE,
+    apply_goal_change,
+    compute_bounds,
+    estimate_tokens,
+    lint_vault,
+    round_bound,
+    skill_rule_line,
+)
 
 GOALS = """---
 type: goals
@@ -56,7 +64,11 @@ updated: 2026-09-15
 ## Open items
 """
 
-ROUTER = "# Router\n\nShort router.\n"
+ROUTER = f"# Router\n\n1. Context MCP connected? See `{SKILL_FILE}`. Otherwise read `index.md`.\n2. Read `state.md`.\n"
+
+RULE_LINE = "the one line the skill file quotes."
+
+SKILL = f"""# Context MCP\n\nThe rule for the retrieval service. Connected: call the tool first.\nNot connected: read `index.md`, then `state.md`.\n\n## Fallback\n\nSay one line:\n\n"{RULE_LINE}"\n"""
 
 CROISSANT = """---
 type: food
@@ -86,6 +98,8 @@ class VaultFixture:
         (self.root / "nodes" / "day").mkdir(parents=True)
         (self.root / "routines").mkdir()
         self.write("ROUTER.md", ROUTER)
+        self.write(SKILL_FILE, SKILL)
+        self.write("AGENTS.md", "Read ROUTER.md first.\n")
         self.write("index.md", INDEX)
         self.write("state.md", STATE)
         self.write("nodes/goals/Goals.md", GOALS)
@@ -286,6 +300,75 @@ class LintTest(unittest.TestCase):
     def test_missing_router_fails(self):
         os.remove(self.vault.root / "ROUTER.md")
         self.assertError("ROUTER.md")
+
+    def test_router_without_the_skill_pointer_fails(self):
+        # #27: "The Router has one pointer line to the skill file."
+        self.vault.write("ROUTER.md", "# Router\n\n1. Read `index.md`.\n2. Read `state.md`.\n")
+        self.assertError("points to")
+
+    def test_router_with_two_skill_pointers_fails(self):
+        self.vault.write("ROUTER.md", ROUTER + f"\nSee `{SKILL_FILE}` again.\n")
+        self.assertError("one line")
+
+    def test_router_that_repeats_the_rule_line_fails(self):
+        # #27: the Router points to the skill file and holds no copy of the rule.
+        self.vault.write("ROUTER.md", ROUTER + f'\nWhen it is down say "{RULE_LINE}"\n')
+        self.assertError("ROUTER.md: repeats the line")
+
+    # --- Skill file -----------------------------------------------------
+
+    def test_missing_skill_file_fails(self):
+        os.remove(self.vault.root / SKILL_FILE)
+        self.assertError(SKILL_FILE)
+
+    def test_skill_file_without_a_quoted_rule_line_fails(self):
+        # #27 round 2: the contract is not written in this script. The lint
+        # derives the line it must not find elsewhere from the skill file.
+        self.vault.write(SKILL_FILE, SKILL.replace(f'"{RULE_LINE}"', RULE_LINE))
+        self.assertError("exactly one line")
+
+    def test_skill_file_without_a_fallback_section_fails(self):
+        self.vault.write(SKILL_FILE, SKILL.replace("## Fallback", "## Down"))
+        self.assertError("`## Fallback`")
+
+    def test_skill_file_with_two_quoted_lines_in_the_fallback_section_fails(self):
+        self.vault.write(SKILL_FILE, SKILL + '\n"a second quoted line."\n')
+        self.assertError("exactly one line")
+
+    def test_the_lint_reads_the_rule_line_out_of_the_fallback_section(self):
+        self.assertEqual(skill_rule_line(SKILL), RULE_LINE)
+        # A quoted word outside the Fallback section does not confuse the read.
+        elsewhere = SKILL.replace("# Context MCP", '# Context MCP\n\nStatus is "ok" or not.')
+        self.assertEqual(skill_rule_line(elsewhere), RULE_LINE)
+        self.assertIsNone(skill_rule_line("# Context MCP\n\nNo fallback section.\n"))
+        self.assertIsNone(skill_rule_line("# Context MCP\n\n## Fallback\n\nNo quoted line.\n"))
+
+    def test_another_file_that_repeats_the_rule_line_fails(self):
+        # #27: "No other file in the repo and no app project instruction repeats the rule."
+        self.vault.write("AGENTS.md", f"Read ROUTER.md first. If the MCP is down say \"{RULE_LINE}\"\n")
+        self.assertError("AGENTS.md: repeats the line")
+
+    def test_the_spec_document_may_state_the_rule_line(self):
+        self.vault.write("docs/spec/context-mcp.md", f"# Spec: Context MCP\n\nFallback: \"{RULE_LINE}\"\n")
+        self.assertEqual(self.errors(), [])
+
+    def test_another_spec_document_that_repeats_the_rule_line_fails(self):
+        self.vault.write("docs/spec/nodes.md", f"# Spec: nodes\n\nFallback: \"{RULE_LINE}\"\n")
+        self.assertError("docs/spec/nodes.md: repeats the line")
+
+    def test_missing_agents_file_fails(self):
+        # #22 story 3: AGENTS.md holds the one line; every app starts from it.
+        os.remove(self.vault.root / "AGENTS.md")
+        self.assertError("AGENTS.md")
+
+    def test_agents_file_with_more_than_the_pointer_line_fails(self):
+        # #22 story 3: AGENTS.md holds one line, "Read ROUTER.md first."
+        self.vault.write("AGENTS.md", "Read ROUTER.md first.\nCall the Context MCP first.\n")
+        self.assertError("AGENTS.md")
+
+    def test_agents_file_with_the_one_pointer_line_passes(self):
+        self.vault.write("AGENTS.md", "Read ROUTER.md first.\n")
+        self.assertEqual(self.errors(), [])
 
     # --- State ----------------------------------------------------------
 

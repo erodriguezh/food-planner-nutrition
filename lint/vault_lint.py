@@ -7,8 +7,8 @@ Run from the repository root:
 
 Exit code 0 when the vault is clean, 1 on the first violation. The checks run
 in a fixed order (nodes load, common conventions, node locations, Goals, Foods,
-Meals, Days, Pantry, Router, State, Index, routines), files in sorted path
-order, so the first violation is deterministic.
+Meals, Days, Pantry, Router, skill file, AGENTS.md, State, Index, routines),
+files in sorted path order, so the first violation is deterministic.
 No dependencies beyond the Python 3 standard library.
 
 Checks (v3):
@@ -49,7 +49,11 @@ Checks (v3):
 - the Pantry node has `updated`, staples as `"[[Food]]"`, items as
   `"[[Food or Meal]]"` with a grams, portion or cooked-grams amount and an
   optional `until` date; every link resolves by canonical name
-- ROUTER.md is under 500 tokens
+- ROUTER.md is under 500 tokens and names the skill file in exactly one line
+- the skill file (SKILL.md) exists at the vault root and its `## Fallback`
+  section quotes exactly one line; besides docs/spec/context-mcp.md no other
+  markdown file of the vault repeats that line
+- AGENTS.md exists and holds the one line `Read ROUTER.md first.`
 - state.md has its fields and names the one open Day, or is empty when no Day
   is open; Open items holds no unreviewed Food lines
 - index.md has one section per node type and no line without a node; every
@@ -80,6 +84,17 @@ INDEX_SECTIONS = ("Food", "Meal", "Day", "Goals", "Pantry")
 ROUTINE_SECTIONS = ("When", "Read", "Steps", "Write", "Reply")
 ROUTER_TOKEN_LIMIT = 500
 ROUTINE_TOKEN_LIMIT = 300
+# Context MCP wiring (#27): one skill file at the vault root, one Router
+# pointer. The contract itself is not written here. It lives in the skill file
+# (the rule the agent reads) and in the spec document (the rebuild copy); its
+# test seam is the tool call and belongs to the internals map (#19).
+SKILL_FILE = "SKILL.md"
+# The section of the skill file that quotes the line no other file may repeat.
+SKILL_FALLBACK = "## Fallback"
+AGENTS_POINTER = "Read ROUTER.md first."
+# The one file besides the skill file that may state the quoted rule line: the
+# spec document, written for a rebuild and never read in daily use.
+CONTEXT_SPEC = "docs/spec/context-mcp.md"
 MACROS = ("kcal", "protein_g", "fat_g", "carbs_g")
 
 FOOD_CATEGORIES = ("protein", "dairy", "grain", "vegetable", "fruit", "fat", "snack", "drink")
@@ -1087,6 +1102,19 @@ def check_common_conventions(vault: Vault) -> None:
             seen[node.base_name] = node.rel
 
 
+def vault_markdown_files(root: Path) -> list[tuple[str, Path]]:
+    """Every markdown file of the vault as (relative posix path, path), in sorted
+    path order. Hidden folders (.git, .obsidian and the like) are not part of the
+    vault and are skipped."""
+    files = []
+    for path in sorted(root.rglob("*.md")):
+        rel = path.relative_to(root).as_posix()
+        if any(part.startswith(".") for part in rel.split("/")):
+            continue
+        files.append((rel, path))
+    return files
+
+
 def check_node_locations(vault: Vault) -> None:
     """A node file lives under nodes/. Node frontmatter anywhere else is a stray node.
 
@@ -1094,9 +1122,8 @@ def check_node_locations(vault: Vault) -> None:
     root would otherwise pass unseen. Hidden folders (.git, .obsidian and the
     like) are not part of the vault and are skipped.
     """
-    for path in sorted(vault.root.rglob("*.md")):
-        rel = path.relative_to(vault.root).as_posix()
-        if rel.startswith("nodes/") or any(part.startswith(".") for part in rel.split("/")):
+    for rel, path in vault_markdown_files(vault.root):
+        if rel.startswith("nodes/"):
             continue
         try:
             data, _body = parse_frontmatter(path.read_text(encoding="utf-8"))
@@ -1683,9 +1710,71 @@ def check_router(vault: Vault) -> None:
     if not path.is_file():
         vault.fail("ROUTER.md", "file is missing")
         return
-    tokens = estimate_tokens(path.read_text(encoding="utf-8"))
+    text = path.read_text(encoding="utf-8")
+    tokens = estimate_tokens(text)
     if tokens >= ROUTER_TOKEN_LIMIT:
         vault.fail("ROUTER.md", f"about {tokens} tokens, limit is under {ROUTER_TOKEN_LIMIT} (estimate: characters / 4)")
+    pointers = [line for line in text.split("\n") if f"`{SKILL_FILE}`" in line]
+    if len(pointers) != 1:
+        vault.fail("ROUTER.md", f"needs exactly one line that points to `{SKILL_FILE}`, found {len(pointers)}")
+
+
+def skill_rule_line(text: str) -> str | None:
+    """The one line the `## Fallback` section of the skill file quotes.
+
+    The lint derives it from the skill file instead of holding a copy, so the
+    Context MCP contract lives in two documents only: `SKILL.md`, the rule the
+    agent reads, and the spec document, the copy for a rebuild (#27 round 2).
+    The read is anchored to the Fallback section, so a quoted word anywhere
+    else in the skill file changes nothing. None when the section is missing,
+    or quotes no line or more than one, because then the lint cannot tell
+    which line is the rule.
+    """
+    if SKILL_FALLBACK not in text:
+        return None
+    section = text.split(SKILL_FALLBACK, 1)[1].split("\n## ", 1)[0]
+    quoted = re.findall(r'"([^"\n]+)"', section)
+    return quoted[0] if len(quoted) == 1 else None
+
+
+def check_skill(vault: Vault) -> None:
+    """The Context MCP rule lives in the skill file and nowhere else (#27).
+
+    A structural check. What the rule says is the business of `SKILL.md` and of
+    the spec document; the contract has its test seam in the tool call and that
+    seam belongs to the internals map (#19). This check reads the one line the
+    skill file quotes and fails every other daily-use file that repeats it. The
+    spec document states the contract for a rebuild and is never read in daily
+    use, so it may carry that line too.
+    """
+    path = vault.root / SKILL_FILE
+    if not path.is_file():
+        vault.fail(SKILL_FILE, "file is missing")
+        return
+    text = path.read_text(encoding="utf-8")
+    if SKILL_FALLBACK not in text:
+        vault.fail(SKILL_FILE, f"needs a `{SKILL_FALLBACK}` section; the lint reads the rule line from it")
+        return
+    rule = skill_rule_line(text)
+    if rule is None:
+        vault.fail(SKILL_FILE, f"`{SKILL_FALLBACK}` must quote exactly one line, the one the agent says when the service is not there")
+        return
+    for rel, other in vault_markdown_files(vault.root):
+        if rel in (SKILL_FILE, CONTEXT_SPEC):
+            continue
+        if rule in other.read_text(encoding="utf-8"):
+            vault.fail(rel, f"repeats the line that `{SKILL_FILE}` quotes; only the skill file and `{CONTEXT_SPEC}` hold the rule")
+
+
+def check_agents(vault: Vault) -> None:
+    """AGENTS.md (and CLAUDE.md, its symlink) is the app project instruction.
+    It holds the one pointer line and no copy of any rule (#22 story 3)."""
+    agents = vault.root / "AGENTS.md"
+    if not agents.is_file():
+        vault.fail("AGENTS.md", "file is missing")
+        return
+    if agents.read_text(encoding="utf-8").strip() != AGENTS_POINTER:
+        vault.fail("AGENTS.md", f"must hold the one line `{AGENTS_POINTER}`")
 
 
 def check_state(vault: Vault) -> None:
@@ -1898,6 +1987,8 @@ CHECKS = (
     check_days,
     check_pantry,
     check_router,
+    check_skill,
+    check_agents,
     check_state,
     check_index,
     check_routines,

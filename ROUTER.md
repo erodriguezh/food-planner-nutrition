@@ -4,7 +4,7 @@ Personal food planner and nutrition tracker for one person. Markdown vault, agen
 
 ## Start every session
 
-1. If the Context MCP is connected, call `build_context(question)` first. Otherwise read `index.md`.
+1. Context MCP connected? Call `build_context` first, see `SKILL.md`. Otherwise read `index.md`.
 2. Read `state.md`.
 
 ## Where things are

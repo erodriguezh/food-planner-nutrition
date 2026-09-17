@@ -106,5 +106,6 @@ Glossary of the domain language for this vault. Terms are defined once here and 
 - **Open item**: a small pending thing the user still has to settle, listed in the state, for example a Meal without cooked weight. Unreviewed Foods are never open items; the agent mentions them at create time and at close of the day.
 - **Routine**: one file that tells the agent how to run one job: log, rebalance, close the day, create food, create meal, pantry, goals, review. A routine holds the method only; it never stores a result.
 - **Spec**: the documents that describe the vault for the build session. Not read in daily use.
-- **Context MCP**: the planned read-only retrieval service with one tool, `build_context(question)`. When connected, the agent calls it first instead of reading the Index. The vault works without it.
-- **Lint**: the script `lint/vault_lint.py` that checks every node, the Index, the State, the Router and the routines against the schemas. Runs locally, by hand or from the pre-commit hook in `.githooks/`. No model involved.
+- **Context MCP**: the planned read-only retrieval service with one tool, `build_context(question)`. The rule for using it lives in `SKILL.md`. The vault works without it.
+- **Evidence packet**: the answer of one `build_context` call. Its fields are defined in `SKILL.md`.
+- **Lint**: the script `lint/vault_lint.py` that checks every node, the Index, the State, the Router, the Context MCP wiring (the skill file and its one Router pointer), `AGENTS.md` and the routines against the schemas. Runs locally, by hand or from the pre-commit hook in `.githooks/`. No model involved.
