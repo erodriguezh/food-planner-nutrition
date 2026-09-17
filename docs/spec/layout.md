@@ -151,11 +151,18 @@ installed with `git config core.hooksPath .githooks`. The GitHub Action
 there too; that one full run happens on a temporary clone inside the job, so
 no acceptance branch reaches the repository.
 
+The three commands do not depend on the live mutable data of the vault. The
+acceptance run builds its own canonical fixture on its throwaway branch, so a
+real open Day, a Goals change or a new Food in the working tree the hook is
+about to commit cannot fail the checks. Only the vault lint judges the live
+data, and it judges it against the schemas.
+
 ## Acceptance run
 
 ```
 python3 acceptance/seeded_day.py
 python3 acceptance/seeded_day.py --date 2026-09-14 --keep
+python3 acceptance/seeded_day.py --repo /path/to/another/clone
 ```
 
 The seeded-day acceptance run repeats the prototype conversation against the
@@ -169,12 +176,31 @@ breakfast, the weekly review. After every turn the script asserts the files
 (Day lines and totals, the `~` on the guessed line and on the Day, the new Food
 unreviewed with its Index line, the State open day, the Summary verdict words,
 the commit subjects, the fixed review lines) and checks that the turn read
-fewer than ten files. The lint gate sits in the one commit wrapper
+fewer than ten files. The lint gate sits in the commit wrapper
 `Session.commit()`: every routine step commits, the lint reads that committed
 tree, and a lint error stops the run before the next step, so the lint is green
-after every commit and not only after every turn. The branch and worktree are
+after every commit and not only after every turn. Its sibling
+`Session.commit_setup()` carries the same gate for the one setup commit of the
+seed fixture below, and no other code path of the run commits. The branch and worktree are
 removed at the end unless `--keep` is given; nothing is pushed and `main` never
 moves. The turn-to-routine map is in [routines](routines.md).
+
+The seed fixture against the mutable live vault: the run tests the
+implementation on HEAD, the Router, the routines, the lint, the spec and the
+script, but never the live mutable data. Before turn 1 the run writes the
+seed fixture `FIXTURE` of `acceptance/seeded_day.py` on the throwaway branch and
+lands it as one setup commit `acceptance: seed fixture`, outside the ten turns
+and outside the seven `<routine>: <one line>` commits, with the same lint on
+its committed tree. The fixture removes the whole `nodes/` tree and writes the
+Goals with their 5 % bounds, the Pantry, `Usual breakfast` with its ingredient
+Foods, Chicken breast, Rice, Eggs, `index.md` and a `state.md` with no open
+Day, so every number the fixed lines and totals assume comes from the fixture.
+The fixture is Python text and not a `seed/` folder of markdown, because the
+lint fails node frontmatter outside `nodes/`. The preconditions of the run
+therefore ask only for the implementation and a lint-green start state. A
+valid change in the live vault, a real open Day, a Goals change, a Croissant
+that became a real Food or a seeded date already logged, never stops the run
+and never moves a number; the run is never skipped for such a state either.
 
 ## Repository
 

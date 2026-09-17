@@ -393,6 +393,9 @@ class TwoCommitRun(sd.Run):
         super().__init__(vault, datetime.date(2026, 9, 14), out)
         self.reached: list[str] = []
 
+    def seed_fixture(self, report) -> None:
+        """No fixture: this run is about the gate, so it commits its own two files on the clone as it is."""
+
     def two_commit_turn(self) -> sd.Reply:
         write_broken_food(self.session)
         self.session.commit("create-food: Broken")
@@ -440,6 +443,201 @@ class RunGateTest(unittest.TestCase):
             self.assertEqual(report.turns, [], "a turn with a rejected commit is not reported")
             self.assertEqual(subjects_since(clone, head_before), ["create-food: Broken"])
             self.assertNotIn("Broken", sd.git(clone, "show", "HEAD:index.md"), "the repairing commit must not have landed")
+
+
+LIVE_DAY_DATE = "2026-08-03"
+LIVE_DAY_MONTH = LIVE_DAY_DATE[:7]
+LIVE_DAY = """---
+type: day
+name: 2026-08-03
+date: 2026-08-03
+status: open
+goal: "[[Goals]]"
+kcal: 128
+protein_g: 22
+fat_g: 0
+carbs_g: 8
+fiber_g: 0
+sugar_g: 8
+salt_g: 0.2
+estimated: false
+---
+
+## Breakfast
+
+- [[Skyr]] = 200 g \u2014 128 kcal \u00b7 22 P \u00b7 0 F \u00b7 8 C
+"""
+"""A valid open Day of another month: 200 g of Skyr, the numbers the lint computes from the node."""
+
+LIVE_CROISSANT = """---
+type: food
+name: Croissant
+aliases:
+  - Gipfeli
+category: grain
+kcal_per_100g: 380
+protein_g_per_100g: 7.5
+fat_g_per_100g: 19
+carbs_g_per_100g: 44
+fiber_g_per_100g: 2.5
+sugar_g_per_100g: 7
+salt_g_per_100g: 1.2
+label_basis: 100g
+number_source: label
+source_ref: the owner's own bakery
+source_date: 2026-08-03
+reviewed: true
+---
+"""
+"""A live Croissant the owner made real, with other numbers and another alias than the fixture."""
+
+LIVE_CROISSANT_INDEX_LINE = "- [[Croissant]] | grain | Gipfeli"
+
+LIVE_GOALS = """---
+type: goals
+name: Goals
+kcal: 2200
+protein_g: 120
+fat_g: 70
+carbs_g: 300
+tolerance_pct: 10
+kcal_min: 1980
+kcal_max: 2420
+protein_g_min: 108
+protein_g_max: 132
+fat_g_min: 63
+fat_g_max: 77
+carbs_g_min: 270
+carbs_g_max: 330
+since: 2026-08-03
+---
+"""
+"""A valid Goals change: other targets and a 10 % tolerance, so the fixed lines of the run cannot come from here."""
+
+
+def write(clone: Path, rel: str, text: str) -> None:
+    path = clone / rel
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+
+
+def commit_live_change(clone: Path, subject: str) -> None:
+    sd.git(clone, "add", "-A")
+    sd.git(clone, "commit", "-q", "-m", subject)
+
+
+def open_a_live_day(clone: Path) -> None:
+    """Log a real open Day in the clone: the Day node, its Index month line and the State that names it."""
+    write(clone, f"nodes/day/{LIVE_DAY_MONTH}/{LIVE_DAY_DATE}.md", LIVE_DAY)
+    index = (clone / "index.md").read_text(encoding="utf-8")
+    write(clone, "index.md", sd._insert_index_line(index, "Day", f"- {LIVE_DAY_MONTH} | nodes/day/{LIVE_DAY_MONTH}/"))
+    state = (clone / "state.md").read_text(encoding="utf-8")
+    write(clone, "state.md", state.replace('open_day: ""', f'open_day: "[[{LIVE_DAY_DATE}]]"'))
+    commit_live_change(clone, f"log: {LIVE_DAY_DATE} breakfast Skyr 200 g")
+
+
+def make_croissant_real_and_change_the_goals(clone: Path) -> None:
+    """Make Croissant a live indexed Food and change the Goals, both valid."""
+    write(clone, "nodes/food/Croissant.md", LIVE_CROISSANT)
+    index = (clone / "index.md").read_text(encoding="utf-8")
+    write(clone, "index.md", sd._insert_index_line(index, "Food", LIVE_CROISSANT_INDEX_LINE))
+    write(clone, "nodes/goals/Goals.md", LIVE_GOALS)
+    commit_live_change(clone, "create-food: Croissant")
+
+
+class HermeticRunTest(unittest.TestCase):
+    """The seeded run builds its own mutable data, so valid live vault state cannot stop it (#28).
+
+    `Run.preconditions()` no longer asks the live vault to be pristine. The
+    run makes the canonical fixture on the throwaway branch first, as one
+    setup commit outside the ten turns. These tests start from clones whose
+    live data conflicts with every value the fixed lines assume, prove with
+    the real `lint_vault()` that the start state is valid, run the whole
+    seeded day, and then prove the source clone did not move.
+    """
+
+    monday = datetime.date(2026, 9, 14)
+
+    def expected_subjects(self) -> list[str]:
+        d1, d2 = self.monday.isoformat(), (self.monday + datetime.timedelta(days=1)).isoformat()
+        return [
+            f"log: {d1} breakfast Usual breakfast 1 portion",
+            "create-food: Croissant",
+            f"log: {d1} breakfast Croissant 60 g",
+            f"log: {d1} lunch Chicken breast 200 g, Rice 150 g",
+            f"log: {d1} dinner Eggs 240 g",
+            f"close-day: {d1} off target: kcal low, fat low, carbs low",
+            f"log: {d2} breakfast Usual breakfast 1 portion",
+        ]
+
+    def state_of(self, clone: Path) -> dict:
+        """What must be byte-identical after the run: the commit, the tracked tree, the worktree state."""
+        return {
+            "head": sd.git(clone, "rev-parse", "HEAD"),
+            "branch": sd.git(clone, "rev-parse", "--abbrev-ref", "HEAD"),
+            "branches": sd.git(clone, "branch", "--list"),
+            "tree": sd.git(clone, "rev-parse", "HEAD^{tree}"),
+            "status": sd.git(clone, "status", "--porcelain"),
+        }
+
+    def run_the_seeded_day(self, clone: Path) -> tuple[sd.Report, list[str]]:
+        self.assertEqual(sd.lint_vault(clone), [], "the live start state of the clone must itself be valid")
+        before = self.state_of(clone)
+        lines: list[str] = []
+        report = sd.run(clone, self.monday, keep=False, out=lines.append)
+        self.assertTrue(report.ok, "\n".join(lines))
+
+        self.assertEqual(self.state_of(clone), before, "the run moved the source clone")
+        sd.git(clone, "diff", "--quiet")
+        self.assertEqual(sd.git(clone, "worktree", "list").count("\n"), 0, "a worktree of the run is left behind")
+        self.assertEqual([b for b in sd.git(clone, "branch", "--list", f"{sd.BRANCH_PREFIX}*").split("\n") if b.strip()], [])
+        self.assertEqual(sd.lint_vault(clone), [], "the run left the live vault invalid")
+
+        self.assertEqual(len(report.turns), 10)
+        self.assertEqual(report.commit_subjects, self.expected_subjects())
+        records = [record for turn in report.turns for record in turn.commits]
+        self.assertEqual([record.subject for record in records], self.expected_subjects(),
+                         "every routine-step commit went through the lint gate in Session.commit()")
+        self.assertEqual(len(records), 7)
+        self.assertTrue(all(record.sha for record in records))
+        self.assertIsNotNone(report.fixture, "the report does not name the fixture commit")
+        self.assertEqual(report.fixture.subject, sd.FIXTURE_COMMIT_SUBJECT)
+        self.assertNotIn(report.fixture.subject, report.commit_subjects,
+                         "the fixture commit is not one of the seven routine-step commits")
+        return report, lines
+
+    def test_a_clone_with_a_real_open_day_runs_and_keeps_that_day(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            clone = clone_with_working_tree(Path(tmp))
+            open_a_live_day(clone)
+            day_rel = f"nodes/day/{LIVE_DAY_MONTH}/{LIVE_DAY_DATE}.md"
+            day_before = (clone / day_rel).read_text(encoding="utf-8")
+            state_before = (clone / "state.md").read_text(encoding="utf-8")
+
+            self.run_the_seeded_day(clone)
+
+            self.assertEqual((clone / day_rel).read_text(encoding="utf-8"), day_before, "the live open Day changed")
+            self.assertEqual((clone / "state.md").read_text(encoding="utf-8"), state_before, "the live State changed")
+            self.assertIn(f"[[{LIVE_DAY_DATE}]]", state_before)
+            for date in (self.monday, self.monday + datetime.timedelta(days=1)):
+                self.assertFalse((clone / sd._day_rel(date.isoformat())).exists(), f"the acceptance Day {date} leaked out")
+            self.assertFalse((clone / "nodes/food/Croissant.md").exists(), "the acceptance Croissant leaked out")
+
+    def test_a_clone_with_a_real_croissant_and_changed_goals_runs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            clone = clone_with_working_tree(Path(tmp))
+            make_croissant_real_and_change_the_goals(clone)
+            croissant_before = (clone / "nodes/food/Croissant.md").read_text(encoding="utf-8")
+            goals_before = (clone / "nodes/goals/Goals.md").read_text(encoding="utf-8")
+
+            report, lines = self.run_the_seeded_day(clone)
+
+            self.assertEqual((clone / "nodes/food/Croissant.md").read_text(encoding="utf-8"), croissant_before,
+                             "the live Croissant changed")
+            self.assertEqual((clone / "nodes/goals/Goals.md").read_text(encoding="utf-8"), goals_before,
+                             "the live Goals changed")
+            self.assertIn(sd.GOAL_LINE, "\n".join(lines), "the run judged the day against the live Goals instead of the seed fixture")
+            self.assertFalse((clone / "nodes" / "day").exists(), "an acceptance Day leaked out")
 
 
 class FullRunTest(unittest.TestCase):

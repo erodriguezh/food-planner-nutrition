@@ -5,6 +5,7 @@ Run from the repository root:
 
     python3 acceptance/seeded_day.py            # Monday of the current week
     python3 acceptance/seeded_day.py --date 2026-09-14 --keep
+    python3 acceptance/seeded_day.py --repo /path/to/another/clone
 
 The run repeats the prototype conversation (branch `prototype/seeded-day`,
 wayfinder #11) against the vault as built on the current HEAD, on a throwaway
@@ -33,7 +34,20 @@ fresh before it writes it again (Router hard rule 5). Turn 9 starts a new
 session, the next morning. The report prints both numbers per turn: the files
 read from disk and the files the turn used.
 
-The Croissant fixture, its numbers and aliases, comes from the prototype
+The seed fixture against the mutable live vault: the implementation under
+test is the one on HEAD, the Router, the routines, the lint, the spec and this
+script, but the mutable data the scenario eats is not. `Run.seed_fixture()`
+writes `FIXTURE` on the throwaway branch before turn 1, as one setup commit
+`acceptance: seed fixture` outside the conversation, and lints its committed
+tree. It removes the whole `nodes/` tree first and writes the Goals with their
+5 % bounds, the Pantry, `Usual breakfast` with its ingredient Foods, Chicken
+breast, Rice, Eggs, `index.md` and a `state.md` with no open Day. So a valid
+change in the owner's live vault, a real open Day, a Goals change, a Croissant
+that became a real Food or a seeded date already logged, cannot stop the run
+or move a number. `Run.preconditions()` asks only for the implementation and a
+lint-green start state. The result is the same on top of any valid live vault.
+
+The Croissant of turn 3, its numbers and aliases, comes from the prototype
 branch. The throwaway branch is deleted at the end unless `--keep` is given;
 nothing is ever pushed and `main` is never touched.
 
@@ -45,6 +59,7 @@ import argparse
 import datetime
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -304,6 +319,21 @@ class Session:
         self.context.pop(rel, None)
         self.writes.append(rel)
 
+    def commit_setup(self, subject: str) -> CommitRecord:
+        """One branch-only setup commit, linted the same way but outside the conversation.
+
+        `Run.seed_fixture()` establishes the canonical mutable data of the run
+        before turn 1. That commit is not a routine step, so its subject is
+        not `<routine>: <one line>` and `commit()` would reject it; widening
+        the subject regex instead would weaken the assertion every routine
+        step of the run rests on. This wrapper therefore skips the subject
+        rule and records nothing, and keeps everything else: the same clean
+        worktree guard, the same ignored-markdown guard and the same real
+        `lint_vault()` on the committed tree, so the baseline the ten turns
+        start from is proven lint-green too.
+        """
+        return self._commit_and_lint(subject)
+
     def commit(self, subject: str) -> str:
         """One routine step as one commit, with the lint gate on the committed tree.
 
@@ -330,6 +360,12 @@ class Session:
         """
         if not COMMIT_SUBJECT_RE.match(subject):
             raise Failed(f"commit subject is not `<routine>: <one line>`: {subject!r}")
+        record = self._commit_and_lint(subject)
+        self.commits.append(record)
+        return record.sha
+
+    def _commit_and_lint(self, subject: str) -> CommitRecord:
+        """Commit what is in the worktree and run the real vault lint on that committed tree."""
         git(self.root, "add", "-A")
         git(self.root, "commit", "-q", "--no-verify", "-m", subject)
         sha = git(self.root, "rev-parse", "--short", "HEAD")
@@ -344,8 +380,7 @@ class Session:
         errors = lint_vault(self.root)
         if errors:
             raise Failed(f"vault lint after the commit {subject!r} ({sha}): {errors[0]}")
-        self.commits.append(CommitRecord(subject, sha))
-        return sha
+        return CommitRecord(subject, sha)
 
 
 # --------------------------------------------------------------------------
@@ -680,9 +715,294 @@ class Report:
     branch: str
     turns: list[TurnReport] = field(default_factory=list)
     commit_subjects: list[str] = field(default_factory=list)
+    fixture: CommitRecord | None = None
+    """The branch-only setup commit that established the fixture; never one of `commit_subjects`."""
     ok: bool = False
     error: str | None = None
 
+
+FIXTURE_COMMIT_SUBJECT = "acceptance: seed fixture"
+"""The subject of the one branch-only setup commit that establishes the fixture.
+
+It is not a `<routine>: <one line>` subject, so it cannot pass through
+`Session.commit()`: it goes through `Session.commit_setup()`, the sibling
+wrapper that commits and lints the committed tree but records nothing. The
+seven routine-step commits of the ten turns stay the only records, so the
+report, `Report.commit_subjects` and the gate records still count seven.
+"""
+
+FIXTURE = {
+    "state.md": """---
+type: state
+open_day: ""
+updated: 2026-09-15
+---
+
+## Open items
+""",
+    "index.md": """## Food
+- [[Oats]] | grain | Haferflocken, oatmeal, rolled oats
+- [[Rice]] | grain | Reis, white rice
+- [[Skyr]] | dairy | skyr natur
+- [[Blueberries]] | fruit | Heidelbeeren, Blaubeeren
+- [[Soy milk Milsani]] | drink | Sojadrink Milsani, Milsani soja
+- [[Chicken breast]] | protein | H\u00fchnerbrust, H\u00fchnerbrustfilet, chicken
+- [[Eggs]] | protein | Eier, Ei, egg
+
+## Meal
+- [[Usual breakfast]] | breakfast | usual, the usual
+
+## Day
+
+## Goals
+- [[Goals]]
+
+## Pantry
+- [[Pantry]]
+""",
+    "nodes/goals/Goals.md": """---
+type: goals
+name: Goals
+kcal: 2500
+protein_g: 135
+fat_g: 60
+carbs_g: 355
+tolerance_pct: 5
+kcal_min: 2375
+kcal_max: 2625
+protein_g_min: 128
+protein_g_max: 142
+fat_g_min: 57
+fat_g_max: 63
+carbs_g_min: 337
+carbs_g_max: 373
+since: 2026-09-15
+---
+""",
+    "nodes/pantry/Pantry.md": """---
+type: pantry
+name: Pantry
+updated: 2026-09-15
+staples:
+  - "[[Oats]]"
+  - "[[Rice]]"
+items:
+  - "[[Skyr]]"
+  - "[[Blueberries]]"
+  - "[[Chicken breast]]"
+  - "[[Eggs]]"
+---
+""",
+    "nodes/meal/Usual breakfast.md": """---
+type: meal
+name: Usual breakfast
+aliases:
+  - usual
+  - the usual
+slots:
+  - breakfast
+ingredients:
+  - "[[Skyr]] = 300 g"
+  - "[[Blueberries]] = 150 g"
+  - "[[Oats]] = 60 g"
+  - "[[Soy milk Milsani]] = 100 g"
+portions: 1
+weight_g: 610
+kcal: 540
+protein_g: 46
+fat_g: 7
+carbs_g: 67
+fiber_g: 9.1
+sugar_g: 30.6
+salt_g: 0.4
+totals_date: 2026-09-15
+estimated: false
+reviewed: true
+---
+""",
+    "nodes/food/Skyr.md": """---
+type: food
+name: Skyr
+aliases:
+  - skyr natur
+category: dairy
+kcal_per_100g: 64
+protein_g_per_100g: 11
+fat_g_per_100g: 0.2
+carbs_g_per_100g: 4
+fiber_g_per_100g: 0
+sugar_g_per_100g: 4
+salt_g_per_100g: 0.1
+servings:
+  - "1 portion = 200 g"
+label_basis: 100g
+number_source: database
+source_ref: https://world.openfoodfacts.org/product/4061462615481
+source_date: 2026-09-15
+reviewed: false
+---
+""",
+    "nodes/food/Blueberries.md": """---
+type: food
+name: Blueberries
+aliases:
+  - Heidelbeeren
+  - Blaubeeren
+category: fruit
+kcal_per_100g: 51
+protein_g_per_100g: 0.9
+fat_g_per_100g: 0.2
+carbs_g_per_100g: 10.6
+fiber_g_per_100g: 1.5
+sugar_g_per_100g: 10
+salt_g_per_100g: 0
+servings:
+  - "1 handful = 50 g"
+label_basis: 100g
+number_source: database
+source_ref: Swiss Food Composition Database V 7.1, Heidelbeere, roh (DBID 351513)
+source_date: 2026-09-15
+reviewed: false
+---
+""",
+    "nodes/food/Oats.md": """---
+type: food
+name: Oats
+aliases:
+  - Haferflocken
+  - oatmeal
+  - rolled oats
+category: grain
+kcal_per_100g: 381
+protein_g_per_100g: 13.5
+fat_g_per_100g: 7.5
+carbs_g_per_100g: 59.5
+fiber_g_per_100g: 10.5
+sugar_g_per_100g: 1
+salt_g_per_100g: 0
+servings:
+  - "1 portion = 50 g"
+label_basis: 100g
+number_source: database
+source_ref: Swiss Food Composition Database V 7.1, Haferflocken (DBID 351917)
+source_date: 2026-09-15
+reviewed: false
+---
+""",
+    "nodes/food/Soy milk Milsani.md": """---
+type: food
+name: Soy milk Milsani
+aliases:
+  - Sojadrink Milsani
+  - Milsani soja
+category: drink
+brand: Milsani
+kcal_per_100g: 43
+protein_g_per_100g: 3.1
+fat_g_per_100g: 1.7
+carbs_g_per_100g: 3.7
+fiber_g_per_100g: 0.5
+sugar_g_per_100g: 3
+salt_g_per_100g: 0.1
+label_basis: 100ml
+density_g_per_ml: 1.0
+density_source: estimate
+number_source: database
+source_ref: https://world.openfoodfacts.org/product/24008853
+source_date: 2026-09-15
+reviewed: false
+---
+""",
+    "nodes/food/Chicken breast.md": """---
+type: food
+name: Chicken breast
+aliases:
+  - H\u00fchnerbrust
+  - H\u00fchnerbrustfilet
+  - chicken
+category: protein
+kcal_per_100g: 107
+protein_g_per_100g: 24.6
+fat_g_per_100g: 1
+carbs_g_per_100g: 0
+fiber_g_per_100g: 0
+sugar_g_per_100g: 0
+salt_g_per_100g: 0.1
+servings:
+  - "1 fillet = 150 g"
+label_basis: 100g
+number_source: database
+source_ref: Swiss Food Composition Database V 7.1, Poulet, Brust, ohne Haut, roh (DBID 351506)
+source_date: 2026-09-15
+reviewed: false
+---
+""",
+    "nodes/food/Rice.md": """---
+type: food
+name: Rice
+aliases:
+  - Reis
+  - white rice
+category: grain
+kcal_per_100g: 352
+protein_g_per_100g: 7.4
+fat_g_per_100g: 0.9
+carbs_g_per_100g: 78
+fiber_g_per_100g: 1
+sugar_g_per_100g: 0.2
+salt_g_per_100g: 0
+servings:
+  - "1 portion = 75 g"
+label_basis: 100g
+number_source: database
+source_ref: Swiss Food Composition Database V 7.1, Reis poliert, trocken (DBID 351271)
+source_date: 2026-09-15
+reviewed: false
+---
+""",
+    "nodes/food/Eggs.md": """---
+type: food
+name: Eggs
+aliases:
+  - Eier
+  - Ei
+  - egg
+category: protein
+kcal_per_100g: 140
+protein_g_per_100g: 12.6
+fat_g_per_100g: 9.8
+carbs_g_per_100g: 0.3
+fiber_g_per_100g: 0
+sugar_g_per_100g: 0.3
+salt_g_per_100g: 0.4
+servings:
+  - "1 egg = 60 g"
+label_basis: 100g
+number_source: database
+source_ref: Swiss Food Composition Database V 7.1, H\u00fchnerei, ganz, roh (DBID 351760)
+source_date: 2026-09-15
+reviewed: false
+---
+""",
+}
+"""The seed fixture: the canonical mutable data of the run, one entry per file it writes.
+
+Every number the fixed expected lines and totals of this run depend on is
+here and not in the live vault: the Goals with their 5 % bounds, the Pantry,
+the Meal `Usual breakfast`, its four ingredient Foods, and Chicken breast,
+Rice and Eggs. `index.md` and `state.md` come with it, so the alias table the
+run resolves against and the open Day it starts from are fixed too.
+
+The fixture is Python text and not a folder of markdown files, because the
+vault lint fails node frontmatter anywhere outside `nodes/` (`check_node_
+locations`): a `seed/` folder of Day or Food nodes would make the lint of the
+repository itself red.
+
+`Run.seed_fixture()` writes these files and removes everything else under
+`nodes/`, so no Day node, no `open_day`, no Croissant node and no Croissant
+alias or Index line of the live vault reaches turn 1. The live vault keeps
+its own Foods; the fixture simply does not carry them onto the branch.
+"""
 
 CROISSANT = {
     "aliases": ["Kipferl", "Buttercroissant"],
@@ -871,21 +1191,48 @@ class Run:
         ]
 
     def preconditions(self) -> None:
-        for rel in ("nodes/meal/Usual breakfast.md", "nodes/food/Chicken breast.md", "nodes/food/Rice.md", "nodes/food/Eggs.md",
-                    "nodes/goals/Goals.md", "nodes/pantry/Pantry.md"):
+        """What the run asks of the implementation under test, and nothing of the mutable data.
+
+        The routines, the Router, the skill file and the lint are the code the
+        run exercises, so they must be there and the start state must be
+        lint-green. Every mutable file, the Goals, the Pantry, the nodes,
+        `index.md`, `state.md` and the Day files, is
+        written by `seed_fixture()` instead of demanded here: a legitimate
+        change to the owner's live vault, a real open Day, a Goals change or a
+        Croissant that became a real Food, must not stop the run before turn 1.
+        """
+        for rel in [f"routines/{name}.md" for name in ROUTINES] + ["ROUTER.md", "SKILL.md", "lint/vault_lint.py"]:
             expect((self.vault / rel).is_file(), f"the run needs {rel}")
-        expect(not (self.vault / "nodes/food/Croissant.md").exists(), "Croissant exists already; the run creates it")
-        for date in (self.day1, self.day2):
-            expect(not (self.vault / _day_rel(date)).exists(), f"{_day_rel(date)} exists; pick another week with --date")
-        expect(self.frontmatter("state.md")["open_day"] == "", "state.md names an open Day; the run needs a vault with none")
-        goals = self.frontmatter("nodes/goals/Goals.md")
-        expect(tuple(goals[k] for k in ("kcal", "protein_g", "fat_g", "carbs_g", "tolerance_pct")) == ("2500", "135", "60", "355", "5"),
-               "the Goals differ from the seed 2500 / 135 / 60 / 355 at 5 %; the fixed lines of this run assume it")
         errors = lint_vault(self.vault)
         expect(not errors, f"vault lint of the start state: {errors[0] if errors else ''}")
 
+    def seed_fixture(self, report: Report) -> None:
+        """Write the seed fixture and land it as one setup commit.
+
+        The run is hermetic from here on: every value the fixed expected lines
+        and totals assume comes from `FIXTURE`, not from the live vault. The
+        whole `nodes/` tree goes first, so no live Day, no live Croissant and
+        no live Food alias survives to collide with the scenario; the fixture
+        then writes the nodes, `index.md` and `state.md` it needs.
+
+        This is one commit on the throwaway branch, outside the ten turns. It
+        goes through `Session.commit_setup()`, so the lint reads its committed
+        tree like any other, and it is recorded in `Report.fixture` and never
+        in `Report.commit_subjects`.
+        """
+        nodes = self.vault / "nodes"
+        if nodes.is_dir():
+            shutil.rmtree(nodes)
+        for rel, text in FIXTURE.items():
+            self.session.write(rel, text)
+        report.fixture = self.session.commit_setup(FIXTURE_COMMIT_SUBJECT)
+        self.head = git(self.vault, "rev-parse", "HEAD")
+        self.out(f"\nFixture: {report.fixture.subject} ({report.fixture.sha}) \u2014 lint ok, "
+                 f"{len(FIXTURE)} files, outside the ten turns")
+
     def execute(self, report: Report) -> None:
         self.preconditions()
+        self.seed_fixture(report)
         for number, (clock, said, action, check) in enumerate(self.turns(), start=1):
             self.session.begin_turn()
             result = action()
@@ -936,7 +1283,8 @@ def run(repo: Path, monday: datetime.date, keep: bool = False, out: Callable[[st
     if main_before is not None and git(repo, "rev-parse", "main") != main_before:
         report.ok, report.error = False, "main moved during the run"
     if report.ok:
-        out(f"PASS: {len(report.turns)} turns, {len(report.commit_subjects)} commits, lint green after every commit.")
+        out(f"PASS: {len(report.turns)} turns, {len(report.commit_subjects)} routine-step commits on the fixture commit, "
+            f"lint green after every commit.")
     else:
         out(f"FAIL: {report.error}")
     return report
@@ -951,10 +1299,12 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--date", type=datetime.date.fromisoformat, default=None,
                         help="the Monday of the seeded week (default: Monday of the current week)")
     parser.add_argument("--keep", action="store_true", help="keep the worktree and branch for inspection")
+    parser.add_argument("--repo", type=Path, default=None,
+                        help="the vault repository to run on (default: the repository this script sits in)")
     args = parser.parse_args(argv[1:])
     date = args.date or datetime.date.today()
     monday = date - datetime.timedelta(days=date.weekday())
-    report = run(Path(__file__).resolve().parent.parent, monday, keep=args.keep)
+    report = run(args.repo or Path(__file__).resolve().parent.parent, monday, keep=args.keep)
     return 0 if report.ok else 1
 
 

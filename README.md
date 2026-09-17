@@ -36,4 +36,6 @@ The GitHub Action `.github/workflows/lint.yml` runs the same three steps on ever
 python3 acceptance/seeded_day.py
 ```
 
-Replays the seeded day of the prototype against the vault on a throwaway branch: ten turns, one commit per routine step, the files asserted after every turn, the lint after every commit. The branch is deleted at the end; pass `--keep` to inspect it and `--date <Monday>` to pick the week.
+Replays the seeded day of the prototype against the vault on a throwaway branch: ten turns, one commit per routine step, the files asserted after every turn, the lint after every commit. The branch is deleted at the end; pass `--keep` to inspect it, `--date <Monday>` to pick the week and `--repo <path>` to run on another clone.
+
+The run tests the implementation on the current HEAD, the Router, the routines and the lint, and it writes its own seed fixture on the throwaway branch first, as one setup commit `acceptance: seed fixture` outside the ten turns. The Goals, the Pantry, the nodes, `index.md` and `state.md` the scenario needs come from that fixture, not from your live vault. So your own Days, your Goals changes and your new Foods never make the run fail, and the run never changes them.
