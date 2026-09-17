@@ -3,6 +3,7 @@
 - [[Rice]] | grain | Reis, white rice
 - [[Olive oil]] | fat | Olivenöl
 - [[Skyr]] | dairy | skyr natur
+- [[Skyr Spar]] | dairy | SPAR Natur*pur Bio-Skyr Natur, Natur*pur Skyr, Spar Skyr, Bio-Skyr
 - [[Blueberries]] | fruit | Heidelbeeren, Blaubeeren
 - [[Soy milk Alpro]] | drink | Soya Original, Sojadrink, soja milk, soy milk
 - [[Soy milk Milsani]] | drink | Sojadrink Milsani, Milsani soja
