@@ -5,6 +5,7 @@ aliases:
   - HAPPY HARVEST Haferflocken Zart
   - Happy Harvest Haferflocken
   - Haferflocken zart
+  - Hofer oats
 label_name: HAPPY HARVEST Haferflocken Zart
 brand: Happy Harvest
 category: grain
