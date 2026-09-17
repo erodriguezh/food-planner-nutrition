@@ -253,37 +253,60 @@ reviewed: false
 """A Food node the lint rejects: nothing in index.md points at it."""
 
 BROKEN_INDEX_LINE = "- [[Broken]] | grain"
+"""The Index line that repairs the vault: adding it makes the lint accept Broken."""
+
+
+def write_broken_food(session: sd.Session) -> None:
+    """Write the Food the lint rejects. This is the step of commit A."""
+    session.write("nodes/food/Broken.md", BROKEN_FOOD)
+
+
+def repair_broken_food(session: sd.Session) -> None:
+    """Point the Index at the Food, which is what the lint misses. This is the step of commit B."""
+    session.write("index.md", sd._insert_index_line(session.read("index.md"), "Food", BROKEN_INDEX_LINE))
+
+
+def subjects_since(clone: Path, head: str) -> list[str]:
+    listed = sd.git(clone, "log", "--format=%s", f"{head}..HEAD")
+    return [line for line in listed.split("\n") if line]
 
 
 class CommitLintGateTest(unittest.TestCase):
-    """The lint gate sits on every commit, not on the turn (#28).
+    """`Session.commit()` holds the lint gate on the tree it just committed (#28).
 
-    Turn 3 of the run chains `create-food` and `log` inside one call, so a
-    commit that breaks the vault contract and a later commit that repairs it
-    would both hide inside one turn. These tests drive a two-commit turn on a
-    real clone and lint the real committed tree.
+    The reason the gate sits there and not on the turn is in the docstring of
+    `Session.commit()`. These tests drive a two-commit turn on a real clone
+    with the real lint, so they prove the committed tree is linted.
     """
 
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory()
+        cls.clone = clone_with_working_tree(Path(cls.tmp.name))
+        cls.start = sd.git(cls.clone, "rev-parse", "HEAD")
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.tmp.cleanup()
+
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
-        self.clone = clone_with_working_tree(Path(self.tmp.name))
-        self.head_before = sd.git(self.clone, "rev-parse", "HEAD")
+        self.head_before = self.start
         self.session = sd.Session(self.clone)
         self.session.begin_turn()
 
     def tearDown(self):
-        self.tmp.cleanup()
+        sd.git(self.clone, "reset", "-q", "--hard", self.start)
+        sd.git(self.clone, "clean", "-qfd")
 
     def add_index_line(self) -> None:
-        self.session.write("index.md", sd._insert_index_line(self.session.read("index.md"), "Food", BROKEN_INDEX_LINE))
+        repair_broken_food(self.session)
 
     def new_subjects(self) -> list[str]:
-        listed = sd.git(self.clone, "log", "--format=%s", f"{self.head_before}..HEAD")
-        return [line for line in listed.split("\n") if line]
+        return subjects_since(self.clone, self.head_before)
 
     def test_the_first_commit_of_a_turn_fails_the_run_before_the_repairing_commit(self):
         def two_commit_turn():
-            self.session.write("nodes/food/Broken.md", BROKEN_FOOD)
+            write_broken_food(self.session)
             self.session.commit("create-food: Broken")
             self.add_index_line()
             self.session.commit("log: 2026-09-14 breakfast Broken 60 g")
@@ -300,7 +323,7 @@ class CommitLintGateTest(unittest.TestCase):
         self.assertEqual(self.session.commits, [], "a commit the lint rejects is not recorded green")
 
     def test_the_lint_reads_the_committed_tree_and_not_the_working_tree(self):
-        self.session.write("nodes/food/Broken.md", BROKEN_FOOD)
+        write_broken_food(self.session)
         with self.assertRaises(sd.Failed):
             self.session.commit("create-food: Broken")
         self.assertEqual(sd.git(self.clone, "status", "--porcelain"), "",
@@ -308,26 +331,87 @@ class CommitLintGateTest(unittest.TestCase):
         self.assertEqual(sd.git(self.clone, "show", "--name-only", "--format=", "HEAD").strip(), "nodes/food/Broken.md")
 
     def test_a_valid_commit_passes_and_records_its_lint_result(self):
-        self.session.write("nodes/food/Broken.md", BROKEN_FOOD)
+        write_broken_food(self.session)
         self.add_index_line()
         sha = self.session.commit("create-food: Broken")
         self.assertEqual(self.new_subjects(), ["create-food: Broken"])
-        self.assertEqual(self.session.commits, [sd.CommitRecord("create-food: Broken", sha, "lint ok")])
+        self.assertEqual(self.session.commits, [sd.CommitRecord("create-food: Broken", sha)])
         self.assertEqual(sd.git(self.clone, "status", "--porcelain"), "")
 
     def test_a_subject_that_is_not_routine_colon_one_line_fails_before_the_commit(self):
-        self.session.write("nodes/food/Broken.md", BROKEN_FOOD)
+        write_broken_food(self.session)
         self.add_index_line()
         with self.assertRaises(sd.Failed):
             self.session.commit("Created a food")
         self.assertEqual(self.new_subjects(), [], "a bad subject makes no commit")
 
     def test_the_records_of_a_turn_start_empty(self):
-        self.session.write("nodes/food/Broken.md", BROKEN_FOOD)
+        write_broken_food(self.session)
         self.add_index_line()
         self.session.commit("create-food: Broken")
         self.session.begin_turn()
         self.assertEqual(self.session.commits, [])
+
+
+class TwoCommitRun(sd.Run):
+    """A run of one turn that chains a breaking commit and a repairing commit.
+
+    `turns()` is the seam of `Run`: this subclass replaces the seeded ten
+    turns with two turns of its own. `reached` collects the work after the
+    breaking commit, so an empty `reached` means the gate stopped the run.
+    """
+
+    def __init__(self, vault: Path, out):
+        super().__init__(vault, datetime.date(2026, 9, 14), out)
+        self.reached: list[str] = []
+
+    def two_commit_turn(self) -> sd.Reply:
+        write_broken_food(self.session)
+        self.session.commit("create-food: Broken")
+        self.reached.append("the repairing commit")
+        repair_broken_food(self.session)
+        self.session.commit("log: 2026-09-14 breakfast Broken 60 g")
+        return sd.Reply(["Logged."])
+
+    def later_turn(self) -> sd.Reply:
+        self.reached.append("the later turn")
+        return sd.Reply(["Never."])
+
+    def check(self, reply, commits) -> None:
+        self.reached.append("the check of the turn")
+
+    def turns(self):
+        return [
+            ("08:30", "Log the broken food.", self.two_commit_turn, self.check),
+            ("08:40", "Log something else.", self.later_turn, self.check),
+        ]
+
+
+class RunGateTest(unittest.TestCase):
+    """The gate stops the run and not only the session (#28).
+
+    `Session.commit()` raises, but the runner must carry that up: no later
+    routine step, no later turn, nothing reported. This test drives
+    `Run.execute()` on a real clone with the real lint.
+    """
+
+    def test_a_broken_first_commit_stops_the_run_before_the_repairing_commit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            clone = clone_with_working_tree(Path(tmp))
+            head_before = sd.git(clone, "rev-parse", "HEAD")
+            lines: list[str] = []
+            runner = TwoCommitRun(clone, lines.append)
+            report = sd.Report("acceptance/test")
+
+            with self.assertRaises(sd.Failed) as caught:
+                runner.execute(report)
+
+            self.assertIn("vault lint", str(caught.exception))
+            self.assertIn("create-food: Broken", str(caught.exception))
+            self.assertEqual(runner.reached, [], "the run went on after the commit the lint rejects")
+            self.assertEqual(report.turns, [], "a turn with a rejected commit is not reported")
+            self.assertEqual(subjects_since(clone, head_before), ["create-food: Broken"])
+            self.assertNotIn("Broken", sd.git(clone, "show", "HEAD:index.md"), "the repairing commit landed")
 
 
 class FullRunTest(unittest.TestCase):
@@ -349,18 +433,19 @@ class FullRunTest(unittest.TestCase):
             report = sd.run(clone, datetime.date(2026, 9, 14), keep=False, out=lines.append)
             self.assertTrue(report.ok, "\n".join(lines))
             self.assertEqual(len(report.turns), 10)
-            self.assertEqual([c.split(":")[0] for c in report.commits],
+            self.assertEqual([c.split(":")[0] for c in report.commit_subjects],
                              ["log", "create-food", "log", "log", "log", "close-day", "log"])
-            for subject in report.commits:
+            for subject in report.commit_subjects:
                 self.assertRegex(subject, sd.COMMIT_SUBJECT_RE)
             self.assertTrue(all(turn.reads < sd.READ_BUDGET for turn in report.turns))
             self.assertEqual(sd.git(clone, "rev-parse", "HEAD"), head_before)
             self.assertEqual(sd.git(clone, "branch", "--list"), branches_before)
             self.assertEqual(sd.git(clone, "status", "--porcelain"), "")
             self.assertFalse((clone / "nodes" / "day").exists())
-            for turn in report.turns:
-                self.assertEqual([record.lint for record in turn.commits], ["lint ok"] * len(turn.commits))
-            self.assertEqual(sum(len(turn.commits) for turn in report.turns), len(report.commits))
+            records = [record for turn in report.turns for record in turn.commits]
+            self.assertEqual([record.subject for record in records], report.commit_subjects,
+                             "every commit of the run went through the gate in Session.commit()")
+            self.assertTrue(all(record.sha for record in records))
 
 
 if __name__ == "__main__":

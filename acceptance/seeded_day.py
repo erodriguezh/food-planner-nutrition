@@ -248,10 +248,14 @@ def git(root: Path, *args: str) -> str:
 
 @dataclass(frozen=True)
 class CommitRecord:
-    """One routine-step commit and the lint result of the tree it committed."""
+    """One routine-step commit whose committed tree the lint accepted.
+
+    `Session.commit()` records a commit only after the lint of that commit's
+    tree comes back clean, so the record itself is the green result. There is
+    no field for the result: a field could only ever hold one value.
+    """
     subject: str
     sha: str
-    lint: str
 
 
 class Session:
@@ -309,10 +313,11 @@ class Session:
         it would both hide inside the turn. The gate sits here, on the single
         commit wrapper, so it holds for every commit of the run.
 
-        The subject must read `<routine>: <one line>`. After the commit the
-        worktree is clean, which is asserted first, so the worktree path is
-        the committed tree and the lint reads that exact tree. A lint error
-        raises before the next routine step runs.
+        The subject must read `<routine>: <one line>`. The lint reads a path,
+        so the path must be the committed tree: the worktree is asserted
+        clean, and no markdown file may be one git ignores, because such a
+        file is in the worktree the lint reads and not in the commit. A lint
+        error raises before the next routine step runs.
         """
         if not COMMIT_SUBJECT_RE.match(subject):
             raise Failed(f"commit subject is not `<routine>: <one line>`: {subject!r}")
@@ -323,10 +328,14 @@ class Session:
         if status:
             raise Failed(f"the commit {subject!r} left the worktree dirty, so the lint cannot read the committed tree: "
                          f"{status.splitlines()[0]}")
+        ignored = git(self.root, "status", "--porcelain", "--ignored=matching", "--", "*.md")
+        if ignored:
+            raise Failed(f"the commit {subject!r} left a markdown file git ignores, so the lint would read a file the "
+                         f"commit does not hold: {ignored.splitlines()[0]}")
         errors = lint_vault(self.root)
         if errors:
             raise Failed(f"vault lint after the commit {subject!r} ({sha}): {errors[0]}")
-        self.commits.append(CommitRecord(subject, sha, "lint ok"))
+        self.commits.append(CommitRecord(subject, sha))
         return sha
 
 
@@ -661,7 +670,7 @@ class TurnReport:
 class Report:
     branch: str
     turns: list[TurnReport] = field(default_factory=list)
-    commits: list[str] = field(default_factory=list)
+    commit_subjects: list[str] = field(default_factory=list)
     ok: bool = False
     error: str | None = None
 
@@ -733,11 +742,6 @@ class Run:
 
     def check_clean(self) -> None:
         expect(git(self.vault, "status", "--porcelain") == "", "the worktree has uncommitted changes")
-
-    def check_lint(self) -> None:
-        """The lint of the vault as it stands. `Session.commit()` holds the gate during the run; this checks the start state."""
-        errors = lint_vault(self.vault)
-        expect(not errors, f"vault lint: {errors[0] if errors else ''}")
 
     # -- the turns --------------------------------------------------------
 
@@ -868,7 +872,8 @@ class Run:
         goals = self.frontmatter("nodes/goals/Goals.md")
         expect(tuple(goals[k] for k in ("kcal", "protein_g", "fat_g", "carbs_g", "tolerance_pct")) == ("2500", "135", "60", "355", "5"),
                "the Goals differ from the seed 2500 / 135 / 60 / 355 at 5 %; the fixed lines of this run assume it")
-        self.check_lint()
+        errors = lint_vault(self.vault)
+        expect(not errors, f"vault lint of the start state: {errors[0] if errors else ''}")
 
     def execute(self, report: Report) -> None:
         self.preconditions()
@@ -882,17 +887,15 @@ class Run:
                    f"turn {number} recorded {[r.subject for r in records]} but git holds {commits}")
             expect(len(self.session.reads) < READ_BUDGET, f"turn {number} read {len(self.session.reads)} files")
             self.check_clean()
-            for subject in commits:
-                expect(bool(COMMIT_SUBJECT_RE.match(subject)), f"commit subject {subject!r} is not `<routine>: <one line>`")
             check(reply, commits)
-            report.commits.extend(commits)
+            report.commit_subjects.extend(commits)
             turn = TurnReport(number, said, len(self.session.reads), len(self.session.used), list(self.session.writes), records, reply.lines)
             report.turns.append(turn)
             self.out(f"\n## Turn {number} · {clock} · \"{said}\"")
             self.out(f"Read: {turn.reads} files from disk ({turn.used} in use): {', '.join(sorted(self.session.reads)) or 'nothing'}")
             self.out(f"Wrote: {', '.join(dict.fromkeys(turn.wrote)) or 'nothing'}")
             for record in records:
-                self.out(f"Commit: {record.subject} — {record.lint}")
+                self.out(f"Commit: {record.subject} ({record.sha}) — lint ok")
             self.out("Said:")
             for line in reply.lines:
                 self.out(f"> {line}")
@@ -924,7 +927,7 @@ def run(repo: Path, monday: datetime.date, keep: bool = False, out: Callable[[st
     if main_before is not None and git(repo, "rev-parse", "main") != main_before:
         report.ok, report.error = False, "main moved during the run"
     if report.ok:
-        out(f"PASS: {len(report.turns)} turns, {len(report.commits)} commits, lint green after every commit.")
+        out(f"PASS: {len(report.turns)} turns, {len(report.commit_subjects)} commits, lint green after every commit.")
     else:
         out(f"FAIL: {report.error}")
     return report

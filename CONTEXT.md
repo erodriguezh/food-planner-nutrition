@@ -109,7 +109,7 @@ Glossary of the domain language for this vault. Terms are defined once here and 
 - **Spec**: the four documents under `docs/spec/` (layout, nodes, routines, context-mcp) that describe the vault for the build session and a rebuild. Not read in daily use.
 - **Session**: one chat from the Router read to the last reply. Files the agent opened earlier in the session are in its context; a file it wrote leaves the context and is read fresh before the next write.
 - **Turn**: one user message and the agent's answer inside a session, with the reads and writes between them. Reads per turn stay under ten files.
-- **Routine step**: one step of a routine that writes, landed as one commit named `<routine>: <one line>` with all files of the step together. The one unit of the vault's git history.
+- **Routine step**: one step of a routine that writes, landed as one commit named `<routine>: <one line>` with all files of the step together. The one unit of the vault's git history. The lint is green on the tree of that commit, also when one turn chains two steps.
 - **Acceptance run**: the scripted seeded day in `acceptance/seeded_day.py`: ten turns of the prototype conversation played by a stand-in for the agent against the built vault, with the files asserted after every turn and the lint run after every commit. Proves the routines on real files; stores nothing.
 - **Throwaway branch**: the branch `acceptance/seeded-day-<stamp>` an acceptance run makes in its own worktree and deletes at the end. Its nodes and Days never land on `main`.
 - **Context MCP**: the planned read-only retrieval service with one tool, `build_context(question)`. The rule for using it lives in `SKILL.md`. The vault works without it.
