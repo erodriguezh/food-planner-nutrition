@@ -1,6 +1,6 @@
 ---
 type: state
-open_day: "[[2026-09-19]]"
+open_day: ""
 updated: 2026-09-19
 ---
 
