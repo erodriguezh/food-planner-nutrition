@@ -14,6 +14,7 @@
 - [[Eggs]] | protein | Eier, Ei, egg
 
 - [[Teller lentils]] | grain | Tellerlinsen, lentils
+- [[Potatoes]] | vegetable | potato, Kartoffeln, Erdäpfel
 ## Meal
 - [[Usual breakfast]] | breakfast | usual, the usual
 
