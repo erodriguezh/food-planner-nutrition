@@ -13,6 +13,7 @@
 - [[Chicken breast]] | protein | Hühnerbrust, Hühnerbrustfilet, chicken
 - [[Eggs]] | protein | Eier, Ei, egg
 
+- [[Teller lentils]] | grain | Tellerlinsen, lentils
 ## Meal
 - [[Usual breakfast]] | breakfast | usual, the usual
 
