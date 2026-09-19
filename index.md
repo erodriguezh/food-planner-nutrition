@@ -17,6 +17,20 @@
 - [[Potatoes]] | vegetable | potato, Kartoffeln, Erdäpfel
 - [[Chorizo]] | protein | chorizo sausage
 - [[Guanciale]] | protein | guanciale pork cheek
+- [[Onion]] | vegetable | onions, Zwiebel
+- [[Carrots]] | vegetable | carrot, Karotten
+- [[Green pepper]] | vegetable | green bell pepper
+- [[Tomato polpa]] | vegetable | polpa, chopped tomatoes
+- [[Garlic]] | vegetable | Knoblauch
+- [[Sweet paprika]] | vegetable | paprika powder, sweet paprika powder
+- [[Banana]] | fruit | bananas
+- [[Pear]] | fruit | pears
+- [[Apple]] | fruit | apples
+- [[Grapes]] | fruit | grape, red grapes
+- [[Chicken meatballs]] | protein | chicken meatballs low fat, low-fat chicken meatballs
+- [[Sturm]] | drink | young wine, Federweisser
+- [[Butter vegetables]] | vegetable | Buttergemüse, butter vegetables mix
+- [[Kotlety]] | protein | kotlet, cutlets
 ## Meal
 - [[Usual breakfast]] | breakfast | usual, the usual
 
