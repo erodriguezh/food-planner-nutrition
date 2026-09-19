@@ -34,6 +34,7 @@
 ## Meal
 - [[Usual breakfast]] | breakfast | usual, the usual
 
+- [[Spanish lentil stew]] | lunch, dinner | Spanish stew lentils, Spanish lentils
 ## Day
 - 2026-09 | nodes/day/2026-09/
 
