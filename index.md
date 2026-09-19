@@ -16,6 +16,7 @@
 - [[Teller lentils]] | grain | Tellerlinsen, lentils
 - [[Potatoes]] | vegetable | potato, Kartoffeln, Erdäpfel
 - [[Chorizo]] | protein | chorizo sausage
+- [[Guanciale]] | protein | guanciale pork cheek
 ## Meal
 - [[Usual breakfast]] | breakfast | usual, the usual
 
