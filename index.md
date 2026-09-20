@@ -33,6 +33,7 @@
 - [[Kotlety]] | protein | kotlet, cutlets
 - [[Pasta with meat sauce]] | grain | Spanish macarrones with mager meat, macarrones with mager meat, Spanish macarrones
 - [[Peach]] | fruit | peaches
+- [[Prune plums]] | fruit | prune plum, plums, Zwetschken
 ## Meal
 - [[Usual breakfast]] | breakfast | usual, the usual
 
