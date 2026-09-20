@@ -34,6 +34,7 @@
 - [[Pasta with meat sauce]] | grain | Spanish macarrones with mager meat, macarrones with mager meat, Spanish macarrones
 - [[Peach]] | fruit | peaches
 - [[Prune plums]] | fruit | prune plum, plums, Zwetschken
+- [[Milk Brötle Ölz]] | snack | Ölz Milch Brötle, Milch Brötle, milk bread, milk breads
 ## Meal
 - [[Usual breakfast]] | breakfast | usual, the usual
 
