@@ -31,6 +31,7 @@
 - [[Sturm]] | drink | young wine, Federweisser
 - [[Butter vegetables]] | vegetable | Buttergemüse, butter vegetables mix
 - [[Kotlety]] | protein | kotlet, cutlets
+- [[Pasta with meat sauce]] | grain | Spanish macarrones with mager meat, macarrones with mager meat, Spanish macarrones
 ## Meal
 - [[Usual breakfast]] | breakfast | usual, the usual
 
