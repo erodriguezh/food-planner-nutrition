@@ -41,6 +41,7 @@
 - [[Turkey ham]] | protein | turkey ham slices, Puten Schinken
 - [[Tomatoes]] | vegetable | tomato, tomatoes
 - [[Beetroot]] | vegetable | Rote Rübe, beets, buraczki
+- [[Butter]] | fat | butter, salted butter
 ## Meal
 - [[Usual breakfast]] | breakfast | usual, the usual
 
