@@ -40,6 +40,7 @@
 - [[Buckwheat pierogi]] | grain | pierogi buckwheat, pierogi z kaszą gryczaną
 - [[Turkey ham]] | protein | turkey ham slices, Puten Schinken
 - [[Tomatoes]] | vegetable | tomato, tomatoes
+- [[Beetroot]] | vegetable | Rote Rübe, beets, buraczki
 ## Meal
 - [[Usual breakfast]] | breakfast | usual, the usual
 
