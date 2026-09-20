@@ -37,6 +37,7 @@
 - [[Milk Brötle Ölz]] | snack | Ölz Milch Brötle, Milch Brötle, milk bread, milk breads
 - [[Ice cream cone cookies and Dubai chocolate]] | snack | Lotustüte with cookies and Dubai chocolate, cookies and Dubai chocolate ice cream, two scoop ice cream cone
 - [[Pieróg biłgorajski]] | grain | pierog bilgorajski, pirog bilgorajski
+- [[Buckwheat pierogi]] | grain | pierogi buckwheat, pierogi z kaszą gryczaną
 ## Meal
 - [[Usual breakfast]] | breakfast | usual, the usual
 
