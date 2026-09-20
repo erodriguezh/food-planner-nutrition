@@ -39,6 +39,7 @@
 - [[Pieróg biłgorajski]] | grain | pierog bilgorajski, pirog bilgorajski
 - [[Buckwheat pierogi]] | grain | pierogi buckwheat, pierogi z kaszą gryczaną
 - [[Turkey ham]] | protein | turkey ham slices, Puten Schinken
+- [[Tomatoes]] | vegetable | tomato, tomatoes
 ## Meal
 - [[Usual breakfast]] | breakfast | usual, the usual
 
