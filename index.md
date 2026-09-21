@@ -47,6 +47,7 @@
 - [[Watermelon]] | fruit | water melon
 - [[Mie noodles SPAR ASIA]] | grain | SPAR ASIA Mie Nudeln ohne Ei, SPAR Mie Nudeln, Mie Nudeln
 - [[Mixed minced meat]] | protein | minced meat, beef pork mince, beef/pork mix
+- [[Vegetable oil]] | fat | neutral oil, cooking oil
 ## Meal
 - [[Usual breakfast]] | breakfast | usual, the usual
 
