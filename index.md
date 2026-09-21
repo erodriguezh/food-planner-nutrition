@@ -44,6 +44,7 @@
 - [[Butter]] | fat | butter, salted butter
 - [[Brussels sprouts]] | vegetable | brussel sprouts, Brussels sprout, Rosenkohl, Kohlsprossen
 - [[Chicken thigh cooked]] | protein | Maishendl Oberkeule, Maishendl Oberkeulen, cooked chicken thigh, chicken upper thigh
+- [[Watermelon]] | fruit | water melon
 ## Meal
 - [[Usual breakfast]] | breakfast | usual, the usual
 
