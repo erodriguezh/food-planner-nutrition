@@ -50,6 +50,7 @@
 - [[Vegetable oil]] | fat | neutral oil, cooking oil
 - [[Soy sauce]] | drink | soy sauce, Sojasauce
 - [[Apple cider vinegar]] | drink | apple vinegar, Apfelessig, unfiltered apple vinegar
+- [[Honey]] | snack | honey, Honig
 ## Meal
 - [[Usual breakfast]] | breakfast | usual, the usual
 
