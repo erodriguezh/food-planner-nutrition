@@ -51,6 +51,7 @@
 - [[Soy sauce]] | drink | soy sauce, Sojasauce
 - [[Apple cider vinegar]] | drink | apple vinegar, Apfelessig, unfiltered apple vinegar
 - [[Honey]] | snack | honey, Honig
+- [[Sesame oil]] | fat | sesame oil, Sesamöl
 ## Meal
 - [[Usual breakfast]] | breakfast | usual, the usual
 
