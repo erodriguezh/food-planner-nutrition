@@ -45,6 +45,7 @@
 - [[Brussels sprouts]] | vegetable | brussel sprouts, Brussels sprout, Rosenkohl, Kohlsprossen
 - [[Chicken thigh cooked]] | protein | Maishendl Oberkeule, Maishendl Oberkeulen, cooked chicken thigh, chicken upper thigh
 - [[Watermelon]] | fruit | water melon
+- [[Mie noodles SPAR ASIA]] | grain | SPAR ASIA Mie Nudeln ohne Ei, SPAR Mie Nudeln, Mie Nudeln
 ## Meal
 - [[Usual breakfast]] | breakfast | usual, the usual
 
