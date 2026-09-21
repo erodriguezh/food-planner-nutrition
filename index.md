@@ -56,6 +56,7 @@
 - [[Usual breakfast]] | breakfast | usual, the usual
 
 - [[Spanish lentil stew]] | lunch, dinner | Spanish stew lentils, Spanish lentils
+- [[Craft noodles]] | lunch, dinner | craft noodle recipe, craft noodles, Chinorris minced-meat noodles
 ## Day
 - 2026-09 | nodes/day/2026-09/
 
