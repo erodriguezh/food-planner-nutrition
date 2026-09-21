@@ -42,6 +42,7 @@
 - [[Tomatoes]] | vegetable | tomato, tomatoes
 - [[Beetroot]] | vegetable | Rote Rübe, beets, buraczki
 - [[Butter]] | fat | butter, salted butter
+- [[Brussels sprouts]] | vegetable | brussel sprouts, Brussels sprout, Rosenkohl, Kohlsprossen
 ## Meal
 - [[Usual breakfast]] | breakfast | usual, the usual
 
